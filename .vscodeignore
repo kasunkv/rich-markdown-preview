@@ -1,0 +1,13 @@
+.vscode/**
+src/**
+tests/**
+node_modules/**
+.npm-cache/**
+.test-results/**
+samples/**
+dist/render.cjs
+tsconfig.json
+build.mjs
+package-lock.json
+.gitignore
+**/*.map
