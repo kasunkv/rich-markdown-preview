@@ -5,6 +5,7 @@ node_modules/**
 .npm-cache/**
 .test-results/**
 samples/**
+examples/**
 dist/render.cjs
 tsconfig.json
 build.mjs

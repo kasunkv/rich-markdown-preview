@@ -12,6 +12,8 @@ Browser QA screenshots are included in the `docs` folder.
 4. In that new window, open `samples/showcase.md` from this repository.
 5. Right-click in the Markdown editor or on a Markdown file in Explorer and choose **Open Styled Markdown Preview**. You can also run **Open Styled Markdown Preview** from the Command Palette or use the Markdown editor title action.
 
+For broader testing, open `examples/master-test.md`. The `examples` folder also contains focused typography, code, table, diagram, link/image, and edge-case fixtures, plus a manual test checklist in `examples/README.md`.
+
 Use the preview toolbar to choose a style and appearance, adjust width/font size/line spacing, wrap code, or hide the heading outline. Settings save at workspace-folder scope when a file belongs to a workspace, otherwise globally. Auto appearance follows the VS Code theme.
 
 Reading controls apply instantly. The width slider resizes the content while you drag, then saves when you release it. Changing layout does not rebuild the Markdown or diagrams; changing light/dark appearance refreshes diagram colors while keeping the document in place.

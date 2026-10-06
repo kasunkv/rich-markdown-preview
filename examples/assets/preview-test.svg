@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="240" viewBox="0 0 960 240" role="img" aria-labelledby="title desc">
+  <title id="title">Local Markdown image fixture</title>
+  <desc id="desc">Three colored panels labeled Read, Code, and Visualize.</desc>
+  <rect width="960" height="240" rx="16" fill="#e9eef8"/>
+  <rect x="24" y="24" width="288" height="192" rx="12" fill="#3159bc"/>
+  <rect x="336" y="24" width="288" height="192" rx="12" fill="#176b58"/>
+  <rect x="648" y="24" width="288" height="192" rx="12" fill="#7544a5"/>
+  <g font-family="Arial, sans-serif" font-size="32" fill="white" text-anchor="middle">
+    <text x="168" y="130">Read</text><text x="480" y="130">Code</text><text x="792" y="130">Visualize</text>
+  </g>
+</svg>
