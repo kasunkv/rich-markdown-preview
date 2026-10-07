@@ -55,7 +55,7 @@ Raw HTML is disabled. The webview uses a nonce-based script CSP and Mermaid uses
 
 > Production square VS Code extension icon for Markdown Lens: a white folded Markdown document with a bold M and downward arrow, overlapped by a green magnifying lens; dark green rounded square, primary #1c7819 green and lighter/darker shades of the same hue, generous margins, clean geometry, readable at 48 pixels; no wordmark, watermark, or mockup.
 
-The generated original is preserved in `assets/logo-source.png` (excluded from the VSIX); the shared packaged PNG is sized to 256 × 256 pixels.
+The user-supplied corrected PNG is preserved in `assets/logo-source.png` (excluded from the VSIX); the shared packaged PNG is resized to 256 × 256 pixels while preserving its alpha transparency, including the transparent exterior corners.
 
 ## Release
 
