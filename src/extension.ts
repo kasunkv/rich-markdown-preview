@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import { renderMarkdown } from './render';
+import { previewStyles } from './styles';
 
 const defaults = { style: 'documentation', appearance: 'auto', contentWidth: 900, fontSize: 16, lineHeight: 1.7, wrapCode: false };
 type Preferences = typeof defaults;
@@ -51,9 +52,9 @@ export function activate(context: vscode.ExtensionContext) {
         if (message.type === 'ready') update();
         if (message.type === 'preference') {
           const { key: setting, value } = message;
-          const enums: Record<string, string[]> = { style: ['documentation', 'reading', 'technical'], appearance: ['auto', 'light', 'dark'] };
+          const enums: Record<string, string[]> = { style: previewStyles.map(style => style.id), appearance: ['auto', 'light', 'dark'] };
           const ranges: Record<string, number[]> = { contentWidth: [480, 1600], fontSize: [12, 24], lineHeight: [1.3, 2.2] };
-          const valid = (enums[setting]?.includes(value)) || (ranges[setting] && typeof value === 'number' && Number.isFinite(value) && value >= ranges[setting][0] && value <= ranges[setting][1]) || (setting === 'wrapCode' && typeof value === 'boolean');
+          const valid = typeof setting === 'string' && ((Object.hasOwn(enums, setting) && enums[setting].includes(value)) || (Object.hasOwn(ranges, setting) && typeof value === 'number' && Number.isFinite(value) && value >= ranges[setting][0] && value <= ranges[setting][1]) || (setting === 'wrapCode' && typeof value === 'boolean'));
           if (valid) {
             const preferenceKey = setting as keyof Preferences;
             Object.assign(sessionPreferences, { [preferenceKey]: value });

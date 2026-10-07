@@ -7,21 +7,21 @@ tags: [preview, fixtures]
 
 The metadata block above is intentionally first. YAML front matter has no dedicated support in this version and is interpreted as ordinary Markdown.
 
-## Task lists — optional extension
+## Task lists — supported
 
 - [ ] Unchecked task
 - [x] Completed task
   - [ ] Nested task
 
-Expected now: literal bracket markers in normal lists, without interactive checkboxes.
+Expected: checked/unchecked read-only checkboxes, including nested tasks. Edit the source to change task states.
 
-## Footnotes — optional extension
+## Footnotes — supported
 
 A sentence with a footnote.[^note]
 
-[^note]: This should become a footnote only when a footnote plugin is added.
+[^note]: This renders as a numbered footnote with a backlink to the reference.
 
-## Definition lists — optional extension
+## Definition lists — supported
 
 Markdown
 : A lightweight text format.
@@ -55,10 +55,10 @@ Subscript: H~2~O. Superscript: x^2^.
 
 Custom attributes: [Styled link](https://example.com){.button}.
 
-## Admonitions — optional extensions
+## Callouts and optional containers
 
 > [!NOTE]
-> GitHub-style note syntax currently remains a blockquote with a literal marker.
+> GitHub-style note syntax renders as a labeled callout.
 
 > [!WARNING]
 > This is a warning fixture, not a product warning.

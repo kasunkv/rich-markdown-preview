@@ -13,13 +13,14 @@ For browser-only visual QA after `npm run build`, run `node tests/preview-server
 | [Diagrams](04-diagrams.md) | Nine Mermaid diagram types and one intentional syntax error |
 | [Links and images](05-links-and-images.md) | Relative resources, filenames with spaces, references, anchors, and broken resources |
 | [Edge cases and extensions](06-edge-cases-and-extensions.md) | Invalid syntax, safe HTML handling, and unsupported extended Markdown |
+| [Styles and extended Markdown](07-styles-and-extended-markdown.md) | Eight styles, task checkboxes, emoji, footnotes, and callouts |
 | [Linked note](assets/linked%20note.md) | Local-link navigation target |
 
 There is no single Markdown dialect containing every extension. The master file covers core/CommonMark constructs, this renderer's built-in table/strikethrough features, Mermaid, and common optional syntax. Unsupported syntax is included as a future-feature test and should remain readable rather than crash the preview.
 
 ## Manual test checklist
 
-1. Switch between Documentation, Reading, and Technical. Check heading sizes, paragraph spacing, quotes, lists, and tables.
+1. Switch through all eight styles. Check heading sizes, paragraph spacing, quotes, lists, checkboxes, and tables.
 2. Switch Light, Dark, and Auto. Check code contrast and diagram colors. Auto follows the editor's appearance.
 3. Drag width between 480px and 1600px. Content should resize immediately; wide code and tables should scroll inside their own blocks.
 4. Change text size and line spacing. Verify that list nesting and table cells stay readable.
@@ -30,10 +31,10 @@ There is no single Markdown dialect containing every extension. The master file 
 9. Open examples from Explorer without opening their source first. The correct file should be previewed.
 10. Resize the editor to a narrow split view. Controls should wrap, images should fit, and the outline should hide at the current responsive breakpoint.
 
-## Expected results in version 0.1.1
+## Expected results in version 0.2.0
 
-- Rendered: headings, paragraphs, emphasis, nested lists, blockquotes, rules, links, local images, fenced/indented code, tables, strikethrough, and Mermaid.
-- Extended features not implemented: task-checkbox controls, footnotes, definition lists, math typesetting, YAML metadata handling, emoji shortcodes, custom attributes, and extended admonitions.
+- Rendered: core Markdown, tables, strikethrough, Mermaid, read-only task checkboxes, emoji shortcodes, footnotes, definition lists, highlights, subscript/superscript, and GitHub-style callouts.
+- Extended features not implemented: interactive task editing, math typesetting, YAML metadata handling, custom attributes, and colon-container admonitions.
 - Raw HTML and HTML comments are escaped visibly. HTML-based details, embeds, and media are not rendered.
 - Invalid Mermaid shows an error and the original source; following Markdown remains usable.
 - Broken image targets are intentional in the image tests. Parent-directory images outside the preview's allowed resource directory are not supported.

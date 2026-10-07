@@ -21,7 +21,7 @@ This is a comprehensive manual fixture for the extension. Markdown has multiple 
 - [Links](#links)
 - [Images](#images)
 - [Mermaid diagrams](#mermaid-diagrams)
-- [Optional Markdown extensions](#optional-markdown-extensions)
+- [Extended Markdown and optional syntax](#extended-markdown-and-optional-syntax)
 - [HTML safety](#html-safety)
 - [Edge cases](#edge-cases)
 
@@ -279,7 +279,7 @@ https://example.com/documents/markdown-preview/technical/reference/long-path/ano
 | ID | Name | Owner | Date | Status | Environment | Long description | Reference |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | TEST-001 | Markdown readability | Documentation | 2026-10-07 | Ready | Local | This long sentence tests how the preview handles many columns and content that should wrap or scroll in a narrow editor. | `markdown/preview/documentation/readability/test-001` |
-| TEST-002 | Diagram visualization | Engineering | 2026-10-08 | Review | Workspace | Compare this row across all three styles and both appearances. | `markdown/preview/technical/diagram/test-002` |
+| TEST-002 | Diagram visualization | Engineering | 2026-10-08 | Review | Workspace | Compare this row across all eight styles and both appearances. | `markdown/preview/technical/diagram/test-002` |
 
 ### Table without outside pipes
 
@@ -451,9 +451,9 @@ flowchart TD
 
 The invalid diagram should show an error and source; this paragraph must remain visible.
 
-## Optional Markdown extensions
+## Extended Markdown and optional syntax
 
-These constructs belong to common Markdown extensions and are not implemented by the current renderer. Literal fallback is expected.
+Task lists, footnotes, definition lists, emoji, highlights, subscript/superscript, and GitHub-style callouts are supported. Math, custom attributes, metadata handling, and colon containers remain literal fallback cases.
 
 ### Task lists
 
@@ -465,7 +465,7 @@ These constructs belong to common Markdown extensions and are not implemented by
 
 A sentence with a footnote.[^master-footnote]
 
-[^master-footnote]: Future footnote rendering test.
+[^master-footnote]: A numbered footnote with a backlink to its reference.
 
 ### Definition lists
 
@@ -493,10 +493,10 @@ Emoji shortcodes: :rocket: :warning:. Native emoji: 🚀 ⚠️.
 ### Admonitions and containers
 
 > [!NOTE]
-> This currently renders as an ordinary quotation with a literal marker.
+> This renders as a labeled Note callout.
 
 > [!WARNING]
-> A fixture for a future warning-callout feature.
+> A fixture for a styled Warning callout.
 
 ::: tip
 Extended container syntax is not implemented.

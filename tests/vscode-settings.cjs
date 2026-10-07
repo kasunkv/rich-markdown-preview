@@ -24,6 +24,16 @@ exports.run = async function () {
       }
     }
     await vscode.commands.executeCommand('styledMarkdown.openPreview', uri);
+    for (const style of extension.packageJSON.contributes.configuration.properties['styledMarkdown.style'].enum) {
+      const previous = config.inspect('style')?.workspaceFolderValue;
+      try {
+        await config.update('style', style, vscode.ConfigurationTarget.WorkspaceFolder);
+        assert.equal(vscode.workspace.getConfiguration('styledMarkdown', uri).get('style'), style);
+        checks.push(`Style ${style}: folder save and read passed`);
+      } finally {
+        await config.update('style', previous, vscode.ConfigurationTarget.WorkspaceFolder);
+      }
+    }
     checks.push('Preview command opened fixture');
     await fs.mkdir(path.dirname(output), {recursive:true});
     await fs.writeFile(output, JSON.stringify({passed:true,checks},null,2));

@@ -1,6 +1,6 @@
 # Typography and lists
 
-**Expected:** core Markdown renders. Compare all three styles, text sizes, and line spacing.
+**Expected:** core Markdown renders. Compare all eight styles, text sizes, and line spacing.
 
 ## Heading hierarchy
 

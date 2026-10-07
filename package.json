@@ -2,29 +2,117 @@
   "name": "styled-markdown-preview",
   "displayName": "Styled Markdown Preview",
   "description": "A readable Markdown preview with selectable styles, reading controls, code highlighting, and Mermaid diagrams.",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "publisher": "local-development",
   "license": "MIT",
-  "engines": { "vscode": "^1.95.0" },
-  "categories": ["Other"],
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {
-    "commands": [{ "command": "styledMarkdown.openPreview", "title": "Open Styled Markdown Preview" }],
+    "commands": [
+      {
+        "command": "styledMarkdown.openPreview",
+        "title": "Open Styled Markdown Preview"
+      }
+    ],
     "menus": {
-      "editor/title": [{ "command": "styledMarkdown.openPreview", "when": "editorLangId == markdown", "group": "navigation" }],
-      "editor/context": [{ "command": "styledMarkdown.openPreview", "when": "editorLangId == markdown", "group": "navigation@20" }],
-      "explorer/context": [{ "command": "styledMarkdown.openPreview", "when": "resourceLangId == markdown && !explorerResourceIsFolder", "group": "navigation@20" }]
+      "editor/title": [
+        {
+          "command": "styledMarkdown.openPreview",
+          "when": "editorLangId == markdown",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "styledMarkdown.openPreview",
+          "when": "editorLangId == markdown",
+          "group": "navigation@20"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "styledMarkdown.openPreview",
+          "when": "resourceLangId == markdown && !explorerResourceIsFolder",
+          "group": "navigation@20"
+        }
+      ]
     },
     "configuration": {
       "title": "Styled Markdown Preview",
       "properties": {
-        "styledMarkdown.style": { "type": "string", "scope": "resource", "enum": ["documentation", "reading", "technical"], "default": "documentation", "description": "Preview typography and layout style." },
-        "styledMarkdown.appearance": { "type": "string", "scope": "resource", "enum": ["auto", "light", "dark"], "default": "auto", "description": "Preview color scheme." },
-        "styledMarkdown.contentWidth": { "type": "number", "scope": "resource", "default": 900, "minimum": 480, "maximum": 1600, "description": "Maximum content width in pixels." },
-        "styledMarkdown.fontSize": { "type": "number", "scope": "resource", "default": 16, "minimum": 12, "maximum": 24, "description": "Content font size in pixels." },
-        "styledMarkdown.lineHeight": { "type": "number", "scope": "resource", "default": 1.7, "minimum": 1.3, "maximum": 2.2, "description": "Content line height." },
-        "styledMarkdown.wrapCode": { "type": "boolean", "scope": "resource", "default": false, "description": "Wrap long lines in code blocks." }
+        "styledMarkdown.style": {
+          "type": "string",
+          "scope": "resource",
+          "enum": [
+            "documentation",
+            "reading",
+            "technical",
+            "github",
+            "editorial",
+            "book",
+            "minimal",
+            "academic"
+          ],
+          "default": "documentation",
+          "enumDescriptions": [
+            "Balanced documentation typography.",
+            "Comfortable serif reading.",
+            "Compact technical reference.",
+            "Familiar GitHub-style system typography.",
+            "Magazine-style serif prose and bold headlines.",
+            "Warm book-inspired pages and classic serif text.",
+            "Quiet sans-serif typography and generous whitespace.",
+            "Formal serif typography for research and reports."
+          ],
+          "description": "Preview typography and layout style."
+        },
+        "styledMarkdown.appearance": {
+          "type": "string",
+          "scope": "resource",
+          "enum": [
+            "auto",
+            "light",
+            "dark"
+          ],
+          "default": "auto",
+          "description": "Preview color scheme."
+        },
+        "styledMarkdown.contentWidth": {
+          "type": "number",
+          "scope": "resource",
+          "default": 900,
+          "minimum": 480,
+          "maximum": 1600,
+          "description": "Maximum content width in pixels."
+        },
+        "styledMarkdown.fontSize": {
+          "type": "number",
+          "scope": "resource",
+          "default": 16,
+          "minimum": 12,
+          "maximum": 24,
+          "description": "Content font size in pixels."
+        },
+        "styledMarkdown.lineHeight": {
+          "type": "number",
+          "scope": "resource",
+          "default": 1.7,
+          "minimum": 1.3,
+          "maximum": 2.2,
+          "description": "Content line height."
+        },
+        "styledMarkdown.wrapCode": {
+          "type": "boolean",
+          "scope": "resource",
+          "default": false,
+          "description": "Wrap long lines in code blocks."
+        }
       }
     }
   },
@@ -37,7 +125,27 @@
     "vscode:prepublish": "npm run check && npm run build",
     "package": "vsce package --allow-missing-repository"
   },
-  "dependencies": { "markdown-it": "^14.1.0", "highlight.js": "^11.11.1", "mermaid": "^11.12.0" },
-  "devDependencies": { "@types/markdown-it": "^14.1.2", "@types/node": "^22.0.0", "@types/vscode": "^1.95.0", "@vscode/vsce": "^4.0.0", "esbuild": "^0.25.0", "typescript": "^5.9.0" },
-  "overrides": { "katex": "^0.18.2" }
+  "dependencies": {
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.0",
+    "markdown-it-deflist": "^3.0.1",
+    "markdown-it-emoji": "^3.1.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-mark": "^4.0.0",
+    "markdown-it-sub": "^2.0.0",
+    "markdown-it-sup": "^2.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.12.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "katex": "^0.18.2"
+  }
 }

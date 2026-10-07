@@ -4,7 +4,7 @@ Readable documentation, rich code blocks, and diagrams — all beside your edito
 
 ## Make yourself comfortable
 
-Choose **Documentation**, **Reading**, or **Technical** in the toolbar. Adjust the content width, text size, and spacing to suit your screen.
+Choose among eight styles in the toolbar, including **GitHub**, **Editorial**, **Book**, **Minimal**, and **Academic**. Adjust the content width, text size, and spacing to suit your screen.
 
 > Good typography makes complex ideas easier to follow. Try the Reading style for long articles.
 
@@ -50,6 +50,19 @@ sequenceDiagram
 | Documentation | READMEs and guides | Clear headings and balanced spacing |
 | Reading | Articles and essays | Serif typography and generous paragraphs |
 | Technical | API notes and references | Compact headings and tables |
+| GitHub | READMEs | Familiar system typography |
+| Editorial | Articles | Bold headlines and serif prose |
+| Book | Essays | Warm paper and classic serif text |
+| Minimal | Notes | Quiet sans-serif and whitespace |
+| Academic | Research | Formal headings and ruled tables |
+
+## Task lists and emoji :rocket:
+
+- [x] Completed task
+- [ ] Pending task with **bold text** and :smile:
+
+> [!NOTE]
+> Task checkboxes display their source state. Edit the Markdown to change it.
 
 ## Everyday Markdown
 

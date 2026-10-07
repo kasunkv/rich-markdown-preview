@@ -84,3 +84,15 @@ test('standalone Markdown files save preferences globally', async () => {
   assert.equal(host.saved.contentWidth, 680);
   assert.equal(host.writes[0].target, 1);
 });
+test('all eight styles are accepted and persisted through the preview message handler', async () => {
+  const host = previewHost();
+  await host.handlers.command();
+  const styles = manifest.contributes.configuration.properties['styledMarkdown.style'].enum;
+  assert.equal(styles.length, 8);
+  for (const style of styles) {
+    await host.handlers.message({type:'preference',key:'style',value:style}); await host.drain();
+    assert.equal(host.saved.style, style);
+    assert.equal(host.messages.at(-1).preferences.style, style);
+  }
+  assert.equal(host.warnings.length, 0);
+});

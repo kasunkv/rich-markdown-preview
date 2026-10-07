@@ -1,6 +1,6 @@
 # Styled Markdown Preview
 
-A local-first VS Code extension with three reading styles, live updates, syntax-highlighted code, Mermaid diagrams, and configurable typography.
+A local-first VS Code extension with eight reading styles, live updates, syntax-highlighted code, Mermaid diagrams, and configurable typography.
 
 Browser QA screenshots are included in the `docs` folder.
 
@@ -22,13 +22,39 @@ If settings cannot be saved (for example, an invalid or read-only settings file)
 
 ## Included
 
-- Documentation, Reading, and Technical styles; light/dark/automatic appearance.
+- Documentation, Reading, Technical, GitHub, Editorial, Book, Minimal, and Academic styles; light/dark/automatic appearance.
 - Live preview while typing, with debounced updates and scroll position retention.
 - Syntax highlighting, language labels, and code copy buttons.
 - Mermaid flowcharts and sequence diagrams, rendered locally without a CDN.
 - Tables, blockquotes, lists, links, images, and heading navigation.
+- Read-only task-list checkboxes, emoji shortcodes, footnotes, definition lists, highlighted text, subscript/superscript, and GitHub-style Note/Tip/Important/Warning/Caution callouts.
 - Relative images within the Markdown file's directory; local links open in VS Code.
 - Raw HTML is displayed as text; document scripts are never executed.
+
+## Reading styles
+
+All styles use local/system font stacks, work offline, and respect the width, font-size, spacing, and appearance controls. Font availability can vary by operating system.
+
+| Style | Character | Intended use |
+| --- | --- | --- |
+| Documentation | Balanced sans-serif hierarchy | Guides and documentation |
+| Reading | Comfortable Georgia serif text | Long articles |
+| Technical | Compact headings and tables | API notes and references |
+| GitHub | System sans-serif, neutral colors, bordered tables | Familiar README presentation |
+| Editorial | Bold sans-serif headlines, serif prose, warm accents | Magazine-style articles |
+| Book | Palatino-style serif, warm paper, centered chapter headings | Essays and book chapters |
+| Minimal | Quiet sans-serif, restrained colors, generous whitespace | Focused reading and notes |
+| Academic | Cambria-style serif, formal headings, ruled tables | Research and reports |
+
+The GitHub preset draws on [Primer typography](https://primer.style/product/getting-started/foundations/typography/). Serif reading presets use traditional book/editorial conventions and the emphasis on font, size, line spacing, and line length described in [Practical Typography](https://practicaltypography.com/body-text.html). These are original presets, not exact reproductions of another product.
+
+## Extended Markdown
+
+Task lists such as `- [ ] Pending` and `- [x] Complete` render as labeled, read-only checkboxes. Edit the Markdown source to change their state.
+
+Emoji shortcodes such as `:rocket:`, `:smile:`, `:warning:`, `:+1:`, and `:white_check_mark:` render as native Unicode emoji. Unknown shortcodes and shortcodes inside code blocks/spans stay literal. ASCII faces such as `:)` are not automatically converted.
+
+Footnotes (`[^note]`), definition lists (`Term` followed by `: Definition`), `==highlights==`, `H~2~O`, and `x^2^` are supported. GitHub-style callouts start a blockquote with a standalone `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, or `[!CAUTION]` line. See `examples/07-styles-and-extended-markdown.md` for a compact showcase.
 
 ## Development
 
@@ -42,7 +68,7 @@ npm test
 
 `npm run dev:preview` opens a browser QA server at `http://127.0.0.1:4173`. This harness uses the same rendering assets and sample document, with a simulated VS Code bridge; it does not test extension-host integration.
 
-Initial validation: TypeScript check, bundled build, four renderer tests, VSIX packaging, and browser checks of style switching, dark appearance, code wrapping, outline navigation, flowcharts, and sequence diagrams passed. The installation audit reported zero vulnerabilities. Run the F5 workflow above to verify integration in your VS Code installation.
+Validation includes renderer and settings regression tests, isolated VS Code extension-host checks of folder settings, and browser QA of styles and rendered content. Run the F5 workflow above to verify behavior in your installation.
 
 ## Install in your regular VS Code
 
