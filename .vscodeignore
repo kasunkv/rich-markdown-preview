@@ -10,6 +10,9 @@ dist/render.cjs
 dist/tables.cjs
 tsconfig.json
 build.mjs
+scripts/**
+assets/logo-source.png
+docs/*.jpg
 package-lock.json
 .gitignore
 **/*.map

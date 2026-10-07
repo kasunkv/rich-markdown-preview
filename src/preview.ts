@@ -5,7 +5,7 @@ import { enhanceTables, type TableState } from './tables';
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): { scroll?: number; tables?: TableState } | undefined; setState(state: unknown): void };
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app')!;
-app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><span class="brand-icon">M↓</span><span>Styled Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="style" aria-label="Style">${previewStyles.map(style => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="width-value"></output><input id="contentWidth" aria-label="Content width" type="range" min="480" max="1600" step="20"></label><label>Text<select id="fontSize" aria-label="Text size">${[12,14,16,18,20,22,24].map(n => `<option value="${n}">${n}px</option>`).join('')}</select></label><label>Spacing<select id="lineHeight" aria-label="Line spacing">${[1.3,1.5,1.7,1.9,2.2].map(n => `<option value="${n}">${n}</option>`).join('')}</select></label><label class="checkbox"><input id="wrapCode" type="checkbox">Wrap code</label><button id="toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="outline"></nav></aside><main id="content" class="markdown" aria-label="Markdown preview"></main></div><div id="announcement" class="sr-only" aria-live="polite"></div>`;
+app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/markdown-lens.png'}" alt="" width="34" height="34"><span>Markdown Lens<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="style" aria-label="Style">${previewStyles.map(style => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="width-value"></output><input id="contentWidth" aria-label="Content width" type="range" min="480" max="1600" step="20"></label><label>Text<select id="fontSize" aria-label="Text size">${[12,14,16,18,20,22,24].map(n => `<option value="${n}">${n}px</option>`).join('')}</select></label><label>Spacing<select id="lineHeight" aria-label="Line spacing">${[1.3,1.5,1.7,1.9,2.2].map(n => `<option value="${n}">${n}</option>`).join('')}</select></label><label class="checkbox"><input id="wrapCode" type="checkbox">Wrap code</label><button id="toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="outline"></nav></aside><main id="content" class="markdown" aria-label="Markdown preview"></main></div><div id="announcement" class="sr-only" aria-live="polite"></div>`;
 const content = document.getElementById('content')!;
 const outline = document.getElementById('outline')!;
 let revision = 0;
@@ -91,6 +91,11 @@ async function diagrams(version: number) {
 }
 window.addEventListener('message', event => {
   const message = event.data;
+  if (!message || typeof message !== 'object') return;
+  if (message.type === 'copyResult') {
+    document.getElementById('announcement')!.textContent = message.success ? 'Code copied' : 'Could not copy code. Please try again.';
+    return;
+  }
   if (message.type === 'tableActionResult') {
     document.getElementById('announcement')!.textContent = message.cancelled ? 'CSV export cancelled' : message.success ? (message.action === 'tableCopy' ? 'Table CSV copied' : 'Table CSV exported') : `Table action failed: ${message.error ?? 'Please try again'}`;
     return;
@@ -135,9 +140,17 @@ document.getElementById('toggle-outline')!.addEventListener('click', event => {
 content.addEventListener('click', event => {
   const element = event.target as HTMLElement;
   const copy = element.closest<HTMLButtonElement>('.copy-code');
-  if (copy) { vscode.postMessage({ type: 'copy', text: copy.closest('.code-block')?.querySelector('code')?.textContent ?? '' }); document.getElementById('announcement')!.textContent = 'Code copied'; return; }
+  if (copy) { vscode.postMessage({ type: 'copy', text: copy.closest('.code-block')?.querySelector('code')?.textContent ?? '' }); document.getElementById('announcement')!.textContent = 'Copying code…'; return; }
   const link = element.closest<HTMLAnchorElement>('a');
   if (link) { event.preventDefault(); const href = link.getAttribute('href') ?? ''; if (href.startsWith('#')) { try { scrollToHeading(decodeURIComponent(href.slice(1))); } catch {} } else vscode.postMessage({ type: 'link', href }); }
 });
+// VS Code changes body classes when its theme changes without sending a preference message.
+const vscodeDarkTheme = () => document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
+let lastVscodeDarkTheme = vscodeDarkTheme();
+new MutationObserver(() => {
+  const dark = vscodeDarkTheme();
+  if (currentPreferences.appearance === 'auto' && dark !== lastVscodeDarkTheme) void diagrams(++revision);
+  lastVscodeDarkTheme = dark;
+}).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 window.addEventListener('scroll', saveState, { passive: true });
 vscode.postMessage({ type: 'ready' });

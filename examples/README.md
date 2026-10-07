@@ -1,6 +1,6 @@
 # Markdown preview test examples
 
-Open a file below, right-click, and select **Open Styled Markdown Preview**.
+Open a file below, right-click, and select **Open in Markdown Lens**.
 
 For browser-only visual QA after `npm run build`, run `node tests/preview-server.cjs examples/master-test.md` and visit `http://127.0.0.1:4173`. Stop the server with Ctrl+C before choosing another fixture. The browser harness does not test VS Code file navigation or settings persistence.
 

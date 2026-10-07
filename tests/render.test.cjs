@@ -64,3 +64,25 @@ test('callouts support known markers, nested content, and safe HTML without chan
   assert.match(html, /\[!UNKNOWN\]/); assert.match(html, /<blockquote>\n<p>Ordinary quote/);
   assert.doesNotMatch(html, /<script>|\[!TIP\]/);
 });
+
+test('empty source, Unicode headings, formatted headings and document-local state render consistently', () => {
+  assert.deepEqual(renderMarkdown(''),{html:'',outline:[]});
+  const source='# 日本語 **Heading** `code`\n# !!!\n# !!!\n# 日本語 **Heading** `code`';
+  const result=renderMarkdown(source);
+  assert.deepEqual(result.outline.map(item=>item.id),['日本語-heading-code','section','section-1','日本語-heading-code-1']);
+  assert.deepEqual(renderMarkdown(source),result);
+});
+
+test('links and images safely escape attribute text, preserve fragments and reject unsafe image schemes', () => {
+  const result=renderMarkdown('[Section](#hello)\n\n![a \\"quoted\\" alt](photo.png "Title")\n\n![bad](javascript:alert(1))', src=>'resource?file='+src+'&safe="yes"');
+  assert.match(result.html,/href="#hello"/); assert.match(result.html,/loading="lazy"/);
+  assert.match(result.html,/&amp;safe=&quot;yes&quot;/); assert.match(result.html,/title="Title"/);
+  assert.doesNotMatch(result.html,/<img[^>]+src="javascript:/);
+});
+
+test('all supported callouts render and inline marker text stays ordinary prose', () => {
+  for(const marker of ['NOTE','TIP','IMPORTANT','WARNING','CAUTION']) {
+    assert.match(renderMarkdown(`> [!${marker}]\n> Body`).html,new RegExp('markdown-alert-'+marker.toLowerCase()));
+  }
+  assert.doesNotMatch(renderMarkdown('> [!TIP] ordinary text').html,/markdown-alert/);
+});

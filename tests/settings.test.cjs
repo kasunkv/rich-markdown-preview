@@ -4,16 +4,17 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const manifest = require('../package.json');
 
-function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false } = {}) {
-  const saved = {};
+function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', failOpen = false, initial = {} } = {}) {
+  const saved = {...initial};
   const messages = [];
   const warnings = [];
   const writes = [];
-  const clipboard = [], files = [], dialogs = [];
+  const clipboard = [], files = [], dialogs = [], opened = [], external = [], info = [];
+  let created = 0, revealed = 0, disposed = 0;
   const handlers = {};
-  const disposable = {dispose() {}};
+  const disposable = {dispose() {disposed++;}};
   const uri = {toString: () => 'file:///fixture/test.md'};
-  const document = {uri, fileName: '/fixture/test.md', languageId: 'markdown', getText: () => '# Test'};
+  const document = {uri, fileName: '/fixture/test.md', languageId, getText: () => '# Test'};
   const configuration = {
     get: (key, fallback) => saved[key] ?? fallback,
     update: async (key, value, target) => {
@@ -25,27 +26,28 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     }
   };
   const panel = {
-    visible: true, reveal() {},
-    onDidChangeViewState: () => disposable,
-    onDidDispose: () => disposable,
+    visible: true, reveal() {revealed++;},
+    onDidChangeViewState: handler => {handlers.view = handler; return disposable;},
+    onDidDispose: handler => {handlers.dispose = handler; return disposable;},
     webview: {
-      asWebviewUri: () => 'safe-resource',
+      cspSource: 'https://safe-resource', asWebviewUri: () => 'safe-resource',
       postMessage: message => { messages.push(message); return Promise.resolve(true); },
       onDidReceiveMessage: handler => { handlers.message = handler; return disposable; }
     }
   };
   const vscode = {
-    Uri: {joinPath: () => uri}, ViewColumn: {Beside: 2}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
-    window: {activeTextEditor: {document}, createWebviewPanel: () => panel, showWarningMessage: message => warnings.push(message), showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
-    env: {clipboard: {writeText: async text => clipboard.push(text)}},
+    Uri: {joinPath: (base, ...segments) => ({toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, ViewColumn: {Beside: 2}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
+    window: {activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: () => {created++;return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: message => warnings.push(message), showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
+    env: {openExternal: async uri => external.push(uri.toString()), clipboard: {writeText: async text => {if(failCopy) throw new Error('Clipboard unavailable'); clipboard.push(text);}}},
     workspace: {
       fs: {writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
+      openTextDocument: async () => {if(failOpen) throw new Error('File unavailable');return document;},
       getConfiguration: () => configuration,
       getWorkspaceFolder: () => inWorkspace ? {uri} : undefined,
-      onDidChangeTextDocument: () => disposable,
+      onDidChangeTextDocument: handler => {handlers.text = handler;return disposable;},
       onDidChangeConfiguration: handler => {handlers.configuration = handler; return disposable;}
     },
-    commands: {registerCommand: (id, handler) => {handlers.command = handler; return disposable;}}
+    commands: {executeCommand: async (command, uri) => opened.push({command,uri:uri.toString()}), registerCommand: (id, handler) => {handlers.command = handler; return disposable;}}
   };
   const module = {exports: {}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {
@@ -54,7 +56,7 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
   });
   module.exports.activate({subscriptions: [], extensionUri: uri});
   const drain = async () => {await new Promise(setImmediate);};
-  return {handlers, saved, messages, warnings, writes, clipboard, files, dialogs, drain};
+  return {handlers, saved, messages, warnings, writes, clipboard, files, dialogs, drain, document, panel, opened, external, info, counts: () => ({created, revealed, disposed})};
 }
 
 test('preview toolbar settings persist with resource scope', async () => {
@@ -122,4 +124,98 @@ test('cancelled and failed table exports report accurately and do not silently s
   assert.equal(failed.messages.at(-1).success, false);
   assert.match(failed.messages.at(-1).error, /Disk is read-only/);
   assert.equal(failed.warnings.length, 1);
+});
+
+test('invalid and malformed preference messages cannot write settings', async () => {
+  const host = previewHost(); await host.handlers.command();
+  for (const message of [null, 1, {}, {type:'preference',key:'__proto__',value:'x'},
+    {type:'preference',key:'style',value:'missing'}, {type:'preference',key:'appearance',value:[]},
+    ...[NaN, Infinity, 479, 1601, '900'].map(value => ({type:'preference',key:'contentWidth',value})),
+    {type:'preference',key:'fontSize',value:25}, {type:'preference',key:'lineHeight',value:1.2},
+    {type:'preference',key:'wrapCode',value:'true'}]) await host.handlers.message(message);
+  await host.drain(); assert.equal(host.writes.length, 0);
+});
+
+test('invalid settings read from disk fall back safely; valid range boundaries persist', async () => {
+  const host = previewHost({initial:{style:'missing',appearance:42,contentWidth:NaN,fontSize:100,lineHeight:-1,wrapCode:'true'}});
+  await host.handlers.command(); await host.handlers.message({type:'ready'});
+  const prefs = host.messages.at(-1).preferences;
+  assert.equal(prefs.style,'documentation'); assert.equal(prefs.appearance,'auto');
+  assert.equal(prefs.contentWidth,900); assert.equal(prefs.fontSize,16); assert.equal(prefs.lineHeight,1.7); assert.equal(prefs.wrapCode,false);
+  for (const [key,values] of Object.entries({contentWidth:[480,1600],fontSize:[12,24],lineHeight:[1.3,2.2]})) {
+    for (const value of values) {await host.handlers.message({type:'preference',key,value});await host.drain();assert.equal(host.saved[key],value);}
+  }
+});
+
+test('rapid preference commits serialize writes and preserve the newest value', async () => {
+  const host = previewHost(); await host.handlers.command();
+  await Promise.all(['reading','ocean','circuit'].map(value=>host.handlers.message({type:'preference',key:'style',value})));
+  await host.drain(); assert.deepEqual(host.writes.map(write=>write.value),['reading','ocean','circuit']);
+  assert.equal(host.messages.at(-1).preferences.style,'circuit');
+  const before = host.messages.length;
+  host.handlers.configuration({affectsConfiguration:()=>false}); assert.equal(host.messages.length,before);
+  host.handlers.configuration({affectsConfiguration:()=>true}); assert.equal(host.messages.at(-1).type,'preferences');
+});
+
+test('command handles missing editors, non-Markdown files and failed file opens', async () => {
+  for (const options of [{noEditor:true}, {languageId:'plaintext'}]) {
+    const host = previewHost(options); await host.handlers.command();
+    assert.equal(host.counts().created, 0); assert.match(host.info[0], /Markdown file/);
+  }
+  const host = previewHost({failOpen:true}); await host.handlers.command(host.document.uri);
+  assert.equal(host.counts().created, 0); assert.match(host.warnings[0], /Could not open/);
+});
+
+test('panels are reused, disposed listeners are released, and reopening creates a panel', async () => {
+  const host = previewHost(); await host.handlers.command(host.document.uri);
+  await host.handlers.command(); assert.deepEqual(host.counts(), {created:1,revealed:1,disposed:0});
+  host.handlers.dispose(); assert.equal(host.counts().disposed, 4);
+  await host.handlers.command(); assert.equal(host.counts().created, 2);
+});
+
+test('ready and visible-panel events render; edits debounce and unrelated edits are ignored', async () => {
+  const host = previewHost(); await host.handlers.command();
+  await host.handlers.message({type:'ready'}); assert.match(host.messages.at(-1).html, /<h1/);
+  host.panel.visible = false; host.handlers.view(); assert.equal(host.messages.length, 1);
+  host.panel.visible = true; host.handlers.view(); assert.equal(host.messages.length, 2);
+  host.handlers.text({document:{uri:{toString:()=> 'file:///other.md'}}});
+  await new Promise(resolve => setTimeout(resolve, 210)); assert.equal(host.messages.length, 2);
+  host.handlers.text({document:host.document}); host.handlers.text({document:host.document});
+  await new Promise(resolve => setTimeout(resolve, 210)); assert.equal(host.messages.length, 3);
+  host.handlers.text({document:host.document}); host.handlers.dispose();
+  await new Promise(resolve => setTimeout(resolve, 210)); assert.equal(host.messages.length, 3);
+});
+
+test('webview has a restrictive CSP, local roots, branded title and icon', async () => {
+  const host = previewHost(); await host.handlers.command();
+  assert.match(host.panel.webview.html, /default-src 'none'/);
+  assert.match(host.panel.webview.html, /script-src 'nonce-[a-f0-9]{32}'/);
+  assert.doesNotMatch(host.panel.webview.html, /script-src[^;]*unsafe-inline/);
+  assert.match(host.panel.webview.html, /<title>Markdown Lens<\/title>/);
+  assert.match(host.panel.iconPath.toString(), /assets\/markdown-lens.png$/);
+});
+
+test('links allow external web/mail and local files while blocking executable schemes', async () => {
+  const host = previewHost(); await host.handlers.command();
+  for (const href of ['https://example.com', 'http://example.com', 'mailto:test@example.com',
+    'javascript:alert(1)', 'command:workbench.action.closeWindow', 'file:///etc/passwd', '//example.com']) {
+    await host.handlers.message({type:'link',href});
+  }
+  assert.equal(host.external.length, 3); assert.equal(host.opened.length, 0);
+  await host.handlers.message({type:'link',href:'linked%20note.md#heading'});
+  assert.equal(host.opened[0].command, 'vscode.open'); assert.match(host.opened[0].uri, /linked note.md$/);
+  await host.handlers.message({type:'link',href:'%broken'}); assert.equal(host.warnings.length, 1);
+});
+
+test('code clipboard results reflect success and failure; invalid export filenames are replaced', async () => {
+  for (const failCopy of [false, true]) {
+    const host = previewHost({failCopy}); await host.handlers.command();
+    await host.handlers.message({type:'copy',text:'const x = 1;'});
+    assert.equal(host.messages.at(-1).type, 'copyResult'); assert.equal(host.messages.at(-1).success, !failCopy);
+    await host.handlers.message({type:'tableCopy',text:'data'});
+    assert.equal(host.messages.at(-1).success, !failCopy);
+  }
+  const host = previewHost(); await host.handlers.command();
+  await host.handlers.message({type:'tableExport',text:'data',filename:'../../escape.csv'});
+  assert.match(host.dialogs[0].defaultUri.toString(), /\/table.csv$/);
 });

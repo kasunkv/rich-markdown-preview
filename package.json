@@ -1,14 +1,15 @@
 {
-  "name": "styled-markdown-preview",
-  "displayName": "Styled Markdown Preview",
-  "description": "A readable Markdown preview with selectable styles, reading controls, code highlighting, and Mermaid diagrams.",
-  "version": "0.4.1",
-  "publisher": "local-development",
+  "name": "markdown-lens",
+  "displayName": "Markdown Lens - A Styled Markdown Preview",
+  "description": "A styled Markdown preview with 18 reading themes, Mermaid diagrams, syntax highlighting, and searchable, sortable tables with CSV export.",
+  "version": "1.0.0",
+  "publisher": "kasunkodagoda",
   "license": "MIT",
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
+    "Visualization",
     "Other"
   ],
   "main": "./dist/extension.js",
@@ -17,7 +18,8 @@
     "commands": [
       {
         "command": "styledMarkdown.openPreview",
-        "title": "Open Styled Markdown Preview"
+        "title": "Open in Markdown Lens",
+        "icon": "$(preview)"
       }
     ],
     "menus": {
@@ -44,7 +46,7 @@
       ]
     },
     "configuration": {
-      "title": "Styled Markdown Preview",
+      "title": "Markdown Lens",
       "properties": {
         "styledMarkdown.style": {
           "type": "string",
@@ -140,10 +142,12 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "check": "tsc --noEmit",
-    "test": "node --test tests/render.test.cjs tests/settings.test.cjs tests/tables.test.cjs tests/themes.test.cjs",
+    "test": "npm run build && node --test tests/*.test.cjs",
     "dev:preview": "npm run build && node tests/preview-server.cjs",
-    "vscode:prepublish": "npm run check && npm run build",
-    "package": "vsce package --allow-missing-repository"
+    "vscode:prepublish": "npm run check && npm test",
+    "package": "vsce package --no-dependencies --githubBranch main",
+    "test:coverage": "npm run build && node --test --experimental-test-coverage tests/*.test.cjs",
+    "test:browser": "npm run build && node tests/browser.cjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -163,9 +167,42 @@
     "@types/vscode": "^1.95.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.25.0",
+    "playwright": "^1.62.1",
     "typescript": "^5.9.0"
   },
   "overrides": {
     "katex": "^0.18.2"
+  },
+  "author": {
+    "name": "Kasun Kodagoda"
+  },
+  "icon": "assets/markdown-lens.png",
+  "keywords": [
+    "markdown",
+    "markdown preview",
+    "styled markdown",
+    "markdown lens",
+    "mermaid",
+    "diagrams",
+    "syntax highlighting",
+    "tables",
+    "csv",
+    "reading",
+    "themes",
+    "documentation",
+    "readme"
+  ],
+  "galleryBanner": {
+    "color": "#1c7819",
+    "theme": "dark"
+  },
+  "qna": "marketplace",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kasunkv/markdown-lens.git"
+  },
+  "homepage": "https://github.com/kasunkv/markdown-lens#readme",
+  "bugs": {
+    "url": "https://github.com/kasunkv/markdown-lens/issues"
   }
 }

@@ -4,7 +4,7 @@ Readable documentation, rich code blocks, and diagrams — all beside your edito
 
 ## Make yourself comfortable
 
-Choose among eight styles in the toolbar, including **GitHub**, **Editorial**, **Book**, **Minimal**, and **Academic**. Adjust the content width, text size, and spacing to suit your screen.
+Choose among eighteen styles in the toolbar, including **GitHub**, **Editorial**, **Book**, **Minimal**, and **Academic**. Adjust the content width, text size, and spacing to suit your screen.
 
 > Good typography makes complex ideas easier to follow. Try the Reading style for long articles.
 
@@ -67,7 +67,7 @@ sequenceDiagram
 ## Everyday Markdown
 
 1. Open a Markdown file.
-2. Right-click and choose **Open Styled Markdown Preview**.
+2. Right-click and choose **Open in Markdown Lens**.
 3. Keep writing — the preview updates automatically.
 
 - **Strong emphasis**, *gentle emphasis*, and ~~strikethrough~~.

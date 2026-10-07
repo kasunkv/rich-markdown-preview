@@ -5,9 +5,21 @@ import { previewStyles } from './styles';
 
 const defaults = { style: 'documentation', appearance: 'auto', contentWidth: 900, fontSize: 16, lineHeight: 1.7, wrapCode: false };
 type Preferences = typeof defaults;
+const enums: Record<string, readonly string[]> = { style: previewStyles.map(style => style.id), appearance: ['auto', 'light', 'dark'] };
+const ranges: Record<string, readonly number[]> = { contentWidth: [480, 1600], fontSize: [12, 24], lineHeight: [1.3, 2.2] };
+function validPreference(setting: unknown, value: unknown): boolean {
+  return typeof setting === 'string' && (
+    (Object.hasOwn(enums, setting) && typeof value === 'string' && enums[setting].includes(value)) ||
+    (Object.hasOwn(ranges, setting) && typeof value === 'number' && Number.isFinite(value) && value >= ranges[setting][0] && value <= ranges[setting][1]) ||
+    (setting === 'wrapCode' && typeof value === 'boolean')
+  );
+}
 function preferences(uri: vscode.Uri): Preferences {
   const config = vscode.workspace.getConfiguration('styledMarkdown', uri);
-  return Object.fromEntries(Object.entries(defaults).map(([key, value]) => [key, config.get(key, value)])) as Preferences;
+  return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => {
+    const value = config.get(key, fallback);
+    return [key, validPreference(key, value) ? value : fallback];
+  })) as Preferences;
 }
 export function activate(context: vscode.ExtensionContext) {
   const panels = new Map<string, vscode.WebviewPanel>();
@@ -23,16 +35,17 @@ export function activate(context: vscode.ExtensionContext) {
     const existing = panels.get(key);
     if (existing) { existing.reveal(vscode.ViewColumn.Beside); return; }
     const directory = vscode.Uri.joinPath(document.uri, '..');
-    const panel = vscode.window.createWebviewPanel('styledMarkdown.preview', `Preview: ${document.fileName.split(/[\\/]/).pop()}`, vscode.ViewColumn.Beside, {
+    const panel = vscode.window.createWebviewPanel('styledMarkdown.preview', `Markdown Lens: ${document.fileName.split(/[\\/]/).pop()}`, vscode.ViewColumn.Beside, {
       enableScripts: true, localResourceRoots: [context.extensionUri, directory]
     });
+    panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'markdown-lens.png');
     panels.set(key, panel);
     const webview = panel.webview;
     const sessionPreferences: Partial<Preferences> = {};
     const effectivePreferences = () => ({ ...preferences(document.uri), ...sessionPreferences });
     const nonce = randomBytes(16).toString('hex');
     const resource = (file: string) => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', file));
-    webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Styled Markdown Preview</title></head><body><div id="app"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
+    webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Markdown Lens</title></head><body><div id="app" data-logo="${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'markdown-lens.png'))}"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
     const update = () => {
       const result = renderMarkdown(document.getText(), src => {
         if (/^[a-z][a-z\d+.-]*:/i.test(src) || src.startsWith('//')) return src;
@@ -52,10 +65,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (message.type === 'ready') update();
         if (message.type === 'preference') {
           const { key: setting, value } = message;
-          const enums: Record<string, string[]> = { style: previewStyles.map(style => style.id), appearance: ['auto', 'light', 'dark'] };
-          const ranges: Record<string, number[]> = { contentWidth: [480, 1600], fontSize: [12, 24], lineHeight: [1.3, 2.2] };
-          const valid = typeof setting === 'string' && ((Object.hasOwn(enums, setting) && enums[setting].includes(value)) || (Object.hasOwn(ranges, setting) && typeof value === 'number' && Number.isFinite(value) && value >= ranges[setting][0] && value <= ranges[setting][1]) || (setting === 'wrapCode' && typeof value === 'boolean'));
-          if (valid) {
+          if (validPreference(setting, value)) {
             const preferenceKey = setting as keyof Preferences;
             Object.assign(sessionPreferences, { [preferenceKey]: value });
             preferenceWrites = preferenceWrites.then(async () => {
@@ -69,7 +79,10 @@ export function activate(context: vscode.ExtensionContext) {
             });
           }
         }
-        if (message.type === 'copy' && typeof message.text === 'string') await vscode.env.clipboard.writeText(message.text);
+        if (message.type === 'copy' && typeof message.text === 'string') {
+          try { await vscode.env.clipboard.writeText(message.text); void webview.postMessage({ type: 'copyResult', success: true }); }
+          catch { void webview.postMessage({ type: 'copyResult', success: false }); }
+        }
         if (['tableCopy', 'tableExport'].includes(message.type) && typeof message.text === 'string') {
           try {
             if (message.type === 'tableCopy') await vscode.env.clipboard.writeText(message.text);
@@ -88,7 +101,10 @@ export function activate(context: vscode.ExtensionContext) {
         }
         if (message.type === 'link' && typeof message.href === 'string') {
           const href = message.href;
-          if (/^https?:|^mailto:/i.test(href)) { await vscode.env.openExternal(vscode.Uri.parse(href)); }
+          if (/^(https?:|mailto:)/i.test(href)) {
+            try { await vscode.env.openExternal(vscode.Uri.parse(href)); }
+            catch { void vscode.window.showWarningMessage('Could not open this link.'); }
+          }
           else if (!/^[a-z][a-z\d+.-]*:/i.test(href) && !href.startsWith('//')) {
             try { await vscode.commands.executeCommand('vscode.open', vscode.Uri.joinPath(directory, decodeURIComponent(href.split('#')[0]))); } catch { void vscode.window.showWarningMessage('Could not open this link.'); }
           }

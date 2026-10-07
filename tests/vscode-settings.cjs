@@ -5,12 +5,18 @@ const path = require('node:path');
 
 exports.run = async function () {
   const root = path.resolve(__dirname, '..');
-  const output = path.join(root, '.test-results', 'vscode-settings.json');
+  const output = process.env.MARKDOWN_LENS_TEST_RESULT || path.join(root, '.test-results', 'vscode-settings.json');
   const checks = [];
   try {
-    const extension = vscode.extensions.getExtension('local-development.styled-markdown-preview');
+    const extension = vscode.extensions.getExtension(`${require('../package.json').publisher}.${require('../package.json').name}`);
     assert.ok(extension, 'Development extension is registered');
     await extension.activate();
+    assert.equal(extension.packageJSON.displayName, 'Markdown Lens - A Styled Markdown Preview');
+    assert.equal(extension.packageJSON.version, '1.0.0');
+    assert.equal(extension.packageJSON.contributes.commands[0].title, 'Open in Markdown Lens');
+    assert.ok((await vscode.commands.getCommands()).includes('styledMarkdown.openPreview'));
+    assert.ok(await fs.stat(path.join(extension.extensionPath, extension.packageJSON.icon)));
+    checks.push('Release identity, registered command label, and packaged icon verified');
     const uri = vscode.Uri.file(path.join(root, 'tests/fixtures/workspace/test.md'));
     const config = vscode.workspace.getConfiguration('styledMarkdown', uri);
     for (const [key, value] of Object.entries({style:'reading',appearance:'dark',contentWidth:720,fontSize:18,lineHeight:1.9,wrapCode:true})) {

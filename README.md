@@ -1,105 +1,93 @@
-# Styled Markdown Preview
+# Markdown Lens
 
-A local-first VS Code extension with eighteen reading styles, live updates, syntax-highlighted code, Mermaid diagrams, and configurable typography.
+**A Styled Markdown Preview for Visual Studio Code** · by **Kasun Kodagoda**
 
-Browser QA screenshots are included in the `docs` folder.
+Turn Markdown into a comfortable reading experience beside your editor. Markdown Lens combines **18 reading styles**, live Markdown preview, syntax highlighting, **Mermaid diagrams**, and interactive tables. Use it for READMEs, documentation, technical notes, articles, and research.
 
-## Try locally
+![Markdown Lens preview in Editorial style with light appearance](docs/markdown-lens-light.png)
 
-1. Install Node.js and open this repository in VS Code.
-2. Run `npm install` and `npm run check`.
-3. Press **F5** to build and launch the Extension Development Host.
-4. In that new window, open `samples/showcase.md` from this repository.
-5. Right-click in the Markdown editor or on a Markdown file in Explorer and choose **Open Styled Markdown Preview**. You can also run **Open Styled Markdown Preview** from the Command Palette or use the Markdown editor title action.
+## Get started
 
-For broader testing, open `examples/master-test.md`. The `examples` folder also contains focused typography, code, table, diagram, link/image, and edge-case fixtures, plus a manual test checklist in `examples/README.md`.
+1. Install **Markdown Lens - A Styled Markdown Preview** from the VS Code Extensions view. Requires VS Code **1.95 or newer**.
+2. Open a Markdown file (`.md`).
+3. Right-click in the editor and choose **Open in Markdown Lens**. The preview opens beside your source.
+4. Choose a **Style** and **Appearance** in the preview toolbar. Edit your Markdown to see live updates.
 
-Use the preview toolbar to choose a style and appearance, adjust width/font size/line spacing, wrap code, or hide the heading outline. Settings save at workspace-folder scope when a file belongs to a workspace, otherwise globally. Auto appearance follows the VS Code theme.
+You can also right-click a Markdown file in **Explorer**, use the **Open in Markdown Lens** action in the editor title bar, or open the **Command Palette** (`Ctrl+Shift+P` on Windows/Linux, `Cmd+Shift+P` on macOS) and run **Open in Markdown Lens**. Opening the same file again brings its existing preview into view.
 
-Reading controls apply instantly. The width slider resizes the content while you drag, then saves when you release it. Changing layout does not rebuild the Markdown or diagrams; changing style or light/dark appearance refreshes diagram colors while keeping the document in place.
+## Features
 
-If settings cannot be saved (for example, an invalid or read-only settings file), the selected appearance stays active in the current preview. A warning includes the actual save error; unsaved changes last until the preview closes.
+- **18 styles:** Documentation, Reading, Technical, GitHub, Editorial, Book, Minimal, Academic, Swiss, Aurora, Botanical, Noir, Blueprint, Terracotta, Atelier, Ocean, Manuscript, and Circuit.
+- **Light, dark, or automatic appearance:** Auto follows the VS Code theme, including diagram colors.
+- **Reading controls:** Adjust content width, text size, and line spacing; wrap long code lines; show or hide the heading outline.
+- **Live preview:** Updates while typing and keeps the preview's scroll position.
+- **Code highlighting:** Language labels, readable syntax colors, and a Copy button on fenced code blocks.
+- **Mermaid diagrams and charts:** Rendered locally with colors coordinated to your reading style.
+- **Interactive tables:** Sort columns, search rows, choose spacing, and copy or export the visible data as CSV.
+- **Heading navigation:** Jump to sections using the outline or heading links.
+- **Extended Markdown:** Task lists, emoji shortcodes, footnotes, definition lists, highlighted text, subscript, superscript, and GitHub-style callouts.
+- **Links and images:** Local file links open in VS Code. Relative images load from the document directory; HTTPS images are supported.
+- **Offline rendering:** Styles, syntax highlighting, and Mermaid are bundled. No CDN or account is needed. Remote images and external links use your network connection.
 
-Code text keeps a transparent background. Each style coordinates syntax colors, code panels, and locally rendered Mermaid diagrams and charts. See `examples/08-style-gallery.md` for a typography and visualization showcase.
+![Markdown Lens preview in Ocean style with dark appearance](docs/markdown-lens-dark.png)
 
-## Included
+## Make it yours
 
-- Eighteen reading styles, including Swiss, Aurora, Botanical, Noir, Blueprint, Terracotta, Atelier, Ocean, Manuscript, and Circuit; light/dark/automatic appearance.
-- Live preview while typing, with debounced updates and scroll position retention.
-- Syntax highlighting, language labels, and code copy buttons.
-- Mermaid flowcharts and sequence diagrams, rendered locally without a CDN.
-- Tables with contrasting accent headers, alternating rows, sticky headers, sortable columns, search, spacing controls, and CSV copy/export; blockquotes, lists, links, images, and heading navigation.
-- Read-only task-list checkboxes, emoji shortcodes, footnotes, definition lists, highlighted text, subscript/superscript, and GitHub-style Note/Tip/Important/Warning/Caution callouts.
-- Relative images within the Markdown file's directory; local links open in VS Code.
-- Raw HTML is displayed as text; document scripts are never executed.
+Use the toolbar to change **Style**, **Appearance**, **Width**, **Text**, **Spacing**, and **Wrap code**. The **Outline** button toggles section navigation. Width updates as you drag; it saves when you release the slider.
 
-## Interactive tables
+Reading preferences save for the file's workspace folder, or globally for standalone files. If a settings file cannot be saved, the preview keeps your selection for the current session and shows a warning.
 
-Each table has its own controls, in all eighteen styles and both appearances:
+You can also search for **Markdown Lens** in VS Code Settings. The settings identifiers remain `styledMarkdown.*` so existing preferences continue to work:
 
-- Click a column header to cycle through ascending, descending, and original document order. Text sorts naturally (Item 2 before Item 10); numbers sort numerically. Empty cells remain last.
-- Search filters rows across all columns, ignoring case. The row count shows how many rows match, and Reset clears search and restores source order.
-- Choose Comfortable or Compact spacing independently for each table.
-- Long tables scroll inside a bounded panel with sticky column headers. Wide tables scroll horizontally; focus the table region and use the arrow keys.
-- Copy CSV copies the header and currently displayed rows in their current order. Export CSV saves the same data through VS Code's Save dialog, using UTF-8 with a BOM for Unicode compatibility. Quotes, commas, and line breaks are escaped; formula-like text is exported as literal text.
-
-Table controls change the preview view. Search, sort, and spacing choices survive live refreshes and webview restoration when the table's position and column headers stay the same. See `examples/09-interactive-tables.md` to try all controls.
-
-## Reading styles
-
-All styles use local/system font stacks, work offline, and respect the width, font-size, spacing, and appearance controls. Font availability can vary by operating system.
-
-| Style | Character | Intended use |
+| Setting | Default | Options |
 | --- | --- | --- |
-| Documentation | Balanced sans-serif hierarchy | Guides and documentation |
-| Reading | Comfortable Georgia serif text | Long articles |
-| Technical | Compact headings and tables | API notes and references |
-| GitHub | System sans-serif, neutral colors, bordered tables | Familiar README presentation |
-| Editorial | Bold sans-serif headlines, serif prose, warm accents | Magazine-style articles |
-| Book | Palatino-style serif, warm paper, centered chapter headings | Essays and book chapters |
-| Minimal | Quiet sans-serif, restrained colors, generous whitespace | Focused reading and notes |
-| Academic | Cambria-style serif, formal headings, ruled tables | Research and reports |
-| Swiss | Bold geometric headings, crisp red rules, and neutral sans-serif text. | Design documents |
-| Aurora | Purple display headings and soft, rounded sans-serif typography. | Product narratives |
-| Botanical | Olive accents, humanist text, and graceful serif headings. | Thoughtful essays |
-| Noir | Dramatic serif titles, gold accents, and restrained monochrome text. | Portfolios and reviews |
-| Blueprint | Monospaced section labels and structured blue technical panels. | Architecture and specifications |
-| Terracotta | Warm clay colors, generous serif prose, and sculpted headings. | Travel and personal writing |
-| Atelier | Fashion-inspired display serif titles and small uppercase section labels. | Creative briefs |
-| Ocean | Airy sans-serif text, teal heading markers, and cool chart colors. | Guides and tutorials |
-| Manuscript | Classic literary serif typography and chapter-style section ornaments. | Literary essays |
-| Circuit | Precise sans-serif text, monospace headings, and green engineering accents. | Engineering notes |
+| `styledMarkdown.style` | `documentation` | Any of the 18 styles |
+| `styledMarkdown.appearance` | `auto` | `auto`, `light`, `dark` |
+| `styledMarkdown.contentWidth` | `900` | 480–1600 pixels |
+| `styledMarkdown.fontSize` | `16` | 12–24 pixels |
+| `styledMarkdown.lineHeight` | `1.7` | 1.3–2.2 |
+| `styledMarkdown.wrapCode` | `false` | `true` or `false` |
 
-The GitHub preset draws on [Primer typography](https://primer.style/product/getting-started/foundations/typography/). Serif reading presets use traditional book/editorial conventions and the emphasis on font, size, line spacing, and line length described in [Practical Typography](https://practicaltypography.com/body-text.html). These are original presets, not exact reproductions of another product.
+All styles use system fonts; their exact appearance can vary by operating system.
 
-## Extended Markdown
+## Work with tables
 
-Task lists such as `- [ ] Pending` and `- [x] Complete` render as labeled, read-only checkboxes. Edit the Markdown source to change their state.
+- Click a header to cycle through **ascending**, **descending**, and **original order**. Numbers sort numerically, text sorts naturally, and blank cells stay last.
+- Type in **Search** to filter rows across every column. **Reset** clears search and restores source order.
+- Choose **Comfortable** or **Compact** spacing separately for each table.
+- Long tables have sticky headers. Wide tables scroll horizontally; focus the table region to scroll with the keyboard.
+- **Copy CSV** and **Export CSV** include the header and currently visible rows in their current order. Export uses VS Code's Save dialog and UTF-8 with a BOM. Formula-like text is escaped for spreadsheet applications.
 
-Emoji shortcodes such as `:rocket:`, `:smile:`, `:warning:`, `:+1:`, and `:white_check_mark:` render as native Unicode emoji. Unknown shortcodes and shortcodes inside code blocks/spans stay literal. ASCII faces such as `:)` are not automatically converted.
+Table search, sort, and spacing survive live updates when the table's position and column headers stay the same.
 
-Footnotes (`[^note]`), definition lists (`Term` followed by `: Definition`), `==highlights==`, `H~2~O`, and `x^2^` are supported. GitHub-style callouts start a blockquote with a standalone `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, or `[!CAUTION]` line. See `examples/07-styles-and-extended-markdown.md` for a compact showcase.
+## Write rich Markdown
 
-## Development
+Add a Mermaid diagram using a fenced block:
 
-```sh
-npm run check
-npm run build
-npm test
+````markdown
+```mermaid
+flowchart LR
+  Write --> Preview --> Refine
+```
+````
+
+Task lists (`- [ ]` and `- [x]`) display read-only checkboxes. Change their state in the source. Emoji such as `:rocket:` and `:white_check_mark:` work in prose; code keeps its literal text.
+
+Use `==highlighted text==`, `H~2~O`, `x^2^`, and footnotes (`[^note]`). For a callout:
+
+```markdown
+> [!TIP]
+> Choose Reading or Book for longer articles.
 ```
 
-`npm run watch` rebuilds JavaScript changes. CSS is copied during build; rerun build after CSS changes, and reopen the preview after changing webview assets. F5 builds automatically.
+Supported callouts: **Note**, **Tip**, **Important**, **Warning**, and **Caution**. Raw HTML is shown as text; scripts in Markdown are not executed.
 
-`npm run dev:preview` opens a browser QA server at `http://127.0.0.1:4173`. This harness uses the same rendering assets and sample document, with a simulated VS Code bridge; it does not test extension-host integration.
+## Current limits
 
-Validation includes renderer and settings regression tests, isolated VS Code extension-host checks of folder settings, and browser QA of styles and rendered content. Run the F5 workflow above to verify behavior in your installation.
+The preview scrolls independently of the source editor. Full-document PDF/HTML export, math typesetting, custom CSS, and editable task checkboxes are not available in this release. CSV table export is supported. Images outside the document's directory are not supported. Preview panels must be reopened after restarting VS Code. Very large files or many diagrams may take longer to render.
 
-## Install in your regular VS Code
+## License
 
-Run `npm run package`, then select **Extensions: Install from VSIX...** in VS Code and choose the generated `.vsix` file. No Marketplace account is required for local installation.
+Markdown Lens is available under the [MIT License](LICENSE).
 
-Before publishing, replace the placeholder `publisher` in `package.json` with your registered Marketplace publisher ID, add repository metadata and screenshots, review dependency licenses, and test the packaged extension. This project has not been published.
-
-## Initial version limitations
-
-The preview retains its own scroll position but does not synchronize scrolling with the source editor. There is no export, math typesetting, task checkbox interaction, or custom CSS support yet. Remote images require HTTPS and a network connection. Parent-directory images outside the document resource root are not supported. Closing the preview requires reopening it; panels are not restored across window restarts. Large documents and many diagrams may take longer to render.
+[Developer documentation and release instructions](DEVELOPMENT.md)
