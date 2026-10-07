@@ -1,6 +1,6 @@
 # Make room for good ideas :sparkles:
 
-One document, eight ways to read. Try **GitHub** for familiar documentation, **Editorial** for bold headlines, **Book** for warm serif reading, **Minimal** for quiet notes, and **Academic** for formal reports.
+One document, eighteen ways to read. Try **GitHub** for familiar documentation, **Editorial** for bold headlines, **Book** for warm serif reading, **Minimal** for quiet notes, and **Academic** for formal reports.
 
 Good typography helps you follow an idea from its first sentence to its last. Change the style without losing your place, then adjust width and spacing to suit your screen. Every preset has both light and dark colors and uses fonts available locally.
 

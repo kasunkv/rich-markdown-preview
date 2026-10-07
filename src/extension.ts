@@ -70,6 +70,22 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
         if (message.type === 'copy' && typeof message.text === 'string') await vscode.env.clipboard.writeText(message.text);
+        if (['tableCopy', 'tableExport'].includes(message.type) && typeof message.text === 'string') {
+          try {
+            if (message.type === 'tableCopy') await vscode.env.clipboard.writeText(message.text);
+            else {
+              const filename = typeof message.filename === 'string' && /^table-\d+\.csv$/.test(message.filename) ? message.filename : 'table.csv';
+              const destination = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.joinPath(directory, filename), filters: { 'CSV files': ['csv'] }, saveLabel: 'Export CSV' });
+              if (!destination) { void webview.postMessage({ type: 'tableActionResult', action: message.type, cancelled: true }); return; }
+              await vscode.workspace.fs.writeFile(destination, Buffer.from('\uFEFF' + message.text, 'utf8'));
+            }
+            void webview.postMessage({ type: 'tableActionResult', action: message.type, success: true });
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            void vscode.window.showWarningMessage(`Table action failed: ${detail}`);
+            void webview.postMessage({ type: 'tableActionResult', action: message.type, success: false, error: detail });
+          }
+        }
         if (message.type === 'link' && typeof message.href === 'string') {
           const href = message.href;
           if (/^https?:|^mailto:/i.test(href)) { await vscode.env.openExternal(vscode.Uri.parse(href)); }

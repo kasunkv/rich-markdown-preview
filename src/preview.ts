@@ -1,7 +1,8 @@
 import mermaid from 'mermaid';
 import type { OutlineItem } from './render';
 import { previewStyles } from './styles';
-declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): { scroll?: number } | undefined; setState(state: unknown): void };
+import { enhanceTables, type TableState } from './tables';
+declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): { scroll?: number; tables?: TableState } | undefined; setState(state: unknown): void };
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app')!;
 app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><span class="brand-icon">M↓</span><span>Styled Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="style" aria-label="Style">${previewStyles.map(style => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="width-value"></output><input id="contentWidth" aria-label="Content width" type="range" min="480" max="1600" step="20"></label><label>Text<select id="fontSize" aria-label="Text size">${[12,14,16,18,20,22,24].map(n => `<option value="${n}">${n}px</option>`).join('')}</select></label><label>Spacing<select id="lineHeight" aria-label="Line spacing">${[1.3,1.5,1.7,1.9,2.2].map(n => `<option value="${n}">${n}</option>`).join('')}</select></label><label class="checkbox"><input id="wrapCode" type="checkbox">Wrap code</label><button id="toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="outline"></nav></aside><main id="content" class="markdown" aria-label="Markdown preview"></main></div><div id="announcement" class="sr-only" aria-live="polite"></div>`;
@@ -14,11 +15,14 @@ interface Preferences { style: string; appearance: string; contentWidth: number;
 let currentPreferences: Preferences = { style: 'documentation', appearance: 'auto', contentWidth: 900, fontSize: 16, lineHeight: 1.7, wrapCode: false };
 const pendingPreferences = new Map<keyof Preferences, Preferences[keyof Preferences]>();
 let diagramSources = new WeakMap<HTMLElement, string>();
+let tableState: TableState = vscode.getState()?.tables ?? {};
+function saveState() { vscode.setState({ scroll: window.scrollY, tables: tableState }); }
 function isDark() {
   return document.body.dataset.appearance === 'dark' || (document.body.dataset.appearance === 'auto' && (document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')));
 }
 function applyPreferences(settings: Preferences, refreshDiagrams = true) {
   const previousDark = isDark();
+  const previousStyle = currentPreferences.style;
   currentPreferences = settings;
   document.body.dataset.style = settings.style;
   document.body.dataset.appearance = settings.appearance;
@@ -32,7 +36,7 @@ function applyPreferences(settings: Preferences, refreshDiagrams = true) {
     else control.value = String(value);
   }
   document.getElementById('width-value')!.textContent = `${settings.contentWidth}px`;
-  if (refreshDiagrams && previousDark !== isDark()) void diagrams(++revision);
+  if (refreshDiagrams && (previousDark !== isDark() || previousStyle !== settings.style)) void diagrams(++revision);
 }
 function receivePreferences(saved: Preferences, refreshDiagrams = true) {
   for (const [key, value] of pendingPreferences) { if (saved[key] === value) pendingPreferences.delete(key); }
@@ -41,7 +45,29 @@ function receivePreferences(saved: Preferences, refreshDiagrams = true) {
 function scrollToHeading(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 async function diagrams(version: number) {
   const dark = isDark();
-  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default', suppressErrorRendering: true });
+  const palette = getComputedStyle(document.body);
+  const color = (name: string) => palette.getPropertyValue(name).trim();
+  mermaid.initialize({
+    startOnLoad: false, securityLevel: 'strict', theme: 'base', suppressErrorRendering: true,
+    themeVariables: {
+      darkMode: dark, background: color('--surface'), fontFamily: color('--diagram-font'),
+      primaryColor: color('--code'), primaryTextColor: color('--text'), primaryBorderColor: color('--accent'),
+      secondaryColor: color('--surface'), secondaryTextColor: color('--text'), secondaryBorderColor: color('--border'),
+      tertiaryColor: color('--bg'), tertiaryTextColor: color('--text'), tertiaryBorderColor: color('--border'),
+      lineColor: color('--muted'), textColor: color('--text'), mainBkg: color('--code'),
+      nodeBorder: color('--accent'), clusterBkg: color('--surface'), clusterBorder: color('--border'),
+      edgeLabelBackground: color('--surface'), actorBkg: color('--code'), actorTextColor: color('--text'),
+      actorBorder: color('--accent'), actorLineColor: color('--muted'), signalColor: color('--text'),
+      signalTextColor: color('--text'), labelBoxBkgColor: color('--surface'), labelTextColor: color('--text'),
+      pie1: color('--accent'), pie2: color('--syntax-string'), pie3: color('--syntax-keyword'),
+      pie4: color('--syntax-number'), pie5: color('--muted'), pie6: color('--border'),
+      pieSectionTextColor: color('--surface'), pieTitleTextColor: color('--text'), pieLegendTextColor: color('--text'),
+      xyChart: { backgroundColor: color('--surface'), titleColor: color('--text'),
+        xAxisLabelColor: color('--text'), xAxisTitleColor: color('--text'), xAxisLineColor: color('--muted'),
+        yAxisLabelColor: color('--text'), yAxisTitleColor: color('--text'), yAxisLineColor: color('--muted'),
+        plotColorPalette: [color('--accent'), color('--syntax-string'), color('--syntax-keyword')].join(',') }
+    }
+  });
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) {
     if (version !== revision) return;
     const text = diagramSources.get(figure);
@@ -63,6 +89,10 @@ async function diagrams(version: number) {
 }
 window.addEventListener('message', event => {
   const message = event.data;
+  if (message.type === 'tableActionResult') {
+    document.getElementById('announcement')!.textContent = message.cancelled ? 'CSV export cancelled' : message.success ? (message.action === 'tableCopy' ? 'Table CSV copied' : 'Table CSV exported') : `Table action failed: ${message.error ?? 'Please try again'}`;
+    return;
+  }
   if (message.type === 'preferences') { receivePreferences(message.preferences); return; }
   if (message.type !== 'render') return;
   const scroll = restored ? window.scrollY : vscode.getState()?.scroll ?? 0;
@@ -70,6 +100,10 @@ window.addEventListener('message', event => {
   const version = ++revision;
   receivePreferences(message.preferences, false);
   content.innerHTML = message.html || '<div class="empty"><h1>Your next idea starts here.</h1><p>Start writing Markdown to see your document take shape.</p></div>';
+  tableState = enhanceTables(content, tableState, action => {
+    document.getElementById('announcement')!.textContent = action.type === 'tableCopy' ? 'Copying table CSV…' : 'Choose where to save the CSV file';
+    vscode.postMessage(action);
+  }, state => { tableState = state; saveState(); });
   diagramSources = new WeakMap();
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) { diagramSources.set(figure, figure.querySelector('.mermaid-source')?.textContent ?? ''); }
   outline.replaceChildren();
@@ -103,5 +137,5 @@ content.addEventListener('click', event => {
   const link = element.closest<HTMLAnchorElement>('a');
   if (link) { event.preventDefault(); const href = link.getAttribute('href') ?? ''; if (href.startsWith('#')) { try { scrollToHeading(decodeURIComponent(href.slice(1))); } catch {} } else vscode.postMessage({ type: 'link', href }); }
 });
-window.addEventListener('scroll', () => vscode.setState({ scroll: window.scrollY }), { passive: true });
+window.addEventListener('scroll', saveState, { passive: true });
 vscode.postMessage({ type: 'ready' });

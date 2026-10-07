@@ -5,7 +5,8 @@ await copyFile('src/preview.css', 'dist/preview.css');
 const builds = [
   { entryPoints: ['src/extension.ts'], outfile: 'dist/extension.js', platform: 'node', format: 'cjs', external: ['vscode'] },
   { entryPoints: ['src/preview.ts'], outfile: 'dist/preview.js', platform: 'browser', format: 'iife' },
-  { entryPoints: ['src/render.ts'], outfile: 'dist/render.cjs', platform: 'node', format: 'cjs' }
+  { entryPoints: ['src/render.ts'], outfile: 'dist/render.cjs', platform: 'node', format: 'cjs' },
+  { entryPoints: ['src/tables.ts'], outfile: 'dist/tables.cjs', platform: 'node', format: 'cjs' }
 ];
 for (const options of builds) {
   const config = { ...options, bundle: true, minify: true, sourcemap: false, logLevel: 'info' };

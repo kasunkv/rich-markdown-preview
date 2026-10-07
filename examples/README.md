@@ -13,14 +13,16 @@ For browser-only visual QA after `npm run build`, run `node tests/preview-server
 | [Diagrams](04-diagrams.md) | Nine Mermaid diagram types and one intentional syntax error |
 | [Links and images](05-links-and-images.md) | Relative resources, filenames with spaces, references, anchors, and broken resources |
 | [Edge cases and extensions](06-edge-cases-and-extensions.md) | Invalid syntax, safe HTML handling, and unsupported extended Markdown |
-| [Styles and extended Markdown](07-styles-and-extended-markdown.md) | Eight styles, task checkboxes, emoji, footnotes, and callouts |
+| [Styles and extended Markdown](07-styles-and-extended-markdown.md) | Eighteen styles, task checkboxes, emoji, footnotes, and callouts |
+| [Style gallery](08-style-gallery.md) | Heading typography, code frames, and coordinated charts |
+| [Interactive tables](09-interactive-tables.md) | Sorting, filters, spacing, sticky headers, and CSV copy/export |
 | [Linked note](assets/linked%20note.md) | Local-link navigation target |
 
 There is no single Markdown dialect containing every extension. The master file covers core/CommonMark constructs, this renderer's built-in table/strikethrough features, Mermaid, and common optional syntax. Unsupported syntax is included as a future-feature test and should remain readable rather than crash the preview.
 
 ## Manual test checklist
 
-1. Switch through all eight styles. Check heading sizes, paragraph spacing, quotes, lists, checkboxes, and tables.
+1. Switch through all eighteen styles. Check heading sizes, paragraph spacing, quotes, lists, checkboxes, and tables.
 2. Switch Light, Dark, and Auto. Check code contrast and diagram colors. Auto follows the editor's appearance.
 3. Drag width between 480px and 1600px. Content should resize immediately; wide code and tables should scroll inside their own blocks.
 4. Change text size and line spacing. Verify that list nesting and table cells stay readable.

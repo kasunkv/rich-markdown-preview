@@ -2,7 +2,7 @@
   "name": "styled-markdown-preview",
   "displayName": "Styled Markdown Preview",
   "description": "A readable Markdown preview with selectable styles, reading controls, code highlighting, and Mermaid diagrams.",
-  "version": "0.2.1",
+  "version": "0.4.0",
   "publisher": "local-development",
   "license": "MIT",
   "engines": {
@@ -57,7 +57,17 @@
             "editorial",
             "book",
             "minimal",
-            "academic"
+            "academic",
+            "swiss",
+            "aurora",
+            "botanical",
+            "noir",
+            "blueprint",
+            "terracotta",
+            "atelier",
+            "ocean",
+            "manuscript",
+            "circuit"
           ],
           "default": "documentation",
           "enumDescriptions": [
@@ -68,7 +78,17 @@
             "Magazine-style serif prose and bold headlines.",
             "Warm book-inspired pages and classic serif text.",
             "Quiet sans-serif typography and generous whitespace.",
-            "Formal serif typography for research and reports."
+            "Formal serif typography for research and reports.",
+            "Bold geometric headings, crisp red rules, and neutral sans-serif text.",
+            "Purple display headings and soft, rounded sans-serif typography.",
+            "Olive accents, humanist text, and graceful serif headings.",
+            "Dramatic serif titles, gold accents, and restrained monochrome text.",
+            "Monospaced section labels and structured blue technical panels.",
+            "Warm clay colors, generous serif prose, and sculpted headings.",
+            "Fashion-inspired display serif titles and small uppercase section labels.",
+            "Airy sans-serif text, teal heading markers, and cool chart colors.",
+            "Classic literary serif typography and chapter-style section ornaments.",
+            "Precise sans-serif text, monospace headings, and green engineering accents."
           ],
           "description": "Preview typography and layout style."
         },
@@ -120,7 +140,7 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "check": "tsc --noEmit",
-    "test": "node --test tests/render.test.cjs tests/settings.test.cjs",
+    "test": "node --test tests/render.test.cjs tests/settings.test.cjs tests/tables.test.cjs",
     "dev:preview": "npm run build && node tests/preview-server.cjs",
     "vscode:prepublish": "npm run check && npm run build",
     "package": "vsce package --allow-missing-repository"

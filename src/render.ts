@@ -15,6 +15,13 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
     .use(taskLists, { enabled: false, label: true })
     .use(footnotes).use(definitionLists).use(mark).use(subscript).use(superscript);
   md.renderer.rules.emoji = (tokens, index) => `<span class="emoji" role="img" aria-label="${md.utils.escapeHtml(tokens[index].markup.replace(/_/g, ' '))}">${md.utils.escapeHtml(tokens[index].content)}</span>`;
+  md.renderer.rules.table_open = (tokens, index, options, env, renderer) =>
+    '<div class="table-scroll" role="region" aria-label="Table; scroll horizontally to view more columns" tabindex="0">' + renderer.renderToken(tokens, index, options);
+  md.renderer.rules.table_close = (tokens, index, options, env, renderer) => renderer.renderToken(tokens, index, options) + '</div>\n';
+  md.renderer.rules.th_open = (tokens, index, options, env, renderer) => {
+    tokens[index].attrSet('scope', 'col');
+    return renderer.renderToken(tokens, index, options);
+  };
   const callouts: Record<string, { label: string; icon: string }> = {
     NOTE: { label: 'Note', icon: 'ⓘ' }, TIP: { label: 'Tip', icon: '✦' },
     IMPORTANT: { label: 'Important', icon: '◆' }, WARNING: { label: 'Warning', icon: '⚠' }, CAUTION: { label: 'Caution', icon: '!' }

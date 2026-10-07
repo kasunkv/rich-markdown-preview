@@ -9,6 +9,17 @@ test('escapes raw HTML and rejects executable links', () => {
   const { html } = renderMarkdown('<script>alert(1)</script>\n\n[x](javascript:alert(1))\n\n```unknown\n<img onerror="alert(1)">\n```');
   assert.doesNotMatch(html, /<script>|<img|href="javascript:/); assert.match(html, /&lt;script&gt;/); assert.match(html, /&lt;img/);
 });
+
+test('tables retain alignment, column header semantics, and keyboard scroll regions inside lists', () => {
+  const { html } = renderMarkdown('- Comparison:\n\n  | Left | Center | Right |\n  | :--- | :---: | ---: |\n  | **Alpha** | `Beta` | 2000 |');
+  assert.match(html, /<li>[\s\S]*<div class="table-scroll" role="region"[^>]*tabindex="0"><table>/);
+  assert.match(html, /<th style="text-align:left" scope="col">Left/);
+  assert.match(html, /<th style="text-align:center" scope="col">Center/);
+  assert.match(html, /<td style="text-align:right">2000/);
+  assert.match(html, /<strong>Alpha<\/strong>/);
+  assert.match(html, /<code>Beta<\/code>/);
+  assert.match(html, /<\/table>\s*<\/div>\s*<\/li>/);
+});
 test('uses unique heading anchors and resolves local image resources', () => {
   const result = renderMarkdown('# Hello\n## Hello\n\n![demo](images/demo.png)', src => `safe-resource/${src}`);
   assert.deepEqual(result.outline.map(h => h.id), ['hello', 'hello-1']); assert.match(result.html, /src="safe-resource\/images\/demo.png"/);

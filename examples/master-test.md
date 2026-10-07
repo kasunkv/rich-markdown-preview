@@ -279,7 +279,7 @@ https://example.com/documents/markdown-preview/technical/reference/long-path/ano
 | ID | Name | Owner | Date | Status | Environment | Long description | Reference |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | TEST-001 | Markdown readability | Documentation | 2026-10-07 | Ready | Local | This long sentence tests how the preview handles many columns and content that should wrap or scroll in a narrow editor. | `markdown/preview/documentation/readability/test-001` |
-| TEST-002 | Diagram visualization | Engineering | 2026-10-08 | Review | Workspace | Compare this row across all eight styles and both appearances. | `markdown/preview/technical/diagram/test-002` |
+| TEST-002 | Diagram visualization | Engineering | 2026-10-08 | Review | Workspace | Compare this row across all eighteen styles and both appearances. | `markdown/preview/technical/diagram/test-002` |
 
 ### Table without outside pipes
 

@@ -1,6 +1,6 @@
 # Styled Markdown Preview
 
-A local-first VS Code extension with eight reading styles, live updates, syntax-highlighted code, Mermaid diagrams, and configurable typography.
+A local-first VS Code extension with eighteen reading styles, live updates, syntax-highlighted code, Mermaid diagrams, and configurable typography.
 
 Browser QA screenshots are included in the `docs` folder.
 
@@ -16,20 +16,34 @@ For broader testing, open `examples/master-test.md`. The `examples` folder also 
 
 Use the preview toolbar to choose a style and appearance, adjust width/font size/line spacing, wrap code, or hide the heading outline. Settings save at workspace-folder scope when a file belongs to a workspace, otherwise globally. Auto appearance follows the VS Code theme.
 
-Reading controls apply instantly. The width slider resizes the content while you drag, then saves when you release it. Changing layout does not rebuild the Markdown or diagrams; changing light/dark appearance refreshes diagram colors while keeping the document in place.
+Reading controls apply instantly. The width slider resizes the content while you drag, then saves when you release it. Changing layout does not rebuild the Markdown or diagrams; changing style or light/dark appearance refreshes diagram colors while keeping the document in place.
 
 If settings cannot be saved (for example, an invalid or read-only settings file), the selected appearance stays active in the current preview. A warning includes the actual save error; unsaved changes last until the preview closes.
 
+Code text keeps a transparent background. Each style coordinates syntax colors, code panels, and locally rendered Mermaid diagrams and charts. See `examples/08-style-gallery.md` for a typography and visualization showcase.
+
 ## Included
 
-- Documentation, Reading, Technical, GitHub, Editorial, Book, Minimal, and Academic styles; light/dark/automatic appearance.
+- Eighteen reading styles, including Swiss, Aurora, Botanical, Noir, Blueprint, Terracotta, Atelier, Ocean, Manuscript, and Circuit; light/dark/automatic appearance.
 - Live preview while typing, with debounced updates and scroll position retention.
 - Syntax highlighting, language labels, and code copy buttons.
 - Mermaid flowcharts and sequence diagrams, rendered locally without a CDN.
-- Tables, blockquotes, lists, links, images, and heading navigation.
+- Tables with contrasting accent headers, alternating rows, sticky headers, sortable columns, search, spacing controls, and CSV copy/export; blockquotes, lists, links, images, and heading navigation.
 - Read-only task-list checkboxes, emoji shortcodes, footnotes, definition lists, highlighted text, subscript/superscript, and GitHub-style Note/Tip/Important/Warning/Caution callouts.
 - Relative images within the Markdown file's directory; local links open in VS Code.
 - Raw HTML is displayed as text; document scripts are never executed.
+
+## Interactive tables
+
+Each table has its own controls, in all eighteen styles and both appearances:
+
+- Click a column header to cycle through ascending, descending, and original document order. Text sorts naturally (Item 2 before Item 10); numbers sort numerically. Empty cells remain last.
+- Search filters rows across all columns, ignoring case. The row count shows how many rows match, and Reset clears search and restores source order.
+- Choose Comfortable or Compact spacing independently for each table.
+- Long tables scroll inside a bounded panel with sticky column headers. Wide tables scroll horizontally; focus the table region and use the arrow keys.
+- Copy CSV copies the header and currently displayed rows in their current order. Export CSV saves the same data through VS Code's Save dialog, using UTF-8 with a BOM for Unicode compatibility. Quotes, commas, and line breaks are escaped; formula-like text is exported as literal text.
+
+Table controls change the preview view. Search, sort, and spacing choices survive live refreshes and webview restoration when the table's position and column headers stay the same. See `examples/09-interactive-tables.md` to try all controls.
 
 ## Reading styles
 
@@ -45,6 +59,16 @@ All styles use local/system font stacks, work offline, and respect the width, fo
 | Book | Palatino-style serif, warm paper, centered chapter headings | Essays and book chapters |
 | Minimal | Quiet sans-serif, restrained colors, generous whitespace | Focused reading and notes |
 | Academic | Cambria-style serif, formal headings, ruled tables | Research and reports |
+| Swiss | Bold geometric headings, crisp red rules, and neutral sans-serif text. | Design documents |
+| Aurora | Purple display headings and soft, rounded sans-serif typography. | Product narratives |
+| Botanical | Olive accents, humanist text, and graceful serif headings. | Thoughtful essays |
+| Noir | Dramatic serif titles, gold accents, and restrained monochrome text. | Portfolios and reviews |
+| Blueprint | Monospaced section labels and structured blue technical panels. | Architecture and specifications |
+| Terracotta | Warm clay colors, generous serif prose, and sculpted headings. | Travel and personal writing |
+| Atelier | Fashion-inspired display serif titles and small uppercase section labels. | Creative briefs |
+| Ocean | Airy sans-serif text, teal heading markers, and cool chart colors. | Guides and tutorials |
+| Manuscript | Classic literary serif typography and chapter-style section ornaments. | Literary essays |
+| Circuit | Precise sans-serif text, monospace headings, and green engineering accents. | Engineering notes |
 
 The GitHub preset draws on [Primer typography](https://primer.style/product/getting-started/foundations/typography/). Serif reading presets use traditional book/editorial conventions and the emphasis on font, size, line spacing, and line length described in [Practical Typography](https://practicaltypography.com/body-text.html). These are original presets, not exact reproductions of another product.
 

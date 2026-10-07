@@ -8,11 +8,18 @@ const fixturePath = path.resolve(root, process.argv[2] ?? 'samples/showcase.md')
 const result = renderMarkdown(fs.readFileSync(fixturePath, 'utf8'));
 const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/preview.css"><title>Styled Markdown Preview — browser QA</title></head><body><div id="app"></div><script>
 let preferences={style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
-let state;
-function acquireVsCodeApi(){return {getState:()=>state,setState:s=>state=s,postMessage:async m=>{
+let state=JSON.parse(sessionStorage.getItem('preview-state')??'null');
+function acquireVsCodeApi(){return {getState:()=>state,setState:s=>{state=s;sessionStorage.setItem('preview-state',JSON.stringify(s));},postMessage:async m=>{
 if(m.type==='ready'){const result=await (await fetch('/document')).json();window.dispatchEvent(new MessageEvent('message',{data:{type:'render',...result,preferences}}));}
 if(m.type==='preference'){preferences[m.key]=m.value;window.dispatchEvent(new MessageEvent('message',{data:{type:'preferences',preferences}}));}
 if(m.type==='copy')await navigator.clipboard.writeText(m.text);
+if(m.type==='tableCopy'||m.type==='tableExport'){
+try {
+if(m.type==='tableCopy')await navigator.clipboard.writeText(m.text);
+else {const url=URL.createObjectURL(new Blob(['\\uFEFF'+m.text],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download=m.filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+window.dispatchEvent(new MessageEvent('message',{data:{type:'tableActionResult',action:m.type,success:true}}));
+}catch(error){window.dispatchEvent(new MessageEvent('message',{data:{type:'tableActionResult',action:m.type,success:false,error:String(error)}}));}
+}
 }}}
 </script><script src="/preview.js"></script></body></html>`;
 http.createServer((req, res) => {

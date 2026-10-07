@@ -7,6 +7,7 @@ node_modules/**
 samples/**
 examples/**
 dist/render.cjs
+dist/tables.cjs
 tsconfig.json
 build.mjs
 package-lock.json
