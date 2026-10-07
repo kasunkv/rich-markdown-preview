@@ -1,10 +1,10 @@
-# Developing Markdown Lens
+# Developing Rich Markdown Preview
 
-Package: `markdown-lens`. Display name: **Markdown Lens - A Styled Markdown Preview**. Publisher ID: `kasunkodagoda`. The command is `markdownLens.openPreview`, settings use `markdownLens.*`, and the webview type is `markdownLens.preview`. Legacy `styledMarkdown.*` settings are read only as a fallback when the corresponding new setting is not explicitly configured. Toolbar changes save to the new namespace. The old preview command remains an unlisted compatibility alias for existing keybindings.
+Package: `rich-markdown-preview`. Display name: **Rich Markdown Preview - A Styled Markdown Preview**. Publisher ID: `kasunkodagoda`. The command is `richMarkdownPreview.openPreview`, settings use `richMarkdownPreview.*`, and the webview type is `richMarkdownPreview.preview`. Legacy `markdownLens.*` and `styledMarkdown.*` settings are read only as a fallback when the corresponding new setting is not explicitly configured. Toolbar changes save to the new namespace. Both old preview commands remain unlisted compatibility aliases for existing keybindings.
 
 ## Local setup
 
-Use Node.js 22 or newer. Run `npm ci`, open this repository in VS Code, and press **F5** to build and launch an Extension Development Host. Open `samples/showcase.md` and run **Open in Markdown Lens**.
+Use Node.js 22 or newer. Run `npm ci`, open this repository in VS Code, and press **F5** to build and launch an Extension Development Host. Open `samples/showcase.md` and run **Open in Rich Markdown Preview**.
 
 ```sh
 npm run check
@@ -51,20 +51,28 @@ Raw HTML is disabled. The webview uses a nonce-based script CSP and Mermaid uses
 
 ## Logo
 
-`assets/markdown-lens.png` is the shared icon for the Marketplace, Extensions list, panel tab, and preview toolbar. It was generated with the built-in imagegen tool using this prompt:
+`assets/rich-markdown-preview.png` is the shared icon for the Marketplace, Extensions list, panel tab, and preview toolbar. It was generated with the built-in imagegen tool using this prompt:
 
-> Production square VS Code extension icon for Markdown Lens: a white folded Markdown document with a bold M and downward arrow, overlapped by a green magnifying lens; dark green rounded square, primary #1c7819 green and lighter/darker shades of the same hue, generous margins, clean geometry, readable at 48 pixels; no wordmark, watermark, or mockup.
+> Production square VS Code extension icon for Rich Markdown Preview: a white folded Markdown document with a bold M and downward arrow, overlapped by a green magnifying lens; dark green rounded square, primary #1c7819 green and lighter/darker shades of the same hue, generous margins, clean geometry, readable at 48 pixels; no wordmark, watermark, or mockup.
 
 The user-supplied corrected PNG is preserved in `assets/logo-source.png` (excluded from the VSIX); the shared packaged PNG is resized to 256 × 256 pixels while preserving its alpha transparency, including the transparent exterior corners.
 
 ## Release
 
 1. Confirm `package.json.publisher` matches your registered ID (`kasunkodagoda`). Set the Marketplace publisher display name to **Kasun Kodagoda** in the publisher account; the package author already uses that name.
-2. Push the release files, screenshots, and developer documentation to the public `main` branch of https://github.com/kasunkv/markdown-lens. The package links use this repository; VSCE rewrites relative README links to that branch.
+2. Push the release files, screenshots, and developer documentation to the public `master` branch of https://github.com/kasunkv/rich-markdown-preview. The package links use this repository; VSCE rewrites relative README links to that branch.
 3. Run type checking, regressions, browser tests, and the extension-host smoke test. Review screenshots and manually verify native menus and the icon.
 4. Run `npm audit` and review dependency licenses. Runtime dependencies are bundled; source, tests, fixtures, and `node_modules` are excluded from the VSIX. Preserve bundled third-party notices in `THIRD_PARTY_NOTICES.txt`.
 5. Update `CHANGELOG.md` and version, then run `npm run package`. Type checking and regressions run through `vscode:prepublish`.
 6. Install the resulting VSIX in a clean VS Code profile and verify the customer workflow.
 7. Upload it through [Marketplace publisher management](https://marketplace.visualstudio.com/manage), or use authenticated `vsce publish` according to [VS Code publishing documentation](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
 
-Packaging uses the supplied GitHub repository and its `main` branch to resolve README screenshots and documentation. Ensure those files are public before uploading the VSIX.
+Packaging uses the supplied GitHub repository and its `master` branch to resolve README screenshots and documentation. Ensure those files are public before uploading the VSIX.
+
+## Marketplace upload troubleshooting
+
+`npm run package` runs `vscode:prepublish`, which checks types, rebuilds the assets, and runs regression tests. A separate `npm run build` is optional. Upload `rich-markdown-preview-1.0.0.vsix` using **New extension → Visual Studio Code** under publisher `kasunkodagoda`.
+
+The internal package name is `rich-markdown-preview`. The visible name is **Rich Markdown Preview - A Styled Markdown Preview**. Check the current Marketplace for package and display-name collisions before changing either value. A successful local build does not guarantee server-side Marketplace approval.
+
+For opaque upload failures, open the browser developer tools before retrying and inspect the failing upload request's response. Capture the status, error message, and request/correlation ID; do not share cookies or authentication headers. If Marketplace still rejects a valid package, use its **Contact Microsoft** link and include that diagnostic information.

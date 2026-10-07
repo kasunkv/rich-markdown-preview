@@ -6,7 +6,7 @@ const { renderMarkdown } = require('../dist/render.cjs');
 const root = path.join(__dirname, '..');
 const fixturePath = path.resolve(root, process.argv[2] ?? 'samples/showcase.md');
 const result = renderMarkdown(fs.readFileSync(fixturePath, 'utf8'));
-const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/preview.css"><title>Markdown Lens — browser QA</title></head><body><div id="app"></div><script>
+const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/preview.css"><title>Rich Markdown Preview — browser QA</title></head><body><div id="app"></div><script>
 let preferences={style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
 let state=JSON.parse(sessionStorage.getItem('preview-state')??'null');
 function acquireVsCodeApi(){return {getState:()=>state,setState:s=>{state=s;sessionStorage.setItem('preview-state',JSON.stringify(s));},postMessage:async m=>{
@@ -24,7 +24,7 @@ window.dispatchEvent(new MessageEvent('message',{data:{type:'tableActionResult',
 </script><script src="/preview.js"></script></body></html>`;
 http.createServer((req, res) => {
   if (req.url === '/') { res.setHeader('Content-Type','text/html; charset=utf-8'); res.end(page); }
-  else if (req.url === '/markdown-lens.png') { res.setHeader('Content-Type','image/png'); res.end(fs.readFileSync(path.join(root,'assets/markdown-lens.png'))); }
+  else if (req.url === '/rich-markdown-preview.png') { res.setHeader('Content-Type','image/png'); res.end(fs.readFileSync(path.join(root,'assets/rich-markdown-preview.png'))); }
   else if (req.url === '/document') { res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(result)); }
   else if (req.url === '/preview.js' || req.url === '/preview.css') { res.setHeader('Content-Type',req.url.endsWith('.js') ? 'text/javascript' : 'text/css'); res.end(fs.readFileSync(path.join(root,'dist',req.url.slice(1)))); }
   else if (req.url === '/assets/preview-test.svg' && fs.existsSync(path.join(path.dirname(fixturePath), 'assets/preview-test.svg'))) { res.setHeader('Content-Type','image/svg+xml'); res.end(fs.readFileSync(path.join(path.dirname(fixturePath), 'assets/preview-test.svg'))); }

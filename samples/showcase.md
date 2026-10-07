@@ -67,7 +67,7 @@ sequenceDiagram
 ## Everyday Markdown
 
 1. Open a Markdown file.
-2. Right-click and choose **Open in Markdown Lens**.
+2. Right-click and choose **Open in Rich Markdown Preview**.
 3. Keep writing — the preview updates automatically.
 
 - **Strong emphasis**, *gentle emphasis*, and ~~strikethrough~~.

@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const manifest = require('../package.json');
 
-function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', failOpen = false, initial = {}, legacy = {} } = {}) {
+function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', failOpen = false, initial = {}, previous = {}, legacy = {} } = {}) {
   const saved = {...initial};
   const messages = [];
   const warnings = [];
@@ -20,7 +20,7 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     get: (key, fallback) => saved[key] ?? fallback,
     update: async (key, value, target) => {
       writes.push({key, value, target});
-      if (target === 3 && manifest.contributes.configuration.properties[`markdownLens.${key}`].scope !== 'resource') throw new Error('Setting does not support folder scope');
+      if (target === 3 && manifest.contributes.configuration.properties[`richMarkdownPreview.${key}`].scope !== 'resource') throw new Error('Setting does not support folder scope');
       if (failWrites) throw new Error('Settings file is read-only');
       saved[key] = value;
       handlers.configuration?.({affectsConfiguration: () => true});
@@ -43,12 +43,12 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     workspace: {
       fs: {writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
       openTextDocument: async () => {if(failOpen) throw new Error('File unavailable');return document;},
-      getConfiguration: section => section === 'markdownLens' ? configuration : {get:(key, fallback) => legacy[key] ?? fallback},
+      getConfiguration: section => section === 'richMarkdownPreview' ? configuration : {get:(key, fallback) => (section === 'markdownLens' ? previous : legacy)[key] ?? fallback},
       getWorkspaceFolder: () => inWorkspace ? {uri} : undefined,
       onDidChangeTextDocument: handler => {handlers.text = handler;return disposable;},
       onDidChangeConfiguration: handler => {handlers.configuration = handler; return disposable;}
     },
-    commands: {executeCommand: async (command, uri) => opened.push({command,uri:uri.toString()}), registerCommand: (id, handler) => {handlers[id] = handler; if (id === 'markdownLens.openPreview') handlers.command = handler; return disposable;}}
+    commands: {executeCommand: async (command, uri) => opened.push({command,uri:uri.toString()}), registerCommand: (id, handler) => {handlers[id] = handler; if (id === 'richMarkdownPreview.openPreview') handlers.command = handler; return disposable;}}
   };
   const module = {exports: {}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {
@@ -106,13 +106,24 @@ test('legacy settings remain a fallback, new settings take precedence, and write
 
 test('the legacy command alias reuses the branded preview handler', async () => {
   const host=previewHost();
-  await host.handlers['styledMarkdown.openPreview'](); await host.handlers['markdownLens.openPreview']();
+  await host.handlers['styledMarkdown.openPreview'](); await host.handlers['richMarkdownPreview.openPreview']();
   assert.equal(host.counts().created,1); assert.equal(host.counts().revealed,1);
+});
+
+test('Markdown Lens settings precede styledMarkdown fallbacks and Rich Markdown Preview settings override both', async () => {
+  const host=previewHost({initial:{appearance:'light',wrapCode:false},previous:{style:'ocean',appearance:'dark'},legacy:{style:'reading',fontSize:18,wrapCode:true}});
+  await host.handlers.command(); await host.handlers.message({type:'ready'});
+  const prefs=host.messages.at(-1).preferences;
+  assert.equal(prefs.style,'ocean'); assert.equal(prefs.appearance,'light');
+  assert.equal(prefs.fontSize,18); assert.equal(prefs.wrapCode,false);
+  host.handlers.configuration({affectsConfiguration:section=>section==='markdownLens'});
+  assert.equal(host.messages.at(-1).type,'preferences');
+  await host.handlers['markdownLens.openPreview'](); assert.equal(host.counts().revealed,1);
 });
 test('all eighteen styles are accepted and persisted through the preview message handler', async () => {
   const host = previewHost();
   await host.handlers.command();
-  const styles = manifest.contributes.configuration.properties['markdownLens.style'].enum;
+  const styles = manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum;
   assert.equal(styles.length, 18);
   for (const style of styles) {
     await host.handlers.message({type:'preference',key:'style',value:style}); await host.drain();
@@ -211,8 +222,8 @@ test('webview has a restrictive CSP, local roots, branded title and icon', async
   assert.match(host.panel.webview.html, /default-src 'none'/);
   assert.match(host.panel.webview.html, /script-src 'nonce-[a-f0-9]{32}'/);
   assert.doesNotMatch(host.panel.webview.html, /script-src[^;]*unsafe-inline/);
-  assert.match(host.panel.webview.html, /<title>Markdown Lens<\/title>/);
-  assert.match(host.panel.iconPath.toString(), /assets\/markdown-lens.png$/);
+  assert.match(host.panel.webview.html, /<title>Rich Markdown Preview<\/title>/);
+  assert.match(host.panel.iconPath.toString(), /assets\/rich-markdown-preview.png$/);
 });
 
 test('links allow external web/mail and local files while blocking executable schemes', async () => {

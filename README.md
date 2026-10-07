@@ -1,19 +1,19 @@
-# Markdown Lens
+# Rich Markdown Preview
 
 **A Styled Markdown Preview for Visual Studio Code** · by **Kasun Kodagoda**
 
-Turn Markdown into a comfortable reading experience beside your editor. Markdown Lens combines **18 reading styles**, live Markdown preview, syntax highlighting, **Mermaid diagrams**, and interactive tables. Use it for READMEs, documentation, technical notes, articles, and research.
+Turn Markdown into a comfortable reading experience beside your editor. Rich Markdown Preview combines **18 reading styles**, live Markdown preview, syntax highlighting, **Mermaid diagrams**, and interactive tables. Use it for READMEs, documentation, technical notes, articles, and research.
 
-![Markdown Lens preview in Editorial style with light appearance](docs/markdown-lens-light.png)
+![Rich Markdown Preview in Editorial style with light appearance](docs/rich-markdown-preview-light.png)
 
 ## Get started
 
-1. Install **Markdown Lens - A Styled Markdown Preview** from the VS Code Extensions view. Requires VS Code **1.95 or newer**.
+1. Install **Rich Markdown Preview - A Styled Markdown Preview** from the VS Code Extensions view. Requires VS Code **1.95 or newer**.
 2. Open a Markdown file (`.md`).
-3. Right-click in the editor and choose **Open in Markdown Lens**. The preview opens beside your source.
+3. Right-click in the editor and choose **Open in Rich Markdown Preview**. The preview opens beside your source.
 4. Choose a **Style** and **Appearance** in the preview toolbar. Edit your Markdown to see live updates.
 
-You can also right-click a Markdown file in **Explorer**, use the **Open in Markdown Lens** action in the editor title bar, or open the **Command Palette** (`Ctrl+Shift+P` on Windows/Linux, `Cmd+Shift+P` on macOS) and run **Open in Markdown Lens**. Opening the same file again brings its existing preview into view.
+You can also right-click a Markdown file in **Explorer**, use the **Open in Rich Markdown Preview** action in the editor title bar, or open the **Command Palette** (`Ctrl+Shift+P` on Windows/Linux, `Cmd+Shift+P` on macOS) and run **Open in Rich Markdown Preview**. Opening the same file again brings its existing preview into view.
 
 ## Features
 
@@ -29,7 +29,7 @@ You can also right-click a Markdown file in **Explorer**, use the **Open in Mark
 - **Links and images:** Local file links open in VS Code. Relative images load from the document directory; HTTPS images are supported.
 - **Offline rendering:** Styles, syntax highlighting, and Mermaid are bundled. No CDN or account is needed. Remote images and external links use your network connection.
 
-![Markdown Lens preview in Ocean style with dark appearance](docs/markdown-lens-dark.png)
+![Rich Markdown Preview in Ocean style with dark appearance](docs/rich-markdown-preview-dark.png)
 
 ## Make it yours
 
@@ -37,16 +37,16 @@ Use the toolbar to change **Style**, **Appearance**, **Width**, **Text**, **Spac
 
 Reading preferences save for the file's workspace folder, or globally for standalone files. If a settings file cannot be saved, the preview keeps your selection for the current session and shows a warning.
 
-You can also search for **Markdown Lens** in VS Code Settings. The settings use the `markdownLens.*` namespace:
+You can also search for **Rich Markdown Preview** in VS Code Settings. The settings use the `richMarkdownPreview.*` namespace:
 
 | Setting | Default | Options |
 | --- | --- | --- |
-| `markdownLens.style` | `documentation` | Any of the 18 styles |
-| `markdownLens.appearance` | `auto` | `auto`, `light`, `dark` |
-| `markdownLens.contentWidth` | `900` | 480–1600 pixels |
-| `markdownLens.fontSize` | `16` | 12–24 pixels |
-| `markdownLens.lineHeight` | `1.7` | 1.3–2.2 |
-| `markdownLens.wrapCode` | `false` | `true` or `false` |
+| `richMarkdownPreview.style` | `documentation` | Any of the 18 styles |
+| `richMarkdownPreview.appearance` | `auto` | `auto`, `light`, `dark` |
+| `richMarkdownPreview.contentWidth` | `900` | 480–1600 pixels |
+| `richMarkdownPreview.fontSize` | `16` | 12–24 pixels |
+| `richMarkdownPreview.lineHeight` | `1.7` | 1.3–2.2 |
+| `richMarkdownPreview.wrapCode` | `false` | `true` or `false` |
 
 All styles use system fonts; their exact appearance can vary by operating system.
 
@@ -88,6 +88,6 @@ The preview scrolls independently of the source editor. Full-document PDF/HTML e
 
 ## License
 
-Markdown Lens is available under the [MIT License](LICENSE).
+Rich Markdown Preview is available under the [MIT License](LICENSE).
 
 [Developer documentation and release instructions](DEVELOPMENT.md)

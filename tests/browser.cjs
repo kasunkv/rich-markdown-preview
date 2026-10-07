@@ -18,7 +18,7 @@ const manifest = require('../package.json');
     const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
     await page.goto('http://127.0.0.1:4173');
     await page.locator('.mermaid-result').first().waitFor();
-    assert.equal(await page.locator('.brand').innerText(), 'Markdown Lens\nPREVIEW');
+    assert.equal(await page.locator('.brand').innerText(), 'Rich Markdown\nPREVIEW');
     assert.equal(await page.locator('#style option').count(), 18);
     assert.equal(await page.locator('.brand-icon').evaluate(img => img.complete && img.naturalWidth > 0), true);
     checks.push('Brand, icon, eighteen styles, and real Mermaid rendering');
@@ -29,7 +29,7 @@ const manifest = require('../package.json');
       await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences});
     };
     for (const appearance of ['light','dark']) {
-      for (const style of manifest.contributes.configuration.properties['markdownLens.style'].enum) {
+      for (const style of manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum) {
         await page.selectOption('#style', style); await page.selectOption('#appearance', appearance);
         await page.waitForFunction(({style,appearance}) => document.body.dataset.style===style && document.body.dataset.appearance===appearance, {style,appearance});
         assert.ok(await page.locator('#content').evaluate(el => getComputedStyle(el).color !== getComputedStyle(document.body).backgroundColor));
@@ -37,9 +37,9 @@ const manifest = require('../package.json');
     }
     checks.push('All 36 style/appearance combinations');
     await page.selectOption('#style','editorial'); await page.selectOption('#appearance','light');
-    fs.mkdirSync('docs',{recursive:true}); await page.screenshot({path:'docs/markdown-lens-light.png'});
+    fs.mkdirSync('docs',{recursive:true}); await page.screenshot({path:'docs/rich-markdown-preview-light.png'});
     await page.selectOption('#style','ocean'); await page.selectOption('#appearance','dark');
-    await page.screenshot({path:'docs/markdown-lens-dark.png'});
+    await page.screenshot({path:'docs/rich-markdown-preview-dark.png'});
 
     await render('| Name | Value |\n| --- | ---: |\n| Item 10 | 10 |\n| Item 2 | 2 |\n| Item 1 | |\n\n| Other |\n| --- |\n| Separate |');
     const table = page.locator('.table-panel').first();

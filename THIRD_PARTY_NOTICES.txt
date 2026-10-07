@@ -1,5 +1,5 @@
 THIRD-PARTY SOFTWARE NOTICES
-Generated from packages included in the Markdown Lens JavaScript bundles.
+Generated from packages included in the Rich Markdown Preview JavaScript bundles.
 
 ========================================================================
 @braintree/sanitize-url 7.1.2

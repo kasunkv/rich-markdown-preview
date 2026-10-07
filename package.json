@@ -1,6 +1,6 @@
 {
-  "name": "markdown-lens",
-  "displayName": "Markdown Lens - A Styled Markdown Preview",
+  "name": "rich-markdown-preview",
+  "displayName": "Rich Markdown Preview - A Styled Markdown Preview",
   "description": "A styled Markdown preview with 18 reading themes, Mermaid diagrams, syntax highlighting, and searchable, sortable tables with CSV export.",
   "version": "1.0.0",
   "publisher": "kasunkodagoda",
@@ -14,43 +14,44 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
+    "onCommand:markdownLens.openPreview",
     "onCommand:styledMarkdown.openPreview"
   ],
   "contributes": {
     "commands": [
       {
-        "command": "markdownLens.openPreview",
-        "title": "Open in Markdown Lens",
+        "command": "richMarkdownPreview.openPreview",
+        "title": "Open in Rich Markdown Preview",
         "icon": "$(preview)"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "markdownLens.openPreview",
+          "command": "richMarkdownPreview.openPreview",
           "when": "editorLangId == markdown",
           "group": "navigation"
         }
       ],
       "editor/context": [
         {
-          "command": "markdownLens.openPreview",
+          "command": "richMarkdownPreview.openPreview",
           "when": "editorLangId == markdown",
           "group": "navigation@20"
         }
       ],
       "explorer/context": [
         {
-          "command": "markdownLens.openPreview",
+          "command": "richMarkdownPreview.openPreview",
           "when": "resourceLangId == markdown && !explorerResourceIsFolder",
           "group": "navigation@20"
         }
       ]
     },
     "configuration": {
-      "title": "Markdown Lens",
+      "title": "Rich Markdown Preview",
       "properties": {
-        "markdownLens.style": {
+        "richMarkdownPreview.style": {
           "type": "string",
           "scope": "resource",
           "enum": [
@@ -96,7 +97,7 @@
           ],
           "description": "Preview typography and layout style."
         },
-        "markdownLens.appearance": {
+        "richMarkdownPreview.appearance": {
           "type": "string",
           "scope": "resource",
           "enum": [
@@ -107,7 +108,7 @@
           "default": "auto",
           "description": "Preview color scheme."
         },
-        "markdownLens.contentWidth": {
+        "richMarkdownPreview.contentWidth": {
           "type": "number",
           "scope": "resource",
           "default": 900,
@@ -115,7 +116,7 @@
           "maximum": 1600,
           "description": "Maximum content width in pixels."
         },
-        "markdownLens.fontSize": {
+        "richMarkdownPreview.fontSize": {
           "type": "number",
           "scope": "resource",
           "default": 16,
@@ -123,7 +124,7 @@
           "maximum": 24,
           "description": "Content font size in pixels."
         },
-        "markdownLens.lineHeight": {
+        "richMarkdownPreview.lineHeight": {
           "type": "number",
           "scope": "resource",
           "default": 1.7,
@@ -131,7 +132,7 @@
           "maximum": 2.2,
           "description": "Content line height."
         },
-        "markdownLens.wrapCode": {
+        "richMarkdownPreview.wrapCode": {
           "type": "boolean",
           "scope": "resource",
           "default": false,
@@ -147,7 +148,7 @@
     "test": "npm run build && node --test tests/*.test.cjs",
     "dev:preview": "npm run build && node tests/preview-server.cjs",
     "vscode:prepublish": "npm run check && npm test",
-    "package": "vsce package --no-dependencies --githubBranch main",
+    "package": "vsce package --no-dependencies --githubBranch master",
     "test:coverage": "npm run build && node --test --experimental-test-coverage tests/*.test.cjs",
     "test:browser": "npm run build && node tests/browser.cjs"
   },
@@ -178,12 +179,12 @@
   "author": {
     "name": "Kasun Kodagoda"
   },
-  "icon": "assets/markdown-lens.png",
+  "icon": "assets/rich-markdown-preview.png",
   "keywords": [
     "markdown",
     "markdown preview",
     "styled markdown",
-    "markdown lens",
+    "rich markdown preview",
     "mermaid",
     "diagrams",
     "syntax highlighting",
@@ -201,10 +202,10 @@
   "qna": "marketplace",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kasunkv/markdown-lens.git"
+    "url": "https://github.com/kasunkv/rich-markdown-preview.git"
   },
-  "homepage": "https://github.com/kasunkv/markdown-lens#readme",
+  "homepage": "https://github.com/kasunkv/rich-markdown-preview#readme",
   "bugs": {
-    "url": "https://github.com/kasunkv/markdown-lens/issues"
+    "url": "https://github.com/kasunkv/rich-markdown-preview/issues"
   }
 }

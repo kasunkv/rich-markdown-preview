@@ -22,7 +22,7 @@ for (const options of builds) {
   }
 }
 if (!process.argv.includes('--watch')) {
-  const notices = ['THIRD-PARTY SOFTWARE NOTICES', 'Generated from packages included in the Markdown Lens JavaScript bundles.'];
+  const notices = ['THIRD-PARTY SOFTWARE NOTICES', 'Generated from packages included in the Rich Markdown Preview JavaScript bundles.'];
   for (const directory of [...bundledPackages].sort()) {
     const manifest = JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'));
     notices.push(`\n${'='.repeat(72)}\n${manifest.name} ${manifest.version}\nLicense: ${JSON.stringify(manifest.license ?? manifest.licenses ?? 'See package notices')}`);

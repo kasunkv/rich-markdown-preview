@@ -15,12 +15,13 @@ function validPreference(setting: unknown, value: unknown): boolean {
   );
 }
 function preferences(uri: vscode.Uri): Preferences {
-  const config = vscode.workspace.getConfiguration('markdownLens', uri);
+  const config = vscode.workspace.getConfiguration('richMarkdownPreview', uri);
+  const previous = vscode.workspace.getConfiguration('markdownLens', uri);
   const legacy = vscode.workspace.getConfiguration('styledMarkdown', uri);
   return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => {
     const inspected = config.inspect(key);
     const configured = inspected && [inspected.globalValue, inspected.workspaceValue, inspected.workspaceFolderValue].some(value => value !== undefined);
-    const value = configured ? config.get(key, fallback) : legacy.get(key, fallback);
+    const value = configured ? config.get(key, fallback) : previous.get(key, legacy.get(key, fallback));
     return [key, validPreference(key, value) ? value : fallback];
   })) as Preferences;
 }
@@ -38,17 +39,17 @@ export function activate(context: vscode.ExtensionContext) {
     const existing = panels.get(key);
     if (existing) { existing.reveal(vscode.ViewColumn.Beside); return; }
     const directory = vscode.Uri.joinPath(document.uri, '..');
-    const panel = vscode.window.createWebviewPanel('markdownLens.preview', `Markdown Lens: ${document.fileName.split(/[\\/]/).pop()}`, vscode.ViewColumn.Beside, {
+    const panel = vscode.window.createWebviewPanel('richMarkdownPreview.preview', `Rich Markdown Preview: ${document.fileName.split(/[\\/]/).pop()}`, vscode.ViewColumn.Beside, {
       enableScripts: true, localResourceRoots: [context.extensionUri, directory]
     });
-    panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'markdown-lens.png');
+    panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png');
     panels.set(key, panel);
     const webview = panel.webview;
     const sessionPreferences: Partial<Preferences> = {};
     const effectivePreferences = () => ({ ...preferences(document.uri), ...sessionPreferences });
     const nonce = randomBytes(16).toString('hex');
     const resource = (file: string) => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', file));
-    webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Markdown Lens</title></head><body><div id="app" data-logo="${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'markdown-lens.png'))}"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
+    webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Rich Markdown Preview</title></head><body><div id="app" data-logo="${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png'))}"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
     const update = () => {
       const result = renderMarkdown(document.getText(), src => {
         if (/^[a-z][a-z\d+.-]*:/i.test(src) || src.startsWith('//')) return src;
@@ -62,7 +63,7 @@ export function activate(context: vscode.ExtensionContext) {
     const disposables = [
       vscode.workspace.onDidChangeTextDocument(event => { if (event.document.uri.toString() === key) { clearTimeout(timer); timer = setTimeout(update, 180); } }),
       vscode.workspace.onDidChangeConfiguration(event => {
-        if (event.affectsConfiguration('markdownLens', document.uri) || event.affectsConfiguration('styledMarkdown', document.uri)) updatePreferences();
+        if (['richMarkdownPreview', 'markdownLens', 'styledMarkdown'].some(section => event.affectsConfiguration(section, document.uri))) updatePreferences();
       }),
       panel.onDidChangeViewState(() => { if (panel.visible) update(); }),
       webview.onDidReceiveMessage(async message => {
@@ -74,7 +75,7 @@ export function activate(context: vscode.ExtensionContext) {
             const preferenceKey = setting as keyof Preferences;
             Object.assign(sessionPreferences, { [preferenceKey]: value });
             preferenceWrites = preferenceWrites.then(async () => {
-              await vscode.workspace.getConfiguration('markdownLens', document.uri).update(setting, value, vscode.workspace.getWorkspaceFolder(document.uri) ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Global);
+              await vscode.workspace.getConfiguration('richMarkdownPreview', document.uri).update(setting, value, vscode.workspace.getWorkspaceFolder(document.uri) ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Global);
               if (sessionPreferences[preferenceKey] === value) delete sessionPreferences[preferenceKey];
               updatePreferences();
             }).catch(error => {
@@ -120,6 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(panel);
   };
   context.subscriptions.push(
+    vscode.commands.registerCommand('richMarkdownPreview.openPreview', openPreview),
     vscode.commands.registerCommand('markdownLens.openPreview', openPreview),
     vscode.commands.registerCommand('styledMarkdown.openPreview', openPreview)
   );
