@@ -60,8 +60,10 @@ async function diagrams(version: number) {
       actorBorder: color('--accent'), actorLineColor: color('--muted'), signalColor: color('--text'),
       signalTextColor: color('--text'), labelBoxBkgColor: color('--surface'), labelTextColor: color('--text'),
       pie1: color('--accent'), pie2: color('--syntax-string'), pie3: color('--syntax-keyword'),
-      pie4: color('--syntax-number'), pie5: color('--muted'), pie6: color('--border'),
+      pie4: color('--syntax-number'), pie5: color('--muted'), pie6: color(dark ? '--border' : '--text'),
       pieSectionTextColor: color('--surface'), pieTitleTextColor: color('--text'), pieLegendTextColor: color('--text'),
+      // Translucent slices wash out the light labels against a pale diagram surface.
+      ...(!dark ? { pieOpacity: 1 } : {}),
       xyChart: { backgroundColor: color('--surface'), titleColor: color('--text'),
         xAxisLabelColor: color('--text'), xAxisTitleColor: color('--text'), xAxisLineColor: color('--muted'),
         yAxisLabelColor: color('--text'), yAxisTitleColor: color('--text'), yAxisLineColor: color('--muted'),

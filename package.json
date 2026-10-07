@@ -2,7 +2,7 @@
   "name": "styled-markdown-preview",
   "displayName": "Styled Markdown Preview",
   "description": "A readable Markdown preview with selectable styles, reading controls, code highlighting, and Mermaid diagrams.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "local-development",
   "license": "MIT",
   "engines": {
@@ -140,7 +140,7 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "check": "tsc --noEmit",
-    "test": "node --test tests/render.test.cjs tests/settings.test.cjs tests/tables.test.cjs",
+    "test": "node --test tests/render.test.cjs tests/settings.test.cjs tests/tables.test.cjs tests/themes.test.cjs",
     "dev:preview": "npm run build && node tests/preview-server.cjs",
     "vscode:prepublish": "npm run check && npm run build",
     "package": "vsce package --allow-missing-repository"
