@@ -15,15 +15,18 @@ function validPreference(setting: unknown, value: unknown): boolean {
   );
 }
 function preferences(uri: vscode.Uri): Preferences {
-  const config = vscode.workspace.getConfiguration('styledMarkdown', uri);
+  const config = vscode.workspace.getConfiguration('markdownLens', uri);
+  const legacy = vscode.workspace.getConfiguration('styledMarkdown', uri);
   return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => {
-    const value = config.get(key, fallback);
+    const inspected = config.inspect(key);
+    const configured = inspected && [inspected.globalValue, inspected.workspaceValue, inspected.workspaceFolderValue].some(value => value !== undefined);
+    const value = configured ? config.get(key, fallback) : legacy.get(key, fallback);
     return [key, validPreference(key, value) ? value : fallback];
   })) as Preferences;
 }
 export function activate(context: vscode.ExtensionContext) {
   const panels = new Map<string, vscode.WebviewPanel>();
-  context.subscriptions.push(vscode.commands.registerCommand('styledMarkdown.openPreview', async (uri?: vscode.Uri) => {
+  const openPreview = async (uri?: vscode.Uri) => {
     let document: vscode.TextDocument | undefined;
     try {
       document = uri ? await vscode.workspace.openTextDocument(uri) : vscode.window.activeTextEditor?.document;
@@ -35,7 +38,7 @@ export function activate(context: vscode.ExtensionContext) {
     const existing = panels.get(key);
     if (existing) { existing.reveal(vscode.ViewColumn.Beside); return; }
     const directory = vscode.Uri.joinPath(document.uri, '..');
-    const panel = vscode.window.createWebviewPanel('styledMarkdown.preview', `Markdown Lens: ${document.fileName.split(/[\\/]/).pop()}`, vscode.ViewColumn.Beside, {
+    const panel = vscode.window.createWebviewPanel('markdownLens.preview', `Markdown Lens: ${document.fileName.split(/[\\/]/).pop()}`, vscode.ViewColumn.Beside, {
       enableScripts: true, localResourceRoots: [context.extensionUri, directory]
     });
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'markdown-lens.png');
@@ -58,7 +61,9 @@ export function activate(context: vscode.ExtensionContext) {
     let preferenceWrites = Promise.resolve();
     const disposables = [
       vscode.workspace.onDidChangeTextDocument(event => { if (event.document.uri.toString() === key) { clearTimeout(timer); timer = setTimeout(update, 180); } }),
-      vscode.workspace.onDidChangeConfiguration(event => { if (event.affectsConfiguration('styledMarkdown', document.uri)) updatePreferences(); }),
+      vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration('markdownLens', document.uri) || event.affectsConfiguration('styledMarkdown', document.uri)) updatePreferences();
+      }),
       panel.onDidChangeViewState(() => { if (panel.visible) update(); }),
       webview.onDidReceiveMessage(async message => {
         if (!message || typeof message !== 'object') return;
@@ -69,7 +74,7 @@ export function activate(context: vscode.ExtensionContext) {
             const preferenceKey = setting as keyof Preferences;
             Object.assign(sessionPreferences, { [preferenceKey]: value });
             preferenceWrites = preferenceWrites.then(async () => {
-              await vscode.workspace.getConfiguration('styledMarkdown', document.uri).update(setting, value, vscode.workspace.getWorkspaceFolder(document.uri) ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Global);
+              await vscode.workspace.getConfiguration('markdownLens', document.uri).update(setting, value, vscode.workspace.getWorkspaceFolder(document.uri) ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Global);
               if (sessionPreferences[preferenceKey] === value) delete sessionPreferences[preferenceKey];
               updatePreferences();
             }).catch(error => {
@@ -113,5 +118,9 @@ export function activate(context: vscode.ExtensionContext) {
     ];
     panel.onDidDispose(() => { clearTimeout(timer); panels.delete(key); disposables.forEach(d => d.dispose()); });
     context.subscriptions.push(panel);
-  }));
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand('markdownLens.openPreview', openPreview),
+    vscode.commands.registerCommand('styledMarkdown.openPreview', openPreview)
+  );
 }

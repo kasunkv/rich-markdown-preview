@@ -1,6 +1,6 @@
 # Developing Markdown Lens
 
-Package: `markdown-lens`. Display name: **Markdown Lens - A Styled Markdown Preview**. Publisher ID: `kasunkodagoda`. The command (`styledMarkdown.openPreview`), configuration (`styledMarkdown.*`), and webview identifiers retain their original values for compatibility.
+Package: `markdown-lens`. Display name: **Markdown Lens - A Styled Markdown Preview**. Publisher ID: `kasunkodagoda`. The command is `markdownLens.openPreview`, settings use `markdownLens.*`, and the webview type is `markdownLens.preview`. Legacy `styledMarkdown.*` settings are read only as a fallback when the corresponding new setting is not explicitly configured. Toolbar changes save to the new namespace. The old preview command remains an unlisted compatibility alias for existing keybindings.
 
 ## Local setup
 

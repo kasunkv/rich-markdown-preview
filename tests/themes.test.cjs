@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const css = fs.readFileSync(path.join(__dirname, '../src/preview.css'), 'utf8');
 const styles = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'))
-  .contributes.configuration.properties['styledMarkdown.style'].enum;
+  .contributes.configuration.properties['markdownLens.style'].enum;
 // Read literal palette declarations; browser QA checks the computed CSS cascade.
 const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, declarations]) => ({
   selector: selector.replace(/\/\*[\s\S]*?\*\//g, '').trim(),

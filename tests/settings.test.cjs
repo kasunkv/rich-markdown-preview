@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const manifest = require('../package.json');
 
-function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', failOpen = false, initial = {} } = {}) {
+function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', failOpen = false, initial = {}, legacy = {} } = {}) {
   const saved = {...initial};
   const messages = [];
   const warnings = [];
@@ -16,10 +16,11 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
   const uri = {toString: () => 'file:///fixture/test.md'};
   const document = {uri, fileName: '/fixture/test.md', languageId, getText: () => '# Test'};
   const configuration = {
+    inspect: key => ({globalValue: saved[key]}),
     get: (key, fallback) => saved[key] ?? fallback,
     update: async (key, value, target) => {
       writes.push({key, value, target});
-      if (target === 3 && manifest.contributes.configuration.properties[`styledMarkdown.${key}`].scope !== 'resource') throw new Error('Setting does not support folder scope');
+      if (target === 3 && manifest.contributes.configuration.properties[`markdownLens.${key}`].scope !== 'resource') throw new Error('Setting does not support folder scope');
       if (failWrites) throw new Error('Settings file is read-only');
       saved[key] = value;
       handlers.configuration?.({affectsConfiguration: () => true});
@@ -42,12 +43,12 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     workspace: {
       fs: {writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
       openTextDocument: async () => {if(failOpen) throw new Error('File unavailable');return document;},
-      getConfiguration: () => configuration,
+      getConfiguration: section => section === 'markdownLens' ? configuration : {get:(key, fallback) => legacy[key] ?? fallback},
       getWorkspaceFolder: () => inWorkspace ? {uri} : undefined,
       onDidChangeTextDocument: handler => {handlers.text = handler;return disposable;},
       onDidChangeConfiguration: handler => {handlers.configuration = handler; return disposable;}
     },
-    commands: {executeCommand: async (command, uri) => opened.push({command,uri:uri.toString()}), registerCommand: (id, handler) => {handlers.command = handler; return disposable;}}
+    commands: {executeCommand: async (command, uri) => opened.push({command,uri:uri.toString()}), registerCommand: (id, handler) => {handlers[id] = handler; if (id === 'markdownLens.openPreview') handlers.command = handler; return disposable;}}
   };
   const module = {exports: {}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {
@@ -89,10 +90,29 @@ test('standalone Markdown files save preferences globally', async () => {
   assert.equal(host.saved.contentWidth, 680);
   assert.equal(host.writes[0].target, 1);
 });
+
+test('legacy settings remain a fallback, new settings take precedence, and writes use the new namespace', async () => {
+  const legacy = {style:'reading',appearance:'dark',contentWidth:720,fontSize:18,lineHeight:1.9,wrapCode:true};
+  const host=previewHost({legacy,initial:{style:'ocean',wrapCode:false}});
+  await host.handlers.command(); await host.handlers.message({type:'ready'});
+  const prefs=host.messages.at(-1).preferences;
+  assert.equal(prefs.style,'ocean'); assert.equal(prefs.wrapCode,false);
+  assert.equal(prefs.appearance,'dark'); assert.equal(prefs.contentWidth,720);
+  await host.handlers.message({type:'preference',key:'appearance',value:'light'}); await host.drain();
+  assert.equal(host.saved.appearance,'light'); assert.equal(legacy.appearance,'dark');
+  host.handlers.configuration({affectsConfiguration:section=>section==='styledMarkdown'});
+  assert.equal(host.messages.at(-1).preferences.appearance,'light');
+});
+
+test('the legacy command alias reuses the branded preview handler', async () => {
+  const host=previewHost();
+  await host.handlers['styledMarkdown.openPreview'](); await host.handlers['markdownLens.openPreview']();
+  assert.equal(host.counts().created,1); assert.equal(host.counts().revealed,1);
+});
 test('all eighteen styles are accepted and persisted through the preview message handler', async () => {
   const host = previewHost();
   await host.handlers.command();
-  const styles = manifest.contributes.configuration.properties['styledMarkdown.style'].enum;
+  const styles = manifest.contributes.configuration.properties['markdownLens.style'].enum;
   assert.equal(styles.length, 18);
   for (const style of styles) {
     await host.handlers.message({type:'preference',key:'style',value:style}); await host.drain();

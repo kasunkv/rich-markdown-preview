@@ -13,8 +13,10 @@ test('release manifest exposes the agreed identity, icon, keywords and menus', (
   const icon = fs.readFileSync(path.resolve(__dirname,'..',manifest.icon));
   assert.equal(icon.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
   assert.ok(icon.readUInt32BE(16) >= 128 && icon.readUInt32BE(20) >= 128);
-  const command = manifest.contributes.commands.find(command => command.command === 'styledMarkdown.openPreview');
+  const command = manifest.contributes.commands.find(command => command.command === 'markdownLens.openPreview');
   assert.equal(command.title,'Open in Markdown Lens');
+  assert.ok(Object.keys(manifest.contributes.configuration.properties).every(key => key.startsWith('markdownLens.')));
+  assert.ok(manifest.contributes.commands.every(command => command.command.startsWith('markdownLens.')));
   for (const location of ['editor/title','editor/context','explorer/context']) {
     assert.ok(manifest.contributes.menus[location].some(item => item.command === command.command && /markdown/.test(item.when)));
   }

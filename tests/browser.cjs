@@ -29,7 +29,7 @@ const manifest = require('../package.json');
       await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences});
     };
     for (const appearance of ['light','dark']) {
-      for (const style of manifest.contributes.configuration.properties['styledMarkdown.style'].enum) {
+      for (const style of manifest.contributes.configuration.properties['markdownLens.style'].enum) {
         await page.selectOption('#style', style); await page.selectOption('#appearance', appearance);
         await page.waitForFunction(({style,appearance}) => document.body.dataset.style===style && document.body.dataset.appearance===appearance, {style,appearance});
         assert.ok(await page.locator('#content').evaluate(el => getComputedStyle(el).color !== getComputedStyle(document.body).backgroundColor));

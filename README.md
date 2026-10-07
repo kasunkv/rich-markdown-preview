@@ -37,16 +37,16 @@ Use the toolbar to change **Style**, **Appearance**, **Width**, **Text**, **Spac
 
 Reading preferences save for the file's workspace folder, or globally for standalone files. If a settings file cannot be saved, the preview keeps your selection for the current session and shows a warning.
 
-You can also search for **Markdown Lens** in VS Code Settings. The settings identifiers remain `styledMarkdown.*` so existing preferences continue to work:
+You can also search for **Markdown Lens** in VS Code Settings. The settings use the `markdownLens.*` namespace:
 
 | Setting | Default | Options |
 | --- | --- | --- |
-| `styledMarkdown.style` | `documentation` | Any of the 18 styles |
-| `styledMarkdown.appearance` | `auto` | `auto`, `light`, `dark` |
-| `styledMarkdown.contentWidth` | `900` | 480–1600 pixels |
-| `styledMarkdown.fontSize` | `16` | 12–24 pixels |
-| `styledMarkdown.lineHeight` | `1.7` | 1.3–2.2 |
-| `styledMarkdown.wrapCode` | `false` | `true` or `false` |
+| `markdownLens.style` | `documentation` | Any of the 18 styles |
+| `markdownLens.appearance` | `auto` | `auto`, `light`, `dark` |
+| `markdownLens.contentWidth` | `900` | 480–1600 pixels |
+| `markdownLens.fontSize` | `16` | 12–24 pixels |
+| `markdownLens.lineHeight` | `1.7` | 1.3–2.2 |
+| `markdownLens.wrapCode` | `false` | `true` or `false` |
 
 All styles use system fonts; their exact appearance can vary by operating system.
 

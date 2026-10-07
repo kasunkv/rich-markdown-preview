@@ -13,11 +13,13 @@
     "Other"
   ],
   "main": "./dist/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:styledMarkdown.openPreview"
+  ],
   "contributes": {
     "commands": [
       {
-        "command": "styledMarkdown.openPreview",
+        "command": "markdownLens.openPreview",
         "title": "Open in Markdown Lens",
         "icon": "$(preview)"
       }
@@ -25,21 +27,21 @@
     "menus": {
       "editor/title": [
         {
-          "command": "styledMarkdown.openPreview",
+          "command": "markdownLens.openPreview",
           "when": "editorLangId == markdown",
           "group": "navigation"
         }
       ],
       "editor/context": [
         {
-          "command": "styledMarkdown.openPreview",
+          "command": "markdownLens.openPreview",
           "when": "editorLangId == markdown",
           "group": "navigation@20"
         }
       ],
       "explorer/context": [
         {
-          "command": "styledMarkdown.openPreview",
+          "command": "markdownLens.openPreview",
           "when": "resourceLangId == markdown && !explorerResourceIsFolder",
           "group": "navigation@20"
         }
@@ -48,7 +50,7 @@
     "configuration": {
       "title": "Markdown Lens",
       "properties": {
-        "styledMarkdown.style": {
+        "markdownLens.style": {
           "type": "string",
           "scope": "resource",
           "enum": [
@@ -94,7 +96,7 @@
           ],
           "description": "Preview typography and layout style."
         },
-        "styledMarkdown.appearance": {
+        "markdownLens.appearance": {
           "type": "string",
           "scope": "resource",
           "enum": [
@@ -105,7 +107,7 @@
           "default": "auto",
           "description": "Preview color scheme."
         },
-        "styledMarkdown.contentWidth": {
+        "markdownLens.contentWidth": {
           "type": "number",
           "scope": "resource",
           "default": 900,
@@ -113,7 +115,7 @@
           "maximum": 1600,
           "description": "Maximum content width in pixels."
         },
-        "styledMarkdown.fontSize": {
+        "markdownLens.fontSize": {
           "type": "number",
           "scope": "resource",
           "default": 16,
@@ -121,7 +123,7 @@
           "maximum": 24,
           "description": "Content font size in pixels."
         },
-        "styledMarkdown.lineHeight": {
+        "markdownLens.lineHeight": {
           "type": "number",
           "scope": "resource",
           "default": 1.7,
@@ -129,7 +131,7 @@
           "maximum": 2.2,
           "description": "Content line height."
         },
-        "styledMarkdown.wrapCode": {
+        "markdownLens.wrapCode": {
           "type": "boolean",
           "scope": "resource",
           "default": false,
