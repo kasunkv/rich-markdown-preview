@@ -36,11 +36,13 @@ Run the real VS Code extension-host smoke test in an isolated profile:
 code --extensionDevelopmentPath="$PWD" --extensionTestsPath="$PWD/tests/vscode-settings.cjs" --user-data-dir="$PWD/.test-results/vscode-profile" --extensions-dir="$PWD/.test-results/vscode-extensions" "$PWD/tests/fixtures/workspace"
 ```
 
-This checks registration, folder-scoped settings, all eighteen style values, and command invocation. Results go to `.test-results/vscode-settings.json`. In a Development Host, also confirm editor and Explorer context menus, Command Palette label, extension icon, multiple documents, local images/links, theme changes, and disposing/reopening panels. Browser screenshots show the preview; they do not show native VS Code menus.
+This checks registration, folder-scoped settings, all eighteen style values, command invocation, `.md` files with plaintext language, and current-group preview placement. Results go to `.test-results/vscode-settings.json`. In a Development Host, also confirm editor and Explorer context menus, Command Palette label, extension icon, multiple documents, local images/links, theme changes, and disposing/reopening panels. Browser screenshots show the preview; they do not show native VS Code menus.
 
 ## Architecture
 
 - `src/extension.ts`: command, panel lifetime, resource roots, CSP, messages, settings writes, clipboard, links, CSV saves.
+- `src/references.ts`: Markdown parser rules, reference relationships, navigation targets, and dialect path candidates.
+- `src/frontmatter.ts`: YAML frontmatter extraction, bounded metadata rendering, escaped source fallback.
 - `src/render.ts`: Markdown parsing, heading anchors, highlighting, image rewriting, extended Markdown.
 - `src/preview.ts`: toolbar, outline, webview state, Mermaid rendering, appearance refresh.
 - `src/tables.ts`: controls, sorting, filtering, state retention, CSV escaping.
@@ -71,7 +73,7 @@ Packaging uses the supplied GitHub repository and its `master` branch to resolve
 
 ## Marketplace upload troubleshooting
 
-`npm run package` runs `vscode:prepublish`, which checks types, rebuilds the assets, and runs regression tests. A separate `npm run build` is optional. Upload `rich-markdown-preview-1.0.0.vsix` using **New extension → Visual Studio Code** under publisher `kasunkodagoda`.
+`npm run package` runs `vscode:prepublish`, which checks types, rebuilds the assets, and runs regression tests. A separate `npm run build` is optional. Upload `rich-markdown-preview-1.1.0.vsix` using **New extension → Visual Studio Code** under publisher `kasunkodagoda`.
 
 The internal package name is `rich-markdown-preview`. The visible name is **Rich Markdown Preview - A Styled Markdown Preview**. Check the current Marketplace for package and display-name collisions before changing either value. A successful local build does not guarantee server-side Marketplace approval.
 

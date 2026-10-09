@@ -2,7 +2,7 @@
   "name": "rich-markdown-preview",
   "displayName": "Rich Markdown Preview - A Styled Markdown Preview",
   "description": "A styled Markdown preview with 18 reading themes, Mermaid diagrams, syntax highlighting, and searchable, sortable tables with CSV export.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "kasunkodagoda",
   "license": "MIT",
   "engines": {
@@ -29,21 +29,21 @@
       "editor/title": [
         {
           "command": "richMarkdownPreview.openPreview",
-          "when": "editorLangId == markdown",
+          "when": "editorLangId == markdown || resourceExtname =~ /\\.md$/i",
           "group": "navigation"
         }
       ],
       "editor/context": [
         {
           "command": "richMarkdownPreview.openPreview",
-          "when": "editorLangId == markdown",
+          "when": "editorLangId == markdown || resourceExtname =~ /\\.md$/i",
           "group": "navigation@20"
         }
       ],
       "explorer/context": [
         {
           "command": "richMarkdownPreview.openPreview",
-          "when": "resourceLangId == markdown && !explorerResourceIsFolder",
+          "when": "(resourceLangId == markdown || resourceExtname =~ /\\.md$/i) && !explorerResourceIsFolder",
           "group": "navigation@20"
         }
       ]
@@ -137,9 +137,29 @@
           "scope": "resource",
           "default": false,
           "description": "Wrap long lines in code blocks."
+        },
+        "richMarkdownPreview.openPreviewToSide": {
+          "type": "boolean",
+          "scope": "resource",
+          "default": true,
+          "description": "Open the preview beside the source editor. Disable to open it as a new tab in the current editor group, without creating a split. Applies the next time you open or reveal a preview."
+        },
+        "richMarkdownPreview.referenceRoot": {
+          "type": "string",
+          "scope": "resource",
+          "default": "",
+          "description": "Base directory for file references starting with /. Empty uses the document workspace folder, or document directory for standalone files. Set a workspace-relative path for a skill package root, or an absolute Windows path."
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "richMarkdownPreview.openPreview",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m",
+        "when": "editorTextFocus && (editorLangId == markdown || resourceExtname =~ /\\.md$/i)"
+      }
+    ]
   },
   "scripts": {
     "build": "node build.mjs",
@@ -162,7 +182,8 @@
     "markdown-it-sub": "^2.0.0",
     "markdown-it-sup": "^2.0.0",
     "markdown-it-task-lists": "^2.1.1",
-    "mermaid": "^11.12.0"
+    "mermaid": "^11.12.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",

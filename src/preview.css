@@ -1,4 +1,23 @@
 :root { --content-width:900px; --reading-size:16px; --reading-line-height:1.7; --bg:#fbfcfe; --surface:#fff; --text:#253247; --muted:#536176; --border:#dde4ee; --accent:#2f59bd; --code:#f1f4f9; color-scheme:light; }
+.markdown .file-reference { overflow-wrap:anywhere; }
+.reference-icon { display:inline-block; margin-right:.35em; font-family:system-ui,sans-serif; font-weight:700; text-decoration:none; }
+.reference-include,.reference-import,.reference-embed { border:1px solid var(--border); border-radius:5px; background:var(--code); padding:2px 6px; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+.snippet-references { margin:1em 0; line-height:2; }
+.markdown .frontmatter { margin:0 0 2em; border:1px solid var(--border); border-radius:10px; background:var(--surface); font-family:var(--vscode-font-family,system-ui,sans-serif); font-size:.9em; overflow:hidden; }
+.frontmatter > summary { padding:14px 18px; cursor:pointer; color:var(--accent); font-weight:650; }
+.frontmatter > summary span { margin-left:10px; color:var(--muted); font-size:.85em; font-weight:400; }
+.frontmatter-content { padding:0 18px 16px; border-top:1px solid var(--border); }
+.markdown .frontmatter-fields { margin:0; }
+.frontmatter-field { display:grid; grid-template-columns:minmax(90px, 28%) minmax(0, 1fr); gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
+.markdown .frontmatter-field dt { font-weight:600; overflow-wrap:anywhere; }
+.markdown .frontmatter-field dd { margin:0; min-width:0; }
+.frontmatter-value { white-space:pre-wrap; overflow-wrap:anywhere; }
+.frontmatter-muted { color:var(--muted); }
+.markdown .frontmatter-list { margin:0; padding-left:20px; }
+.frontmatter-raw { margin-top:14px; }
+.frontmatter-raw > summary { cursor:pointer; color:var(--muted); }
+.markdown .frontmatter-source { background:var(--code); padding:14px; border-radius:6px; overflow:auto; font-size:.9em; }
+@media(max-width:600px) { .frontmatter-field { grid-template-columns:1fr; gap:4px; }.frontmatter > summary span { display:block; margin-left:18px; } }
 body[data-appearance="dark"],body[data-appearance="auto"].vscode-dark,body[data-appearance="auto"].vscode-high-contrast { --bg:#121821; --surface:#1a2230; --text:#dce4f0; --muted:#a1aec2; --border:#303d50; --accent:#90b2ff; --code:#202b3b; color-scheme:dark; }
 * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); font-family:var(--vscode-font-family,system-ui,sans-serif); }
 button,select,input { font:inherit; } button,select { color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:6px 9px; } button { cursor:pointer; } :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }

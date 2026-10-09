@@ -28,6 +28,42 @@ const manifest = require('../package.json');
       const result = renderMarkdown(source);
       await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences});
     };
+    await page.evaluate(() => {
+      window.referenceClicks = [];
+    });
+    await render('{{include: /snippets/guide.md}}\n\nRead @references/guide.md\n\n![[Guide]]\n\n[Related document](guide.md)');
+    assert.equal(await page.locator('.file-reference').count(), 4);
+    for (let index = 0; index < 4; index++) {
+      const link = page.locator('.file-reference').nth(index);
+      assert.equal(await link.locator('.reference-icon').count(), 1);
+      assert.ok(await link.getAttribute('title'));
+      const id = await link.getAttribute('data-reference-id');
+      await link.click();
+      assert.equal(await page.evaluate(() => window.referenceClicks.at(-1).id), id);
+    }
+    await page.locator('.file-reference').first().focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => window.referenceClicks.length), 5);
+    await render('`@references/guide.md`\n\n```md\n{{include: /snippets/guide.md}}\n```');
+    assert.equal(await page.locator('.file-reference').count(), 0);
+    checks.push('Reference relationship icons, tooltips, mouse and keyboard opening, and literal code examples');
+    await render('---\nname: example-skill\ndescription: |\n  First line\n  Second line\ntags: [agents, writing]\nsettings:\n  enabled: true\n---\n# Instructions\n\nSkill body.');
+    assert.equal(await page.locator('.frontmatter').getAttribute('open'), '');
+    assert.equal(await page.locator('.frontmatter-field').first().innerText(), 'name\nexample-skill');
+    assert.equal(await page.locator('#outline a').count(), 1);
+    await page.locator('.frontmatter-raw > summary').click();
+    assert.equal(await page.locator('.frontmatter-source').isVisible(), true);
+    await page.locator('.frontmatter > summary').click();
+    assert.equal(await page.locator('.frontmatter-content').isVisible(), false);
+    await page.locator('.frontmatter > summary').click();
+    await page.setViewportSize({width:520,height:800});
+    assert.equal(await page.locator('.frontmatter').evaluate(el => el.scrollWidth <= el.clientWidth), true);
+    await page.setViewportSize({width:1440,height:1000});
+    await render('---\ntitle: [broken\n---\n# Body');
+    assert.equal(await page.locator('.frontmatter-source').isVisible(), true);
+    checks.push('Frontmatter fields, nested YAML, outline, source disclosure, collapse, narrow layout and invalid YAML fallback');
+    await render(fs.readFileSync(path.resolve(__dirname, '../samples/showcase.md'), 'utf8'));
+    await page.locator('.mermaid-result').first().waitFor();
     for (const appearance of ['light','dark']) {
       for (const style of manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum) {
         await page.selectOption('#style', style); await page.selectOption('#appearance', appearance);

@@ -2,7 +2,16 @@
 
 **A Styled Markdown Preview for Visual Studio Code** · by **Kasun Kodagoda**
 
-Turn Markdown into a comfortable reading experience beside your editor. Rich Markdown Preview combines **18 reading styles**, live Markdown preview, syntax highlighting, **Mermaid diagrams**, and interactive tables. Use it for READMEs, documentation, technical notes, articles, and research.
+Turn Markdown into a comfortable reading experience in VS Code. Rich Markdown Preview combines **18 reading styles**, live Markdown preview, syntax highlighting, **Mermaid diagrams**, and interactive tables. Use it for READMEs, documentation, technical notes, articles, and research.
+
+## What's new in v1.1.0
+
+- **Readable frontmatter:** YAML metadata appears above the document in a collapsible card with nested fields and a source view.
+- **Clickable file references:** Open includes, imports, embeds, and related files from the preview, with relationship icons and syntax tooltips. Configure the reference root for skill packages.
+- **Preview any `.md` file:** Editor and Explorer actions remain available even when another language is selected.
+- **Faster access and flexible placement:** Use **Ctrl+Alt+M** (**Cmd+Alt+M** on macOS). Disable **Open Preview To Side** to open the preview as a new tab in the current editor group.
+
+[View full release notes](CHANGELOG.md)
 
 ![Rich Markdown Preview in Editorial style with light appearance](docs/rich-markdown-preview-light.png)
 
@@ -10,22 +19,26 @@ Turn Markdown into a comfortable reading experience beside your editor. Rich Mar
 
 1. Install **Rich Markdown Preview - A Styled Markdown Preview** from the VS Code Extensions view. Requires VS Code **1.95 or newer**.
 2. Open a Markdown file (`.md`).
-3. Right-click in the editor and choose **Open in Rich Markdown Preview**. The preview opens beside your source.
+3. Right-click in the editor and choose **Open in Rich Markdown Preview**. The preview opens beside your source by default. Disable **Rich Markdown Preview: Open Preview To Side** in Settings to open a new tab in the current editor group.
 4. Choose a **Style** and **Appearance** in the preview toolbar. Edit your Markdown to see live updates.
 
-You can also right-click a Markdown file in **Explorer**, use the **Open in Rich Markdown Preview** action in the editor title bar, or open the **Command Palette** (`Ctrl+Shift+P` on Windows/Linux, `Cmd+Shift+P` on macOS) and run **Open in Rich Markdown Preview**. Opening the same file again brings its existing preview into view.
+You can also right-click a Markdown file in **Explorer**, use the **Open in Rich Markdown Preview** action in the editor title bar, or open the **Command Palette** (`Ctrl+Shift+P` on Windows/Linux, `Cmd+Shift+P` on macOS) and run **Open in Rich Markdown Preview**. Press **Ctrl+Alt+M** on Windows/Linux or **Cmd+Alt+M** on macOS to open the preview from the editor. Customize this in VS Code Keyboard Shortcuts by searching for **Open in Rich Markdown Preview**. Opening the same file again brings its existing preview into view using your current placement setting. All `.md` files (including `.MD`) work even when another language is selected in the language picker.
 
 ## Features
 
 - **18 styles:** Documentation, Reading, Technical, GitHub, Editorial, Book, Minimal, Academic, Swiss, Aurora, Botanical, Noir, Blueprint, Terracotta, Atelier, Ocean, Manuscript, and Circuit.
 - **Light, dark, or automatic appearance:** Auto follows the VS Code theme, including diagram colors.
 - **Reading controls:** Adjust content width, text size, and line spacing; wrap long code lines; show or hide the heading outline.
+- **Frontmatter:** YAML metadata appears in a collapsible card above the document, with readable fields, nested values, and a YAML source view.
+- **Preview placement:** Open beside the source or as a new tab in the current editor group.
+- **Keyboard shortcut:** Ctrl+Alt+M on Windows/Linux or Cmd+Alt+M on macOS.
 - **Live preview:** Updates while typing and keeps the preview's scroll position.
 - **Code highlighting:** Language labels, readable syntax colors, and a Copy button on fenced code blocks.
 - **Mermaid diagrams and charts:** Rendered locally with colors coordinated to your reading style.
 - **Interactive tables:** Sort columns, search rows, choose spacing, and copy or export the visible data as CSV.
 - **Heading navigation:** Jump to sections using the outline or heading links.
 - **Extended Markdown:** Task lists, emoji shortcodes, footnotes, definition lists, highlighted text, subscript, superscript, and GitHub-style callouts.
+- **File references:** Click includes, imports, embeds, and Markdown file links to open their source in VS Code. Relationship icons and syntax tooltips make dependencies easy to identify.
 - **Links and images:** Local file links open in VS Code. Relative images load from the document directory; HTTPS images are supported.
 - **Offline rendering:** Styles, syntax highlighting, and Mermaid are bundled. No CDN or account is needed. Remote images and external links use your network connection.
 
@@ -46,9 +59,38 @@ You can also search for **Rich Markdown Preview** in VS Code Settings. The setti
 | `richMarkdownPreview.contentWidth` | `900` | 480–1600 pixels |
 | `richMarkdownPreview.fontSize` | `16` | 12–24 pixels |
 | `richMarkdownPreview.lineHeight` | `1.7` | 1.3–2.2 |
+| `richMarkdownPreview.referenceRoot` | Empty | Root for `/` references; workspace-relative directory or absolute Windows path |
+| `richMarkdownPreview.openPreviewToSide` | `true` | Set `false` for a new tab in the current editor group |
 | `richMarkdownPreview.wrapCode` | `false` | `true` or `false` |
 
+The placement setting applies when you next open or reveal a preview. Opening in the current group uses its available width without creating a split; existing editor groups keep their layout. The Width control still sets the maximum reading width.
+
 All styles use system fonts; their exact appearance can vary by operating system.
+
+## Navigate file references
+
+References show an icon before the link: **↳ include**, **⇥ import**, **▣ embed**, or **↗ related file**. Hover to see the target and syntax; click or press Enter on the focused link to open the file in VS Code.
+
+| Syntax | Example |
+| --- | --- |
+| Include directive | `{{include: /snippets/guide.md}}` |
+| Claude import | `@references/guide.md` or `@"references/My Guide.md"` |
+| DocFX include | `[!INCLUDE [Guide](references/guide.md)]` |
+| DocFX code reference | `[!code-js[Example](scripts/example.js#L1-L5)]` |
+| PyMdown snippet | `--8<-- "snippets/guide.md"` (single-line and multiline forms) |
+| Jekyll | `{% include guide.md %}` or `{% include_relative guide.md %}` |
+| Retype | `{{ include "snippets/guide" }}` |
+| Obsidian link / embed | `[[Guide\|Read guide]]` or `![[Guide]]` |
+| Include comment | `<!-- @include: snippets/guide.md -->` |
+| Markdown Include | `{!! snippets/guide.md !!}` |
+| Docsify | `[Guide](snippets/guide.md ":include")` |
+| Markdown link | `[Guide](references/guide.md)` |
+
+Relative targets use the current document directory. Targets starting with `/` use the document's workspace folder, or its directory for standalone files. Set **Rich Markdown Preview: Reference Root** to point at a skill package or another base directory. For a `SKILL.md` in `.claude/skills/my-skill`, set it to `.claude/skills/my-skill` when `/snippets/...` refers to that skill's snippets folder. Claude home-relative `~/...` and absolute Windows paths are also supported.
+
+Jekyll includes use `_includes` under the reference root; `include_relative` uses the document directory. Retype checks the document directory, its `_includes`, and the root's `_includes`, with optional `.md`. Obsidian targets try the document directory and reference root, with optional `.md`.
+
+Includes and embeds are shown as references rather than expanded content. Line ranges and heading fragments open the containing file. Remote include references open in your browser on click. Template variables stay literal; code examples, frontmatter values, and ordinary `@mentions` are not converted. Missing files show a warning. This supports the listed reference forms, rather than executing each tool's template engine.
 
 ## Work with tables
 
@@ -59,6 +101,23 @@ All styles use system fonts; their exact appearance can vary by operating system
 - **Copy CSV** and **Export CSV** include the header and currently visible rows in their current order. Export uses VS Code's Save dialog and UTF-8 with a BOM. Formula-like text is escaped for spreadsheet applications.
 
 Table search, sort, and spacing survive live updates when the table's position and column headers stay the same.
+
+## Read frontmatter
+
+A YAML block fenced with `---` at the very start of a file is shown as **Frontmatter** above the Markdown body. This works for AI agent `SKILL.md` files and article metadata:
+
+```markdown
+---
+name: article-helper
+description: Helps draft and review articles.
+tags: [writing, editing]
+---
+# Instructions
+
+Review the article for clarity.
+```
+
+Fields start expanded. Click **Frontmatter** to collapse them, or **View YAML source** to inspect the original metadata. Lists, nested fields, and multiline descriptions are supported; metadata stays out of the heading outline. Invalid or unsupported YAML displays its source with an explanation while the body renders normally. Frontmatter must be at the start of the file and have a closing `---` or `...` line.
 
 ## Write rich Markdown
 

@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import { renderMarkdown } from './render';
 import { previewStyles } from './styles';
+import { referencePaths, type FileReference } from './references';
+import { homedir } from 'node:os';
 
 const defaults = { style: 'documentation', appearance: 'auto', contentWidth: 900, fontSize: 16, lineHeight: 1.7, wrapCode: false };
 type Preferences = typeof defaults;
@@ -34,12 +36,14 @@ export function activate(context: vscode.ExtensionContext) {
     } catch {
       void vscode.window.showWarningMessage('Could not open the selected Markdown file.'); return;
     }
-    if (!document || document.languageId !== 'markdown') { void vscode.window.showInformationMessage('Open a Markdown file first.'); return; }
+    if (!document || (document.languageId !== 'markdown' && !/\.md$/i.test(document.uri.path))) { void vscode.window.showInformationMessage('Open a Markdown file first.'); return; }
+    const openToSide = vscode.workspace.getConfiguration('richMarkdownPreview', document.uri).get<boolean>('openPreviewToSide', true) !== false;
+    const viewColumn = openToSide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active;
     const key = document.uri.toString();
     const existing = panels.get(key);
-    if (existing) { existing.reveal(vscode.ViewColumn.Beside); return; }
+    if (existing) { existing.reveal(viewColumn); return; }
     const directory = vscode.Uri.joinPath(document.uri, '..');
-    const panel = vscode.window.createWebviewPanel('richMarkdownPreview.preview', `Rich Markdown Preview: ${document.fileName.split(/[\\/]/).pop()}`, vscode.ViewColumn.Beside, {
+    const panel = vscode.window.createWebviewPanel('richMarkdownPreview.preview', `Rich Markdown Preview: ${document.fileName.split(/[\\/]/).pop()}`, viewColumn, {
       enableScripts: true, localResourceRoots: [context.extensionUri, directory]
     });
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png');
@@ -48,6 +52,7 @@ export function activate(context: vscode.ExtensionContext) {
     const sessionPreferences: Partial<Preferences> = {};
     const effectivePreferences = () => ({ ...preferences(document.uri), ...sessionPreferences });
     const nonce = randomBytes(16).toString('hex');
+    let fileReferences: FileReference[] = [];
     const resource = (file: string) => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', file));
     webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Rich Markdown Preview</title></head><body><div id="app" data-logo="${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png'))}"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
     const update = () => {
@@ -55,6 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (/^[a-z][a-z\d+.-]*:/i.test(src) || src.startsWith('//')) return src;
         try { return webview.asWebviewUri(vscode.Uri.joinPath(directory, decodeURIComponent(src))).toString(); } catch { return ''; }
       });
+      fileReferences = result.references;
       void webview.postMessage({ type: 'render', ...result, preferences: effectivePreferences() });
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -69,6 +75,32 @@ export function activate(context: vscode.ExtensionContext) {
       webview.onDidReceiveMessage(async message => {
         if (!message || typeof message !== 'object') return;
         if (message.type === 'ready') update();
+        if (message.type === 'reference' && typeof message.id === 'string') {
+          const reference = fileReferences.find(item => item.id === message.id);
+          if (!reference) return;
+          if (/^https?:\/\//i.test(reference.path)) {
+            try { await vscode.env.openExternal(vscode.Uri.parse(reference.path)); }
+            catch { void vscode.window.showWarningMessage('Could not open this reference.'); }
+            return;
+          }
+          const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri ?? directory;
+          const rootSetting = vscode.workspace.getConfiguration('richMarkdownPreview', document.uri).get<string>('referenceRoot', '');
+          const root = rootSetting ? (/^[a-z]:[\\/]/i.test(rootSetting) ? vscode.Uri.file(rootSetting) : vscode.Uri.joinPath(workspaceRoot, rootSetting)) : workspaceRoot;
+          for (const candidate of referencePaths(reference)) {
+            let path: string;
+            try { path = decodeURIComponent(candidate).replace(/\\/g, '/'); } catch { continue; }
+            if (!path || /[\u0000-\u001f]/.test(path) || path.startsWith('//') || (/^[a-z][a-z\d+.-]*:/i.test(path) && !/^[a-z]:\//i.test(path))) continue;
+            const target = /^[a-z]:\//i.test(path) ? vscode.Uri.file(path) : path.startsWith('~/') ? vscode.Uri.file(`${homedir()}/${path.slice(2)}`) : path.startsWith('/') ? vscode.Uri.joinPath(root, path.slice(1)) : vscode.Uri.joinPath(directory, path);
+            try {
+              const stat = await vscode.workspace.fs.stat(target);
+              if (stat.type & vscode.FileType.Directory) continue;
+              await vscode.commands.executeCommand('vscode.open', target);
+              return;
+            } catch { /* Try the dialect's next candidate. */ }
+          }
+          void vscode.window.showWarningMessage(`Could not open referenced file: ${reference.path}. Check its path or Rich Markdown Preview: Reference Root.`);
+          return;
+        }
         if (message.type === 'preference') {
           const { key: setting, value } = message;
           if (validPreference(setting, value)) {

@@ -4,17 +4,18 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const manifest = require('../package.json');
 
-function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', failOpen = false, initial = {}, previous = {}, legacy = {} } = {}) {
+function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', fileName = '/fixture/test.md', failOpen = false, missingReference = false, initial = {}, previous = {}, legacy = {} } = {}) {
   const saved = {...initial};
   const messages = [];
   const warnings = [];
   const writes = [];
   const clipboard = [], files = [], dialogs = [], opened = [], external = [], info = [];
   let created = 0, revealed = 0, disposed = 0;
+  const columns = [];
   const handlers = {};
   const disposable = {dispose() {disposed++;}};
-  const uri = {toString: () => 'file:///fixture/test.md'};
-  const document = {uri, fileName: '/fixture/test.md', languageId, getText: () => '# Test'};
+  const uri = {path: fileName, toString: () => `file://${fileName}`};
+  const document = {uri, fileName, languageId, getText: () => '# Test'};
   const configuration = {
     inspect: key => ({globalValue: saved[key]}),
     get: (key, fallback) => saved[key] ?? fallback,
@@ -27,7 +28,7 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     }
   };
   const panel = {
-    visible: true, reveal() {revealed++;},
+    visible: true, reveal(column) {revealed++; columns.push(column);},
     onDidChangeViewState: handler => {handlers.view = handler; return disposable;},
     onDidDispose: handler => {handlers.dispose = handler; return disposable;},
     webview: {
@@ -37,11 +38,11 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     }
   };
   const vscode = {
-    Uri: {joinPath: (base, ...segments) => ({toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, ViewColumn: {Beside: 2}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
-    window: {activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: () => {created++;return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: message => warnings.push(message), showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
+    Uri: {joinPath: (base, ...segments) => ({toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, FileType: {File:1, Directory:2}, ViewColumn: {Beside: -2, Active: -1}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
+    window: {activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column) => {created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: message => warnings.push(message), showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
     env: {openExternal: async uri => external.push(uri.toString()), clipboard: {writeText: async text => {if(failCopy) throw new Error('Clipboard unavailable'); clipboard.push(text);}}},
     workspace: {
-      fs: {writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
+      fs: {stat:async () => {if(missingReference) throw new Error('Missing'); return {type:1};}, writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
       openTextDocument: async () => {if(failOpen) throw new Error('File unavailable');return document;},
       getConfiguration: section => section === 'richMarkdownPreview' ? configuration : {get:(key, fallback) => (section === 'markdownLens' ? previous : legacy)[key] ?? fallback},
       getWorkspaceFolder: () => inWorkspace ? {uri} : undefined,
@@ -57,7 +58,7 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
   });
   module.exports.activate({subscriptions: [], extensionUri: uri});
   const drain = async () => {await new Promise(setImmediate);};
-  return {handlers, saved, messages, warnings, writes, clipboard, files, dialogs, drain, document, panel, opened, external, info, counts: () => ({created, revealed, disposed})};
+  return {columns, handlers, saved, messages, warnings, writes, clipboard, files, dialogs, drain, document, panel, opened, external, info, counts: () => ({created, revealed, disposed})};
 }
 
 test('preview toolbar settings persist with resource scope', async () => {
@@ -70,6 +71,32 @@ test('preview toolbar settings persist with resource scope', async () => {
   }
   assert.equal(host.warnings.length, 0);
   assert.ok(host.writes.every(write => write.target === 3));
+});
+
+test('reference clicks use only rendered targets and resolve root, relative and dialect paths', async () => {
+  const host = previewHost();
+  host.document.getText = () => '{{include: /snippets/guide.md}}\n\n@references/guide.md\n\n{% include notice.md %}\n\n--8<-- "guide.md:2:4"';
+  await host.handlers.command(); await host.handlers.message({type:'ready'});
+  const references = host.messages.at(-1).references;
+  for (const reference of references) await host.handlers.message({type:'reference',id:reference.id});
+  assert.deepEqual(host.opened.map(item => item.uri).sort(), ['file:///fixture/test.md/snippets/guide.md','file:///fixture/test.md/../references/guide.md','file:///fixture/test.md/_includes/notice.md','file:///fixture/test.md/../guide.md'].sort());
+  host.saved.referenceRoot = 'skills/my-skill';
+  await host.handlers.message({type:'reference', id:references.find(ref => ref.path.startsWith('/snippets')).id});
+  assert.equal(host.opened.at(-1).uri, 'file:///fixture/test.md/skills/my-skill/snippets/guide.md');
+  const count = host.opened.length;
+  await host.handlers.message({type:'reference', id:'forged', path:'command:bad'});
+  assert.equal(host.opened.length, count);
+});
+
+test('missing references produce a warning and remote references open only on click', async () => {
+  const host = previewHost({missingReference:true});
+  host.document.getText = () => '{{include: missing.md}}\n\n{{include: https://example.com/snippet.md}}';
+  await host.handlers.command(); await host.handlers.message({type:'ready'});
+  assert.equal(host.external.length, 0);
+  await host.handlers.message({type:'reference',id:'reference-0'});
+  assert.match(host.warnings.at(-1), /Could not open referenced file/);
+  await host.handlers.message({type:'reference',id:'reference-1'});
+  assert.deepEqual(host.external, ['https://example.com/snippet.md']);
 });
 test('failed saves retain live preferences through subsequent refreshes', async () => {
   const host = previewHost({failWrites:true});
@@ -189,12 +216,40 @@ test('rapid preference commits serialize writes and preserve the newest value', 
 });
 
 test('command handles missing editors, non-Markdown files and failed file opens', async () => {
-  for (const options of [{noEditor:true}, {languageId:'plaintext'}]) {
+  for (const options of [{noEditor:true}, {languageId:'plaintext',fileName:'/fixture/test.txt'}]) {
     const host = previewHost(options); await host.handlers.command();
     assert.equal(host.counts().created, 0); assert.match(host.info[0], /Markdown file/);
   }
   const host = previewHost({failOpen:true}); await host.handlers.command(host.document.uri);
   assert.equal(host.counts().created, 0); assert.match(host.warnings[0], /Could not open/);
+});
+
+test('md files open with any language through editor and Explorer commands', async () => {
+  for (const languageId of ['plaintext', 'yaml', 'python']) {
+    for (const fileName of ['/fixture/SKILL.md', '/fixture/ARTICLE.MD']) {
+      const host = previewHost({languageId, fileName});
+      await host.handlers.command();
+      await host.handlers.command(host.document.uri);
+      assert.equal(host.counts().created, 1);
+      assert.equal(host.counts().revealed, 1);
+      assert.equal(host.info.length, 0);
+    }
+  }
+  const host = previewHost({fileName:'/fixture/notes.txt'});
+  await host.handlers.command();
+  assert.equal(host.counts().created, 1, 'Markdown language remains supported without an md extension');
+});
+
+test('placement setting controls creation and reuse and applies on next invocation', async () => {
+  for (const [setting, column] of [[undefined, -2], [true, -2], [false, -1], ['invalid', -2]]) {
+    const host = previewHost({initial:{openPreviewToSide:setting}});
+    await host.handlers.command(); await host.handlers.command();
+    assert.deepEqual(host.columns, [column, column]);
+    host.saved.openPreviewToSide = false;
+    await host.handlers.command(host.document.uri);
+    assert.equal(host.columns.at(-1), -1);
+    assert.equal(host.counts().created, 1);
+  }
 });
 
 test('panels are reused, disposed listeners are released, and reopening creates a panel', async () => {

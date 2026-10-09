@@ -142,6 +142,7 @@ content.addEventListener('click', event => {
   const copy = element.closest<HTMLButtonElement>('.copy-code');
   if (copy) { vscode.postMessage({ type: 'copy', text: copy.closest('.code-block')?.querySelector('code')?.textContent ?? '' }); document.getElementById('announcement')!.textContent = 'Copying code…'; return; }
   const link = element.closest<HTMLAnchorElement>('a');
+  if (link?.dataset.referenceId) { event.preventDefault(); vscode.postMessage({ type: 'reference', id: link.dataset.referenceId }); return; }
   if (link) { event.preventDefault(); const href = link.getAttribute('href') ?? ''; if (href.startsWith('#')) { try { scrollToHeading(decodeURIComponent(href.slice(1))); } catch {} } else vscode.postMessage({ type: 'link', href }); }
 });
 // VS Code changes body classes when its theme changes without sending a preference message.

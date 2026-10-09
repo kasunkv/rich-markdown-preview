@@ -7,10 +7,14 @@ import definitionLists from 'markdown-it-deflist';
 import mark from 'markdown-it-mark';
 import subscript from 'markdown-it-sub';
 import superscript from 'markdown-it-sup';
+import { renderFrontmatter } from './frontmatter';
+import { installReferences, type FileReference } from './references';
 
 export interface OutlineItem { id: string; text: string; level: number }
 export function renderMarkdown(source: string, imageUri: (src: string) => string = src => src) {
   const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
+  const references: FileReference[] = [];
+  installReferences(md, references);
   md.use(emoji, { shortcuts: {} })
     .use(taskLists, { enabled: false, label: true })
     .use(footnotes).use(definitionLists).use(mark).use(subscript).use(superscript);
@@ -50,7 +54,7 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
   const usedIds = new Set<string>();
   md.renderer.rules.heading_open = (tokens, index, options, env, renderer) => {
     const inline = tokens[index + 1];
-    const text = (inline.children ?? []).filter(t => ['text', 'code_inline', 'emoji'].includes(t.type)).map(t => t.content).join('');
+    const text = (inline.children ?? []).filter(t => ['text', 'code_inline', 'emoji', 'file_reference'].includes(t.type)).map(t => t.type === 'file_reference' ? t.meta.label : t.content).join('');
     const base = text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-') || 'section';
     let count = ids.get(base) ?? 0;
     let id = count ? `${base}-${count}` : base;
@@ -74,5 +78,6 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
     const code = language && hljs.getLanguage(language) ? hljs.highlight(token.content, { language, ignoreIllegals: true }).value : md.utils.escapeHtml(token.content);
     return `<div class="code-block"><div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
-  return { html: md.render(source), outline };
+  const frontmatter = renderFrontmatter(source, md.utils.escapeHtml);
+  return { html: frontmatter.html + md.render(frontmatter.body), outline, references };
 }
