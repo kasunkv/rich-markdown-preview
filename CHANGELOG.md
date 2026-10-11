@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0 — 2026-10-11
+
+- Added Documentation Home, available from a status bar button, the Explorer title bar, and the Command Palette without opening a Markdown file first.
+- Named the status bar button **Rich Markdown Documentation** and used the extension logo for its Explorer title-bar action.
+- Added workspace-wide Markdown discovery with multiple roots, hidden and nested folders, configurable include/exclude globs, filename filtering, and automatic refresh.
+- Added in-place document preview, heading navigation, Home/Back/Forward controls, source opening, and per-document reading and table state.
+- Markdown links and references within the workspace navigate inside Documentation Home, including heading fragments. Existing single-file previews retain their behavior.
+
 ## 1.1.0 — 2026-10-09
 
 - Added YAML frontmatter rendering in an expanded, collapsible metadata card above the document, with nested fields and an original-source view. Invalid YAML remains visible.

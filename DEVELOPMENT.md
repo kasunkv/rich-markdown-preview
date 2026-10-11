@@ -41,6 +41,8 @@ This checks registration, folder-scoped settings, all eighteen style values, com
 ## Architecture
 
 - `src/extension.ts`: command, panel lifetime, resource roots, CSP, messages, settings writes, clipboard, links, CSV saves.
+- `src/documentation.ts`: path-only workspace index, include/exclude globs, cancellable searches, and filesystem watcher lifecycle.
+- `src/documentation-view.ts`: Documentation Home, folder tree, filtering, workspace roots, and navigation controls.
 - `src/references.ts`: Markdown parser rules, reference relationships, navigation targets, and dialect path candidates.
 - `src/frontmatter.ts`: YAML frontmatter extraction, bounded metadata rendering, escaped source fallback.
 - `src/render.ts`: Markdown parsing, heading anchors, highlighting, image rewriting, extended Markdown.
@@ -50,6 +52,10 @@ This checks registration, folder-scoped settings, all eighteen style values, com
 - `build.mjs`: bundles extension/browser code; creates renderer/table bundles for tests.
 
 Raw HTML is disabled. The webview uses a nonce-based script CSP and Mermaid uses strict security mode. Local resources are restricted to the extension directory and Markdown document directory. Links allow HTTP, HTTPS, mailto, and relative files; other explicit schemes are rejected. CSV formula-like text is exported as literal text.
+
+Documentation Home uses a separate panel type (`richMarkdownPreview.documentationHome`) and command (`richMarkdownPreview.openDocumentationHome`), while sharing the existing rendering and message bridge. Its local resources are restricted to the extension and active document's workspace folder, allowing sibling images. Tree requests resolve only through indexed URI IDs. Directory and file names are inserted as text. Activation creates the status bar entry; indexing starts only when Documentation Home opens. Searches use VS Code URIs and APIs, including for remote workspaces.
+
+`tests/documentation.test.cjs` covers the index and host bridge. `tests/documentation-browser.cjs` covers the shipped UI, filtering, keyboard selection, document state, history, dark theme, and responsive layout; its screenshots and report go into `.test-results`. Both browser suites run through `npm run test:browser`. In the Development Host, also verify the native status bar and Explorer actions, hidden folders, folder rename/delete, relative Markdown links/images, and multiple workspace roots.
 
 ## Logo
 
@@ -73,7 +79,7 @@ Packaging uses the supplied GitHub repository and its `master` branch to resolve
 
 ## Marketplace upload troubleshooting
 
-`npm run package` runs `vscode:prepublish`, which checks types, rebuilds the assets, and runs regression tests. A separate `npm run build` is optional. Upload `rich-markdown-preview-1.1.0.vsix` using **New extension → Visual Studio Code** under publisher `kasunkodagoda`.
+`npm run package` runs `vscode:prepublish`, which checks types, rebuilds the assets, and runs regression tests. A separate `npm run build` is optional. Upload `rich-markdown-preview-2.0.0.vsix` as a new version of the existing extension under publisher `kasunkodagoda`.
 
 The internal package name is `rich-markdown-preview`. The visible name is **Rich Markdown Preview - A Styled Markdown Preview**. Check the current Marketplace for package and display-name collisions before changing either value. A successful local build does not guarantee server-side Marketplace approval.
 

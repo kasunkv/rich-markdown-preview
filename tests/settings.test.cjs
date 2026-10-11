@@ -38,10 +38,12 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     }
   };
   const vscode = {
+    StatusBarAlignment: {Left: 1},
     Uri: {joinPath: (base, ...segments) => ({toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, FileType: {File:1, Directory:2}, ViewColumn: {Beside: -2, Active: -1}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
-    window: {activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column) => {created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: message => warnings.push(message), showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
+    window: {createStatusBarItem: () => ({show() {}, hide() {}, dispose() {}}), activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column) => {created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: message => warnings.push(message), showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
     env: {openExternal: async uri => external.push(uri.toString()), clipboard: {writeText: async text => {if(failCopy) throw new Error('Clipboard unavailable'); clipboard.push(text);}}},
     workspace: {
+      onDidChangeWorkspaceFolders: () => disposable,
       fs: {stat:async () => {if(missingReference) throw new Error('Missing'); return {type:1};}, writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
       openTextDocument: async () => {if(failOpen) throw new Error('File unavailable');return document;},
       getConfiguration: section => section === 'richMarkdownPreview' ? configuration : {get:(key, fallback) => (section === 'markdownLens' ? previous : legacy)[key] ?? fallback},
@@ -250,6 +252,15 @@ test('placement setting controls creation and reuse and applies on next invocati
     assert.equal(host.columns.at(-1), -1);
     assert.equal(host.counts().created, 1);
   }
+});
+
+test('Explorer selection arguments do not change a single-file preview into Documentation Home', async () => {
+  const host = previewHost();
+  await host.handlers.command(host.document.uri, [host.document.uri]);
+  await host.handlers.message({type: 'ready'});
+  assert.equal(host.counts().created, 1);
+  assert.equal(host.messages.at(-1).documentationHome, undefined);
+  assert.match(host.messages.at(-1).html, /Test/);
 });
 
 test('panels are reused, disposed listeners are released, and reopening creates a panel', async () => {

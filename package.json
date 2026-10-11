@@ -2,7 +2,7 @@
   "name": "rich-markdown-preview",
   "displayName": "Rich Markdown Preview - A Styled Markdown Preview",
   "description": "A styled Markdown preview with 18 reading themes, Mermaid diagrams, syntax highlighting, and searchable, sortable tables with CSV export.",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "publisher": "kasunkodagoda",
   "license": "MIT",
   "engines": {
@@ -15,7 +15,8 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onCommand:markdownLens.openPreview",
-    "onCommand:styledMarkdown.openPreview"
+    "onCommand:styledMarkdown.openPreview",
+    "onStartupFinished"
   ],
   "contributes": {
     "commands": [
@@ -23,6 +24,14 @@
         "command": "richMarkdownPreview.openPreview",
         "title": "Open in Rich Markdown Preview",
         "icon": "$(preview)"
+      },
+      {
+        "icon": {
+          "light": "assets/rich-markdown-preview.png",
+          "dark": "assets/rich-markdown-preview.png"
+        },
+        "command": "richMarkdownPreview.openDocumentationHome",
+        "title": "Rich Markdown Preview: Open Documentation Home"
       }
     ],
     "menus": {
@@ -45,6 +54,13 @@
           "command": "richMarkdownPreview.openPreview",
           "when": "(resourceLangId == markdown || resourceExtname =~ /\\.md$/i) && !explorerResourceIsFolder",
           "group": "navigation@20"
+        }
+      ],
+      "view/title": [
+        {
+          "group": "navigation@20",
+          "when": "view == workbench.explorer.fileView && workspaceFolderCount > 0",
+          "command": "richMarkdownPreview.openDocumentationHome"
         }
       ]
     },
@@ -149,6 +165,23 @@
           "scope": "resource",
           "default": "",
           "description": "Base directory for file references starting with /. Empty uses the document workspace folder, or document directory for standalone files. Set a workspace-relative path for a skill package root, or an absolute Windows path."
+        },
+        "richMarkdownPreview.documentation.include": {
+          "scope": "resource",
+          "description": "Workspace-relative glob for Documentation Home. Hidden folders such as .claude are included. Results are limited to Markdown files.",
+          "default": "**/*.{md,MD,markdown,MARKDOWN}",
+          "type": "string"
+        },
+        "richMarkdownPreview.documentation.exclude": {
+          "scope": "resource",
+          "description": "Folders and files excluded from Documentation Home. Uses its own glob instead of files.exclude or .gitignore, so hidden documentation remains discoverable. Set empty to include all matching Markdown files.",
+          "default": "**/{.git,node_modules,bower_components,dist,build,out,coverage,.next,.venv,venv}/**",
+          "type": "string"
+        },
+        "richMarkdownPreview.documentation.showStatusBar": {
+          "description": "Show the Documentation Home button in the status bar when a workspace is open.",
+          "default": true,
+          "type": "boolean"
         }
       }
     },
@@ -170,7 +203,7 @@
     "vscode:prepublish": "npm run check && npm test",
     "package": "vsce package --no-dependencies --githubBranch master",
     "test:coverage": "npm run build && node --test --experimental-test-coverage tests/*.test.cjs",
-    "test:browser": "npm run build && node tests/browser.cjs"
+    "test:browser": "npm run build && node tests/browser.cjs && node tests/documentation-browser.cjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",

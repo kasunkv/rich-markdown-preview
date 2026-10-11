@@ -252,6 +252,36 @@ body:is([data-appearance="dark"],[data-appearance="auto"].vscode-dark,[data-appe
 @media(max-width:850px) { .outline { display:none; }.layout { padding:26px 20px 60px; }.toolbar { padding:12px; gap:12px; }.brand small { display:none; }.controls { gap:8px; } }
 @media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
 
+/* Workspace documentation browser, sharing the preview's theme and renderer. */
+.documentation-bar { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--surface); font-size:12px; }
+.documentation-path { flex:1; min-width:120px; overflow-wrap:anywhere; color:var(--muted); }
+.documentation-mode button:disabled { opacity:.45; cursor:default; }
+.documentation-mode .layout { gap:28px; padding-top:24px; }
+.documentation-sidebar { flex:0 0 260px; width:260px; position:sticky; top:var(--documentation-top,125px); max-height:calc(100vh - var(--documentation-top,125px) - 24px); overflow:auto; font-size:13px; color:var(--text); padding:3px; }
+.documentation-tabs { display:flex; gap:6px; margin-bottom:14px; }
+.documentation-tabs button { flex:1; font-size:12px; }
+.documentation-tabs button[aria-pressed="true"] { color:var(--accent); border-color:var(--accent); background:var(--code); }
+.documentation-documents input { width:100%; padding:9px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); }
+.documentation-notice { font-size:11px; color:var(--muted); margin:10px 0; }
+.documentation-folder summary { padding:7px 4px; cursor:pointer; overflow-wrap:anywhere; }
+.documentation-children { margin-left:9px; padding-left:8px; border-left:1px solid var(--border); }
+.documentation-file { display:block; width:100%; text-align:left; border-color:transparent; background:transparent; padding:7px 8px; overflow-wrap:anywhere; font-size:12px; }
+.documentation-file:hover,.documentation-folder summary:hover { background:var(--code); }
+.documentation-file[aria-current="page"] { color:var(--accent); background:var(--code); border-color:var(--border); }
+.documentation-sidebar .outline { display:none; position:static; width:100%; max-height:none; overflow:visible; }
+.documentation-outline .documentation-sidebar .outline { display:block; }
+.documentation-outline .documentation-documents { display:none; }
+.hide-outline .documentation-sidebar { display:none; }
+.documentation-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr)); gap:18px; }
+.documentation-cards section { padding:20px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+.markdown .documentation-cards h2 { margin:0 0 14px; font-size:1.25em; }
+.documentation-cards button { display:block; text-align:left; width:100%; margin:8px 0; font-size:14px; overflow-wrap:anywhere; }
+@media(max-width:850px) {
+  .documentation-mode .layout { flex-direction:column; gap:22px; }
+  .documentation-sidebar { position:static; width:100%; flex-basis:auto; max-height:300px; border-bottom:1px solid var(--border); padding-bottom:14px; }
+  .documentation-mode .documentation-path { order:2; flex-basis:100%; }
+}
+
 /* Light surfaces need ink with enough contrast at small reading/control sizes.
    Keep these treatments out of explicit dark and VS Code's automatic dark modes. */
 body:not(:is([data-appearance="dark"],[data-appearance="auto"].vscode-dark,[data-appearance="auto"].vscode-high-contrast)) {

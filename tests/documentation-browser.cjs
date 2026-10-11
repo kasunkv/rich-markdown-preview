@@ -1,0 +1,98 @@
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { renderMarkdown } = require('../dist/render.cjs');
+
+(async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? {executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE} : {}) });
+  const checks = [], errors = [];
+  try {
+    const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
+    page.on('pageerror', error => errors.push(error.message));
+    const paths = ['README.md', 'docs/guide.md', 'reports/2026/october/summary.MD', '.claude/skills/test/SKILL.md', 'docs/<img onerror=alert(1)>.md'];
+    const files = paths.map(name => ({id: `file:///repo/${name}`, root: 'file:///repo', rootName: 'project', path: name}));
+    files.push({id: 'file:///other/README.md', root: 'file:///other', rootName: 'other', path: 'README.md'});
+    const sources = Object.fromEntries(files.map(file => [file.id, renderMarkdown(`# ${file.path}\n\n| Name | Value |\n| --- | --- |\n| Alpha | 1 |\n| Beta | 2 |\n\n${Array.from({length: 30}, (_, i) => `## Section ${i}\n\nDocumentation paragraph ${i}.`).join('\n\n')}`)]));
+    await page.setContent('<!doctype html><html><head></head><body><div id="app"></div></body></html>');
+    await page.locator('#app').evaluate((node, logo) => {node.dataset.logo = logo;}, `data:image/png;base64,${fs.readFileSync('assets/rich-markdown-preview.png').toString('base64')}`);
+    await page.addStyleTag({path: path.resolve('dist/preview.css')});
+    await page.evaluate(({files, sources}) => {
+      let state, active, position = 0;
+      const history = [undefined];
+      const preferences = {style: 'documentation', appearance: 'light', contentWidth: 900, fontSize: 16, lineHeight: 1.7, wrapCode: false};
+      window.actions = [];
+      const emit = data => window.dispatchEvent(new MessageEvent('message', {data}));
+      const index = () => emit({type: 'documentation', files, active, loading: false, canBack: position > 0, canForward: position < history.length - 1});
+      const render = () => {emit({type: 'render', ...(active ? sources[active] : {html: '', outline: []}), preferences, documentationHome: true, documentId: active ?? 'home'}); index();};
+      window.testIndex = index;
+      window.readState = () => state;
+      window.acquireVsCodeApi = () => ({getState: () => state, setState: value => {state = value;}, postMessage: message => {
+        window.actions.push(message);
+        if (message.type === 'ready') setTimeout(render, 0);
+        if (message.type === 'preference') {preferences[message.key] = message.value; emit({type: 'preferences', preferences});}
+        if (message.type !== 'documentationAction') return;
+        if (message.action === 'open' || message.action === 'home') {
+          active = message.action === 'open' ? message.id : undefined;
+          history.splice(position + 1); history.push(active); position++;
+        } else if (message.action === 'back') active = history[--position];
+        else if (message.action === 'forward') active = history[++position];
+        if (message.action !== 'source') render();
+      }});
+    }, {files, sources});
+    await page.addScriptTag({path: path.resolve('dist/preview.js')});
+    await page.getByRole('heading', {name: 'Documentation Home', exact: true}).waitFor();
+    assert.equal(await page.locator('.documentation-cards section').count(), 2);
+    assert.equal(await page.locator('.documentation-file').count(), 6);
+    await page.locator('.documentation-cards').getByRole('button', {name: 'docs/ · 2 documents', exact: true}).click();
+    assert.equal(await page.locator('.documentation-file:visible').count(), 2);
+    assert.equal(await page.locator('.documentation-file img').count(), 0);
+    await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('SKILL');
+    const skill = page.getByRole('button', {name: 'SKILL.md', exact: true});
+    await skill.focus(); await page.keyboard.press('Enter');
+    await page.getByRole('heading', {name: '.claude/skills/test/SKILL.md', exact: true}).waitFor();
+    assert.equal(await skill.getAttribute('aria-current'), 'page');
+    await page.getByRole('button', {name: 'On this page', exact: true}).click();
+    assert.equal(await page.locator('#outline a:visible').count(), 31);
+    await page.getByRole('button', {name: 'Documents', exact: true}).click();
+    await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('');
+    checks.push('Multiple roots, folder home cards, nested filtering, safe filenames, keyboard selection, active file, outline tabs');
+
+    await page.locator('.documentation-file').getByText('README.md', {exact: true}).first().click();
+    await page.locator('.table-search').fill('Alpha');
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await page.waitForFunction(() => window.readState()?.scroll >= 1100);
+    await page.locator('.documentation-folder > summary').filter({hasText: /^docs$/}).click();
+    await page.getByRole('button', {name: 'guide.md', exact: true}).click();
+    assert.equal(await page.locator('.table-search').inputValue(), '');
+    assert.equal(await page.evaluate(() => window.scrollY), 0);
+    await page.getByRole('button', {name: '← Back', exact: true}).click();
+    assert.equal(await page.locator('.table-search').inputValue(), 'Alpha');
+    await page.waitForFunction(() => window.scrollY >= 1100);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.getByRole('button', {name: 'Forward →', exact: true}).click();
+    await page.getByRole('button', {name: 'Open source', exact: true}).click();
+    assert.equal(await page.evaluate(() => window.actions.at(-1).action), 'source');
+    checks.push('Per-document table and scroll state, Back/Forward history, source action');
+
+    await page.getByRole('button', {name: 'Home', exact: true}).click();
+    assert.equal(await page.getByRole('button', {name: 'Open source', exact: true}).isDisabled(), true);
+    await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('missing-document');
+    assert.equal(await page.getByText('No matching documents.', {exact: true}).isVisible(), true);
+    await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('');
+    await page.selectOption('#appearance', 'dark');
+    fs.mkdirSync('.test-results', {recursive: true});
+    await page.screenshot({path: '.test-results/documentation-home-dark.png'});
+    await page.setViewportSize({width: 520, height: 800});
+    assert.equal(await page.locator('.documentation-sidebar').isVisible(), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.getByRole('button', {name: 'Navigation', exact: true}).click();
+    assert.equal(await page.locator('.documentation-sidebar').isVisible(), false);
+    await page.getByRole('button', {name: 'Navigation', exact: true}).click();
+    await page.screenshot({path: '.test-results/documentation-home-narrow.png'});
+    checks.push('Home return, empty search, dark theme, narrow layout and navigation toggle');
+    assert.deepEqual(errors, []);
+    fs.writeFileSync('.test-results/documentation-browser.json', JSON.stringify({passed: true, checks}, null, 2));
+    console.log(checks.map(check => `PASS ${check}`).join('\n'));
+  } finally {await browser.close();}
+})().catch(error => {console.error(error); process.exitCode = 1;});

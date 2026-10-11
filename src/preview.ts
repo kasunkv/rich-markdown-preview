@@ -2,12 +2,16 @@ import mermaid from 'mermaid';
 import type { OutlineItem } from './render';
 import { previewStyles } from './styles';
 import { enhanceTables, type TableState } from './tables';
-declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): { scroll?: number; tables?: TableState } | undefined; setState(state: unknown): void };
+import { documentationView, type DocumentationViewState } from './documentation-view';
+interface ReadingState { scroll?: number; tables?: TableState }
+interface PreviewState extends ReadingState { documentation?: DocumentationViewState; documentId?: string; documents?: Record<string, ReadingState> }
+declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): PreviewState | undefined; setState(state: unknown): void };
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app')!;
 app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="style" aria-label="Style">${previewStyles.map(style => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="width-value"></output><input id="contentWidth" aria-label="Content width" type="range" min="480" max="1600" step="20"></label><label>Text<select id="fontSize" aria-label="Text size">${[12,14,16,18,20,22,24].map(n => `<option value="${n}">${n}px</option>`).join('')}</select></label><label>Spacing<select id="lineHeight" aria-label="Line spacing">${[1.3,1.5,1.7,1.9,2.2].map(n => `<option value="${n}">${n}</option>`).join('')}</select></label><label class="checkbox"><input id="wrapCode" type="checkbox">Wrap code</label><button id="toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="outline"></nav></aside><main id="content" class="markdown" aria-label="Markdown preview"></main></div><div id="announcement" class="sr-only" aria-live="polite"></div>`;
 const content = document.getElementById('content')!;
 const outline = document.getElementById('outline')!;
+const documentation = documentationView(vscode, content);
 let revision = 0;
 let restored = false;
 let diagramSequence = 0;
@@ -16,7 +20,12 @@ let currentPreferences: Preferences = { style: 'documentation', appearance: 'aut
 const pendingPreferences = new Map<keyof Preferences, Preferences[keyof Preferences]>();
 let diagramSources = new WeakMap<HTMLElement, string>();
 let tableState: TableState = vscode.getState()?.tables ?? {};
-function saveState() { vscode.setState({ scroll: window.scrollY, tables: tableState }); }
+let documentId = vscode.getState()?.documentId;
+const readingStates = vscode.getState()?.documents ?? {};
+function saveState() {
+  if (documentId) readingStates[documentId] = { scroll: window.scrollY, tables: tableState };
+  vscode.setState({ ...vscode.getState(), scroll: window.scrollY, tables: tableState, documentId, documents: readingStates });
+}
 function isDark() {
   return document.body.dataset.appearance === 'dark' || (document.body.dataset.appearance === 'auto' && (document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')));
 }
@@ -92,6 +101,7 @@ async function diagrams(version: number) {
 window.addEventListener('message', event => {
   const message = event.data;
   if (!message || typeof message !== 'object') return;
+  if (message.type === 'documentation') { documentation.receive(message); return; }
   if (message.type === 'copyResult') {
     document.getElementById('announcement')!.textContent = message.success ? 'Code copied' : 'Could not copy code. Please try again.';
     return;
@@ -102,7 +112,14 @@ window.addEventListener('message', event => {
   }
   if (message.type === 'preferences') { receivePreferences(message.preferences); return; }
   if (message.type !== 'render') return;
-  const scroll = restored ? window.scrollY : vscode.getState()?.scroll ?? 0;
+  if (message.documentationHome) documentation.enable();
+  const changedDocument = message.documentationHome && message.documentId !== documentId;
+  if (changedDocument) {
+    if (restored) saveState();
+    documentId = message.documentId;
+    tableState = readingStates[documentId!]?.tables ?? {};
+  }
+  const scroll = changedDocument ? readingStates[documentId!]?.scroll ?? 0 : restored ? window.scrollY : vscode.getState()?.scroll ?? 0;
   restored = true;
   const version = ++revision;
   receivePreferences(message.preferences, false);
@@ -120,7 +137,13 @@ window.addEventListener('message', event => {
   }
   if (!message.outline.length) outline.textContent = 'Headings will appear here.';
   window.scrollTo(0, scroll);
-  void diagrams(version);
+  // Mermaid may change document height; restore the requested position after it settles.
+  void diagrams(version).then(() => {
+    if (version !== revision) return;
+    if (typeof message.fragment === 'string' && message.fragment) scrollToHeading(message.fragment);
+    else if (changedDocument) window.scrollTo(0, scroll);
+    saveState();
+  });
 });
 document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.controls input, .controls select').forEach(control => {
   const updateLocal = () => {

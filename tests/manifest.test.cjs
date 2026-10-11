@@ -8,7 +8,7 @@ test('release manifest exposes the agreed identity, icon, keywords and menus', (
   assert.equal(manifest.name,'rich-markdown-preview');
   assert.match(manifest.scripts.package,/--githubBranch master\b/);
   assert.equal(manifest.displayName,'Rich Markdown Preview - A Styled Markdown Preview');
-  assert.equal(manifest.version,'1.1.0'); assert.equal(manifest.publisher,'kasunkodagoda');
+  assert.equal(manifest.version,'2.0.0'); assert.equal(manifest.publisher,'kasunkodagoda');
   assert.equal(manifest.author.name,'Kasun Kodagoda');
   assert.ok(manifest.keywords.includes('markdown')); assert.ok(manifest.keywords.length <= 30);
   const icon = fs.readFileSync(path.resolve(__dirname,'..',manifest.icon));
@@ -29,6 +29,10 @@ test('release manifest exposes the agreed identity, icon, keywords and menus', (
   assert.ok(shortcut.when.includes('editorTextFocus && ('));
   assert.ok(shortcut.when.includes('resourceExtname =~ /\\.md$/i'));
   assert.equal(manifest.contributes.configuration.properties['richMarkdownPreview.openPreviewToSide'].default, true);
+  assert.ok(manifest.activationEvents.includes('onStartupFinished'));
+  assert.ok(manifest.contributes.commands.some(command => command.command === 'richMarkdownPreview.openDocumentationHome'));
+  assert.ok(manifest.contributes.menus['view/title'].some(item => item.command === 'richMarkdownPreview.openDocumentationHome' && item.when.includes('workbench.explorer.fileView')));
+  assert.equal(manifest.contributes.configuration.properties['richMarkdownPreview.documentation.showStatusBar'].default, true);
   assert.equal(require('../package-lock.json').version,manifest.version);
   assert.equal(require('../package-lock.json').packages[''].name,manifest.name);
 });

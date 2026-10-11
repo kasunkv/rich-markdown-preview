@@ -4,12 +4,12 @@
 
 Turn Markdown into a comfortable reading experience in VS Code. Rich Markdown Preview combines **18 reading styles**, live Markdown preview, syntax highlighting, **Mermaid diagrams**, and interactive tables. Use it for READMEs, documentation, technical notes, articles, and research.
 
-## What's new in v1.1.0
+## What's new in v2.0.0
 
-- **Readable frontmatter:** YAML metadata appears above the document in a collapsible card with nested fields and a source view.
-- **Clickable file references:** Open includes, imports, embeds, and related files from the preview, with relationship icons and syntax tooltips. Configure the reference root for skill packages.
-- **Preview any `.md` file:** Editor and Explorer actions remain available even when another language is selected.
-- **Faster access and flexible placement:** Use **Ctrl+Alt+M** (**Cmd+Alt+M** on macOS). Disable **Open Preview To Side** to open the preview as a new tab in the current editor group.
+- **Documentation Home:** Browse Markdown throughout your workspace in one preview tab, with an expandable folder tree and filename filtering.
+- **One-click access:** Open Documentation Home from the **Rich Markdown Documentation** status bar button or our logo in the Explorer title bar.
+- **Nested and hidden documentation:** Discover files in folders such as `docs/`, `reports/`, and `.claude/`, with configurable exclusions and automatic refresh.
+- **Connected reading:** Follow Markdown links in place, use Back/Forward navigation, open source files for editing, and retain each document's scroll position and table filters.
 
 [View full release notes](CHANGELOG.md)
 
@@ -27,6 +27,7 @@ You can also right-click a Markdown file in **Explorer**, use the **Open in Rich
 ## Features
 
 - **18 styles:** Documentation, Reading, Technical, GitHub, Editorial, Book, Minimal, Academic, Swiss, Aurora, Botanical, Noir, Blueprint, Terracotta, Atelier, Ocean, Manuscript, and Circuit.
+- **Documentation Home:** Browse Markdown across your workspace in one tab, with an expandable folder tree, filename filtering, and previews that open in place.
 - **Light, dark, or automatic appearance:** Auto follows the VS Code theme, including diagram colors.
 - **Reading controls:** Adjust content width, text size, and line spacing; wrap long code lines; show or hide the heading outline.
 - **Frontmatter:** YAML metadata appears in a collapsible card above the document, with readable fields, nested values, and a YAML source view.
@@ -43,6 +44,28 @@ You can also right-click a Markdown file in **Explorer**, use the **Open in Rich
 - **Offline rendering:** Styles, syntax highlighting, and Mermaid are bundled. No CDN or account is needed. Remote images and external links use your network connection.
 
 ![Rich Markdown Preview in Ocean style with dark appearance](docs/rich-markdown-preview-dark.png)
+
+## Browse workspace documentation
+
+Open a folder or workspace, then click **Rich Markdown Documentation** in the VS Code status bar or the **Rich Markdown Preview logo** in the Explorer title bar. The status bar uses a Markdown glyph; the Explorer button uses the extension's image icon. You can also run **Rich Markdown Preview: Open Documentation Home** from the Command Palette. No Markdown editor needs to be open.
+
+Documentation Home opens in the current editor group. Its home page lists the workspace's documentation folders and root Markdown files, with a **Read README** shortcut when available. Each workspace folder has its own root. Expand the left-hand folder tree or filter by filename or folder path, then select a document to read it on the right.
+
+- **Documents / On this page:** Switch between the file tree and the selected document's heading outline. **Navigation** hides or shows the sidebar; on narrow tabs it appears above the document.
+- **Home, Back, Forward:** Navigate within the same preview tab. Each document keeps its table filters and reading position while you browse.
+- **Open source:** Open the selected Markdown source beside Documentation Home for editing. The preview updates while you type.
+- **Markdown links:** Links and file references to Markdown inside the workspace open in Documentation Home, including heading fragments. Other local files open in VS Code; external links open in your browser.
+- **Refresh:** Rescan manually. File additions, deletions, and workspace-folder changes also refresh the tree automatically. If the selected file is deleted or its workspace folder is removed, the view returns home.
+
+Discovery includes nested and hidden documentation folders such as `docs/`, `reports/`, and `.claude/`. It uses its own include/exclude settings rather than the Explorer's exclusions or `.gitignore`. Common dependency and build folders are excluded by default. Only paths are indexed; document content is read when selected. Nothing is generated or written into your repository.
+
+| Setting | Default / behavior |
+| --- | --- |
+| `richMarkdownPreview.documentation.include` | `**/*.{md,MD,markdown,MARKDOWN}`; workspace-relative glob, configurable per workspace folder |
+| `richMarkdownPreview.documentation.exclude` | `**/{.git,node_modules,bower_components,dist,build,out,coverage,.next,.venv,venv}/**`; set empty to remove exclusions |
+| `richMarkdownPreview.documentation.showStatusBar` | `true`; disable to hide the status bar button |
+
+Filtering searches file paths, not document contents. Files in excluded folders can still be opened through a document link, but do not appear in the tree. VS Code's filesystem watcher exclusions can prevent automatic updates in some folders; use **Refresh** to rescan them.
 
 ## Make it yours
 
