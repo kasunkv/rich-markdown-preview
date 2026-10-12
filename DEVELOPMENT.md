@@ -67,6 +67,36 @@ The user-supplied corrected PNG is preserved in `assets/logo-source.png` (exclud
 
 ## Release
 
+### Package inventory and verification
+
+`package.json.files` is the single VSCE inclusion policy: exact runtime files,
+customer README/changelog/license, bundled notices, shared icon, and the two
+README screenshots. Add customer assets explicitly; do not add directory globs
+or restore `.vscodeignore`. Source maps, test bundles, source/fixtures, build
+tools, developer documentation, specs, audits, research and caches never ship.
+Git ignore rules do not control the customer package.
+
+`npm run package` runs the existing prepublish checks and then verifies the
+actual ZIP. To verify a candidate independently, use
+`npm run verify:vsix -- path/to/candidate.vsix` (the default is the current
+manifest's name/version). The verifier requires the exact inventory, nonempty
+assets, manifest and VSIX identity, and the declared runtime entrypoint. Its JSON
+output lists each path's compressed/uncompressed bytes, ZIP size and total
+uncompressed size. VSCE normalizes README/changelog/license names in the ZIP.
+
+The initial corrected 2.0.0 package measured 1,657,052 ZIP bytes and 5,341,299
+uncompressed bytes on 12 October 2026. `scripts/vsix-budget.json` limits these to
+2,000,000 and 6,500,000 bytes respectively (about 21% headroom). Review inventory
+and measured growth before changing these budgets. `npm run test:package` builds
+and packages clean and sentinel-filled temporary fixture trees, exercises
+missing-runtime and malformed-package failures, and removes the fixtures. The
+package test also runs in the existing regression and coverage commands.
+
+Installation validation uses `code --install-extension` with explicit isolated
+`--user-data-dir` and `--extensions-dir` paths under `.test-results`; never omit
+these when testing a candidate. This spec changes packaging only, with no
+customer settings or runtime behavior changes.
+
 1. Confirm `package.json.publisher` matches your registered ID (`kasunkodagoda`). Set the Marketplace publisher display name to **Kasun Kodagoda** in the publisher account; the package author already uses that name.
 2. Push the release files, screenshots, and developer documentation to the public `master` branch of https://github.com/kasunkv/rich-markdown-preview. The package links use this repository; VSCE rewrites relative README links to that branch.
 3. Run type checking, regressions, browser tests, and the extension-host smoke test. Review screenshots and manually verify native menus and the icon.

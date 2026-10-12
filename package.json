@@ -201,9 +201,11 @@
     "test": "npm run build && node --test tests/*.test.cjs",
     "dev:preview": "npm run build && node tests/preview-server.cjs",
     "vscode:prepublish": "npm run check && npm test",
-    "package": "vsce package --no-dependencies --githubBranch master",
+    "package": "vsce package --no-dependencies --githubBranch master && npm run verify:vsix",
     "test:coverage": "npm run build && node --test --experimental-test-coverage tests/*.test.cjs",
-    "test:browser": "npm run build && node tests/browser.cjs && node tests/documentation-browser.cjs"
+    "test:browser": "npm run build && node tests/browser.cjs && node tests/documentation-browser.cjs",
+    "verify:vsix": "node scripts/verify-vsix.cjs",
+    "test:package": "npm run build && node --test tests/package.test.cjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -225,7 +227,9 @@
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.25.0",
     "playwright": "^1.62.1",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "yauzl": "3.4.0",
+    "yazl": "2.5.1"
   },
   "overrides": {
     "katex": "^0.18.2"
@@ -261,5 +265,18 @@
   "homepage": "https://github.com/kasunkv/rich-markdown-preview#readme",
   "bugs": {
     "url": "https://github.com/kasunkv/rich-markdown-preview/issues"
-  }
+  },
+  "files": [
+    "package.json",
+    "dist/extension.js",
+    "dist/preview.js",
+    "dist/preview.css",
+    "assets/rich-markdown-preview.png",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.txt",
+    "docs/rich-markdown-preview-light.png",
+    "docs/rich-markdown-preview-dark.png"
+  ]
 }
