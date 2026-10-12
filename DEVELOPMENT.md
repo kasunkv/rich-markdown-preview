@@ -13,7 +13,7 @@ npm run test:browser
 npm run test:coverage
 ```
 
-`npm test` builds first and runs renderer, host-bridge, settings, table data, palette, and manifest regressions. Host tests mock VS Code APIs; they do not replace the extension-host smoke test. Coverage output currently measures bundled JavaScript, including vendor code; do not interpret it as a source-only coverage percentage.
+`npm test` builds the production profile first and runs renderer, host-bridge, settings, table data, palette, manifest, build/watch, and packaging regressions. Host tests mock VS Code APIs; they do not replace the extension-host smoke test. Coverage output currently measures bundled JavaScript, including vendor code; do not interpret it as a source-only coverage percentage.
 
 Browser checks use Playwright and exercise the shipped preview bundle, actual Mermaid rendering, 36 style/appearance combinations, table DOM controls, state retention, clipboard, CSV download/BOM, automatic theme changes, error recovery, and narrow layouts. Results are saved to `.test-results/browser.json`. The test also regenerates README screenshots from the actual preview using a simulated VS Code bridge.
 
@@ -24,7 +24,52 @@ $env:PLAYWRIGHT_CHROMIUM_EXECUTABLE = 'C:\Program Files (x86)\Microsoft\Edge\App
 npm run test:browser
 ```
 
-`npm run dev:preview` serves browser QA at `http://127.0.0.1:4173`. Do not run that server concurrently with the browser suite. `npm run watch` rebuilds JavaScript. CSS is copied at build time; rerun the build after CSS changes and reopen preview panels after changing assets.
+`npm run dev:preview` builds the development profile and serves browser QA at `http://127.0.0.1:4173`. Do not run that server concurrently with the browser suite.
+
+## Build profiles and debugging
+
+`npm run build:development` creates readable bundles and adjacent `.map` files
+with embedded TypeScript source. F5 runs this profile before launching the
+Extension Development Host; `outFiles` and source-map support are configured in
+`.vscode/launch.json`. Set breakpoints in `src/extension.ts` before running a
+preview command. Debug browser code in the webview developer tools.
+
+`npm run watch` uses the same development profile and watches both TypeScript
+and the static assets listed in `build.mjs` (currently `src/preview.css`). CSS
+edits, including editor saves that replace the file, recopy it to `dist` without
+restarting the watcher. `[watch] ready` means the initial outputs are available;
+Ctrl+C disposes all esbuild contexts. Reopen preview panels after CSS/browser
+bundle changes so they load the updated assets. Restart the Extension
+Development Host after extension-host code changes. In browser QA, refresh the
+page after asset changes; automatic panel/page reload is not provided.
+
+`npm run build:production` minifies bundles, removes known development maps from
+`dist`, and regenerates `THIRD_PARTY_NOTICES.txt` from bundled dependencies.
+`npm run build` remains an alias for production. Test-only renderer/table bundles
+are built in both profiles but excluded from the VSIX by the exact allowlist.
+Stop watch mode before building production into the shared `dist` directory.
+
+Targets are explicitly `node20` for host/test code and `chrome128` for webview
+code, matching the Node 20.18 / Chromium 128 runtime in the supported
+[VS Code 1.95 floor](https://code.visualstudio.com/updates/v1_95#_electron-32-update).
+The local build/test tools still require Node 22 or newer. These transpilation
+targets do not substitute for the minimum-version real-host checks in spec 005.
+
+CI can build once and reuse the outputs:
+
+```sh
+npm run check
+npm run build:production
+npm run test:only
+npm run test:coverage:only
+npm run test:browser:only
+```
+
+The `:only` commands never build and require existing outputs. Use
+`test:package:only` for only the package fixture checks. The convenience commands
+`test`, `test:coverage`, `test:browser`, and `test:package` each build production
+first. VSCE's prepublish hook runs type checking, one production build and
+`test:only`; `npm run package` then verifies the resulting release ZIP.
 
 ## Fixtures and manual QA
 
