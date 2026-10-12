@@ -3,12 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const manifest = require('../package.json');
+const { validateReleaseVersion } = require('../scripts/release-version.cjs');
 
 test('release manifest exposes the agreed identity, icon, keywords and menus', () => {
   assert.equal(manifest.name,'rich-markdown-preview');
   assert.match(manifest.scripts.package,/--githubBranch master\b/);
   assert.equal(manifest.displayName,'Rich Markdown Preview - A Styled Markdown Preview');
-  assert.equal(manifest.version,'2.0.0'); assert.equal(manifest.publisher,'kasunkodagoda');
+  validateReleaseVersion({ manifest, lock: require('../package-lock.json') });
+  assert.equal(manifest.publisher,'kasunkodagoda');
   assert.equal(manifest.author.name,'Kasun Kodagoda');
   assert.ok(manifest.keywords.includes('markdown')); assert.ok(manifest.keywords.length <= 30);
   const icon = fs.readFileSync(path.resolve(__dirname,'..',manifest.icon));

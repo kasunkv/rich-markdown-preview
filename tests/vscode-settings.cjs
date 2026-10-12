@@ -2,6 +2,8 @@ const vscode = require('vscode');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const manifest = require('../package.json');
+const { validateVersion } = require('../scripts/release-version.cjs');
 
 exports.run = async function () {
   const waitForWebview = async () => {
@@ -13,11 +15,14 @@ exports.run = async function () {
   const output = process.env.RICH_MARKDOWN_PREVIEW_TEST_RESULT || path.join(root, '.test-results', 'vscode-settings.json');
   const checks = [];
   try {
-    const extension = vscode.extensions.getExtension(`${require('../package.json').publisher}.${require('../package.json').name}`);
+    const extension = vscode.extensions.getExtension(`${manifest.publisher}.${manifest.name}`);
     assert.ok(extension, 'Development extension is registered');
     await extension.activate();
     assert.equal(extension.packageJSON.displayName, 'Rich Markdown Preview - A Styled Markdown Preview');
-    assert.equal(extension.packageJSON.version, '2.0.0');
+    validateVersion(extension.packageJSON.version, 'Registered extension version');
+    assert.equal(extension.packageJSON.version, manifest.version, 'Registered extension version matches source manifest');
+    assert.equal(extension.packageJSON.name, manifest.name);
+    assert.equal(extension.packageJSON.publisher, manifest.publisher);
     assert.equal(extension.packageJSON.contributes.commands[0].title, 'Open in Rich Markdown Preview');
     assert.ok((await vscode.commands.getCommands()).includes('richMarkdownPreview.openPreview'));
     assert.ok((await vscode.commands.getCommands()).includes('richMarkdownPreview.openDocumentationHome'));

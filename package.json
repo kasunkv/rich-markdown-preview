@@ -201,10 +201,11 @@
     "test": "npm run build && node --test tests/*.test.cjs",
     "dev:preview": "npm run build && node tests/preview-server.cjs",
     "vscode:prepublish": "npm run check && npm test",
-    "package": "vsce package --no-dependencies --githubBranch master && npm run verify:vsix",
+    "package": "vsce package --no-dependencies --githubBranch master && npm run verify:release",
     "test:coverage": "npm run build && node --test --experimental-test-coverage tests/*.test.cjs",
     "test:browser": "npm run build && node tests/browser.cjs && node tests/documentation-browser.cjs",
     "verify:vsix": "node scripts/verify-vsix.cjs",
+    "verify:release": "node scripts/verify-release.cjs",
     "test:package": "npm run build && node --test tests/package.test.cjs"
   },
   "dependencies": {

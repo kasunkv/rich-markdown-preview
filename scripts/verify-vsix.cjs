@@ -3,6 +3,7 @@ const path = require('node:path');
 const yauzl = require('yauzl');
 const manifest = require('../package.json');
 const budget = require('./vsix-budget.json');
+const { validateVersion, validateReleaseNotes } = require('./release-version.cjs');
 
 function readZip(filename) {
   return new Promise((resolve, reject) => {
@@ -36,7 +37,9 @@ function readZip(filename) {
   });
 }
 
-async function verifyVsix(filename) {
+async function verifyVsix(filename, { manifest: sourceManifest = manifest, release = false } = {}) {
+  const manifest = sourceManifest;
+  validateVersion(manifest.version);
   const entries = await readZip(filename);
   // VSCE normalizes customer document names in the ZIP.
   const normalized = { 'README.md': 'readme.md', 'CHANGELOG.md': 'changelog.md', LICENSE: 'LICENSE.txt' };
@@ -49,7 +52,7 @@ async function verifyVsix(filename) {
   }
   const packaged = JSON.parse(entries.get('extension/package.json').data.toString('utf8'));
   for (const key of ['name', 'publisher', 'version', 'main', 'icon']) {
-    if (packaged[key] !== manifest[key]) throw new Error(`Packaged manifest ${key} mismatch`);
+    if (packaged[key] !== manifest[key]) throw new Error(`Packaged manifest ${key} mismatch: expected ${manifest[key]}; got ${JSON.stringify(packaged[key])}`);
   }
   const main = packaged.main.replace(/^\.\//, '');
   if (!entries.has(`extension/${main}`)) throw new Error('Missing manifest entrypoint');
@@ -57,8 +60,9 @@ async function verifyVsix(filename) {
   const identity = xml.match(/<Identity\s+([^>]+)\/?\s*>/);
   for (const [key, value] of Object.entries({ Id: manifest.name, Publisher: manifest.publisher, Version: manifest.version })) {
     const actual = identity?.[1].match(new RegExp(`\\b${key}="([^"]*)"`))?.[1];
-    if (actual !== value) throw new Error(`VSIX identity ${key} mismatch`);
+    if (actual !== value) throw new Error(`VSIX identity ${key} mismatch: expected ${value}; got ${JSON.stringify(actual)}`);
   }
+  if (release) validateReleaseNotes(entries.get('extension/changelog.md').data.toString('utf8'), manifest.version, 'VSIX changelog');
   const compressedBytes = fs.statSync(filename).size;
   const uncompressedBytes = [...entries.values()].reduce((sum, entry) => sum + entry.uncompressed, 0);
   if (compressedBytes > budget.compressedBytes || uncompressedBytes > budget.uncompressedBytes) throw new Error(`VSIX size budget exceeded: ${compressedBytes} compressed / ${uncompressedBytes} uncompressed bytes`);

@@ -7,6 +7,7 @@ const { createVSIX } = require('@vscode/vsce');
 const yazl = require('yazl');
 const yauzl = require('yauzl');
 const { verifyVsix } = require('../scripts/verify-vsix.cjs');
+const { verifyRelease } = require('../scripts/verify-release.cjs');
 const manifest = require('../package.json');
 
 async function rewriteZip(source, target, change) {
@@ -51,6 +52,8 @@ test('actual VSIX excludes incidental files and rejects missing, extra, invalid 
   // Fixture contains already-built assets; never run workspace hooks or install dependencies.
   const fixtureManifest = { ...manifest, scripts: {} };
   await fs.writeFile(path.join(fixture, 'package.json'), JSON.stringify(fixtureManifest));
+  // Release checks exercise fixture notes, never demand release notes from a development checkout.
+  await fs.writeFile(path.join(fixture, 'CHANGELOG.md'), `## ${manifest.version}\n\n- Release fixture notes\n`);
   const clean = path.join(fixture, 'clean.vsix');
   await createVSIX({ cwd: fixture, packagePath: clean, dependencies: false, githubBranch: 'master' });
   const baseline = await verifyVsix(clean);
@@ -59,6 +62,16 @@ test('actual VSIX excludes incidental files and rejects missing, extra, invalid 
   const cliResult = cli.spawnSync(process.execPath, [verifier, clean], { encoding: 'utf8' });
   assert.equal(cliResult.status, 0, cliResult.stderr);
   assert.equal(JSON.parse(cliResult.stdout).compressedBytes, baseline.compressedBytes);
+  const releaseVerifier = path.join(fixture, 'scripts/verify-release.cjs');
+  const releaseCliOptions = { encoding: 'utf8', env: { ...process.env, NODE_PATH: path.join(__dirname, '../node_modules') } };
+  const releaseCli = cli.spawnSync(process.execPath, [releaseVerifier, clean, '--tag', `v${manifest.version}`], releaseCliOptions);
+  assert.equal(releaseCli.status, 0, releaseCli.stderr);
+  assert.equal(JSON.parse(releaseCli.stdout).version, manifest.version);
+  for (const args of [[clean, '--tag', 'v0.0.0'], ['--tag'], ['--unknown'], [clean, clean], ['--tag', `v${manifest.version}`, '--tag', `v${manifest.version}`]]) {
+    const failed = cli.spawnSync(process.execPath, [releaseVerifier, ...args], releaseCliOptions);
+    assert.equal(failed.status, 1);
+    assert.match(failed.stderr, /Release tag mismatch|Usage:/);
+  }
   for (const file of ['docs/private.html', 'docs/specs/private.md', 'specs/private.md', 'research/private.html', 'DEVELOPMENT.md', 'dist/test-only.js', 'dist/preview.js.map', 'assets/private.png']) {
     const target = path.join(fixture, file);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -81,6 +94,12 @@ test('actual VSIX excludes incidental files and rejects missing, extra, invalid 
   }
   await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension.vsixmanifest' ? Buffer.from(data.toString().replace('Publisher="kasunkodagoda"', 'Publisher="wrong"')) : data]));
   await assert.rejects(verifyVsix(bad), /identity Publisher mismatch/);
+  await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension.vsixmanifest' ? Buffer.from(data.toString().replace(/(<Identity\s+[^>]*\bVersion=")[^"]*/, '$10.0.0')) : data]));
+  await assert.rejects(verifyVsix(bad), /VSIX identity Version mismatch: expected/);
+  await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension/changelog.md' ? Buffer.from('## Unreleased\n\n- Future work') : data]));
+  await assert.rejects(verifyRelease({ root: fixture, filename: bad }), /VSIX changelog: expected one release notes entry/);
+  await fs.writeFile(path.join(fixture, 'CHANGELOG.md'), '## Unreleased\n\n- Development changes');
+  await assert.rejects(verifyRelease({ root: fixture, filename: clean }), /CHANGELOG.md: expected one release notes entry/);
   await rewriteZip(clean, bad, entries => [...entries, entries[0]]);
   await assert.rejects(verifyVsix(bad), /Duplicate ZIP path/);
   await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension/dist/preview.js' ? Buffer.alloc(0) : data]));
@@ -96,6 +115,22 @@ test('actual VSIX excludes incidental files and rejects missing, extra, invalid 
   const cliFailure = cli.spawnSync(process.execPath, [verifier, bad], { encoding: 'utf8' });
   assert.equal(cliFailure.status, 1);
   assert.ok(cliFailure.stderr.length > 0);
+  // Bump an isolated source tree and regenerate real VSCE metadata without editing invariants.
+  const bumpedManifest = { ...fixtureManifest, version: `${BigInt(manifest.version.split('.')[0]) + 1n}.1.2` };
+  const bumpedLock = { ...require('../package-lock.json'), version: bumpedManifest.version,
+    packages: { ...require('../package-lock.json').packages, '': { ...require('../package-lock.json').packages[''], version: bumpedManifest.version } } };
+  await fs.writeFile(path.join(fixture, 'package.json'), JSON.stringify(bumpedManifest));
+  await fs.writeFile(path.join(fixture, 'package-lock.json'), JSON.stringify(bumpedLock));
+  await fs.writeFile(path.join(fixture, 'CHANGELOG.md'), `## ${bumpedManifest.version} — 2026-10-12\n\n- Intentional version bump fixture\n`);
+  const bumped = path.join(fixture, `${manifest.name}-${bumpedManifest.version}.vsix`);
+  await createVSIX({ cwd: fixture, packagePath: bumped, dependencies: false, githubBranch: 'master' });
+  assert.equal((await verifyRelease({ root: fixture, tag: `v${bumpedManifest.version}` })).version, bumpedManifest.version);
+  await assert.rejects(verifyRelease({ root: fixture, filename: clean }), /Packaged manifest version mismatch: expected/);
+  for (const lock of [{ ...bumpedLock, version: '0.0.0' }, { ...bumpedLock, packages: { ...bumpedLock.packages, '': { version: '0.0.0' } } }]) {
+    await fs.writeFile(path.join(fixture, 'package-lock.json'), JSON.stringify(lock));
+    await assert.rejects(verifyRelease({ root: fixture, filename: bumped }), /package-lock.json .*version mismatch/);
+  }
+  await fs.writeFile(path.join(fixture, 'package.json'), JSON.stringify(fixtureManifest));
   // A missing working-tree runtime asset must also fail after real packaging.
   await fs.unlink(path.join(fixture, 'dist/preview.css'));
   const missing = path.join(fixture, 'missing.vsix');

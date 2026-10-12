@@ -67,6 +67,42 @@ The user-supplied corrected PNG is preserved in `assets/logo-source.png` (exclud
 
 ## Release
 
+### Version contract
+
+`package.json.version` is the source of truth and must be valid SemVer, including
+valid prerelease/build identifiers. Both `package-lock.json.version` and
+`package-lock.json.packages[""].version` must match it exactly. Use `npm version
+<version> --no-git-tag-version` to update the manifest and lockfile together.
+The manifest and extension-host tests compare versions dynamically; routine
+bumps do not require editing test expectations. Publisher/name and legacy
+command compatibility checks remain in place.
+
+Ordinary `npm test` permits development changes with only an `Unreleased`
+changelog section and requires no tag. `npm run package` additionally runs
+`verify:release` against the newly generated VSIX. This release gate requires
+one nonempty level-two changelog section for the manifest version in both the
+source and packaged changelog, and checks the packaged manifest and VSIX XML
+identity against the source manifest. Supported headings are `## 3.1.2`,
+`## 3.1.2 — 2026-10-12`, or `## [3.1.2] - 2026-10-12`; `Unreleased`, older
+entries, HTML comments and headings inside code blocks do not replace notes.
+SemVer acceptance here does not override any VSCE/Marketplace restrictions.
+
+```sh
+npm run verify:release
+npm run verify:release -- path/to/candidate.vsix --tag v3.1.2
+```
+
+In PowerShell, you can pass the tag directly with
+`node scripts/verify-release.cjs --tag v<manifest-version>`.
+
+The default candidate filename follows the manifest name/version. A tag is
+optional, but when supplied it must be exactly `v` plus the manifest version.
+Release CI should pass its tag explicitly with `--tag`; this command does not
+infer tags from the checkout or environment. Failures identify the mismatched
+field and expected/actual version, or the missing/empty notes entry, and exit
+nonzero. `verify:vsix` remains an inventory/metadata check for development
+candidates; use `verify:release` for release approval. Neither command publishes.
+
 ### Package inventory and verification
 
 `package.json.files` is the single VSCE inclusion policy: exact runtime files,
@@ -101,7 +137,7 @@ customer settings or runtime behavior changes.
 2. Push the release files, screenshots, and developer documentation to the public `master` branch of https://github.com/kasunkv/rich-markdown-preview. The package links use this repository; VSCE rewrites relative README links to that branch.
 3. Run type checking, regressions, browser tests, and the extension-host smoke test. Review screenshots and manually verify native menus and the icon.
 4. Run `npm audit` and review dependency licenses. Runtime dependencies are bundled; source, tests, fixtures, and `node_modules` are excluded from the VSIX. Preserve bundled third-party notices in `THIRD_PARTY_NOTICES.txt`.
-5. Update `CHANGELOG.md` and version, then run `npm run package`. Type checking and regressions run through `vscode:prepublish`.
+5. Update `CHANGELOG.md` and the manifest/lockfile versions, then run `npm run package`. Type checking and regressions run through `vscode:prepublish`; release versions and notes are checked against the resulting VSIX. For a tagged release, also run `npm run verify:release -- --tag v<manifest-version>`.
 6. Install the resulting VSIX in a clean VS Code profile and verify the customer workflow.
 7. Upload it through [Marketplace publisher management](https://marketplace.visualstudio.com/manage), or use authenticated `vsce publish` according to [VS Code publishing documentation](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
 
@@ -109,7 +145,7 @@ Packaging uses the supplied GitHub repository and its `master` branch to resolve
 
 ## Marketplace upload troubleshooting
 
-`npm run package` runs `vscode:prepublish`, which checks types, rebuilds the assets, and runs regression tests. A separate `npm run build` is optional. Upload `rich-markdown-preview-2.0.0.vsix` as a new version of the existing extension under publisher `kasunkodagoda`.
+`npm run package` runs `vscode:prepublish`, which checks types, rebuilds the assets, and runs regression tests, followed by release validation. A separate `npm run build` is optional. Upload `rich-markdown-preview-<manifest-version>.vsix` as a new version of the existing extension under publisher `kasunkodagoda`.
 
 The internal package name is `rich-markdown-preview`. The visible name is **Rich Markdown Preview - A Styled Markdown Preview**. Check the current Marketplace for package and display-name collisions before changing either value. A successful local build does not guarantee server-side Marketplace approval.
 
