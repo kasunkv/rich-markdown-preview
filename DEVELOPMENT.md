@@ -4,10 +4,10 @@ Package: `rich-markdown-preview`. Display name: **Rich Markdown Preview - A Styl
 
 ## Local setup
 
-Use Node.js 22 or newer. Run `npm ci`, open this repository in VS Code, and press **F5** to build and launch an Extension Development Host. Open `samples/showcase.md` and run **Open in Rich Markdown Preview**.
+Use Node.js 24.12.0 or newer within 24.x and npm 11.x (see `.nvmrc` and [CONTRIBUTING.md](CONTRIBUTING.md)). Run `npm ci`, open this repository in VS Code, and press **F5** to build and launch an Extension Development Host. Open `samples/showcase.md` and run **Open in Rich Markdown Preview**.
 
 ```sh
-npm run check
+npm run check:quality
 npm test
 npm run test:browser
 npm run test:coverage
@@ -52,13 +52,13 @@ Stop watch mode before building production into the shared `dist` directory.
 Targets are explicitly `node20` for host/test code and `chrome128` for webview
 code, matching the Node 20.18 / Chromium 128 runtime in the supported
 [VS Code 1.95 floor](https://code.visualstudio.com/updates/v1_95#_electron-32-update).
-The local build/test tools still require Node 22 or newer. These transpilation
+The local build/test tools use the Node 24.x/npm 11.x contributor policy. These transpilation
 targets do not substitute for the minimum-version real-host checks in spec 005.
 
 CI can build once and reuse the outputs:
 
 ```sh
-npm run check
+npm run check:quality
 npm run build:production
 npm run test:only
 npm run test:coverage:only
@@ -68,7 +68,7 @@ npm run test:browser:only
 The `:only` commands never build and require existing outputs. Use
 `test:package:only` for only the package fixture checks. The convenience commands
 `test`, `test:coverage`, `test:browser`, and `test:package` each build production
-first. VSCE's prepublish hook runs type checking, one production build and
+first. VSCE's prepublish hook runs type/lint/format checks, one production build and
 `test:only`; `npm run package` then verifies the resulting release ZIP.
 
 ## Fixtures and manual QA
@@ -190,7 +190,7 @@ Packaging uses the supplied GitHub repository and its `master` branch to resolve
 
 ## Marketplace upload troubleshooting
 
-`npm run package` runs `vscode:prepublish`, which checks types, rebuilds the assets, and runs regression tests, followed by release validation. A separate `npm run build` is optional. Upload `rich-markdown-preview-<manifest-version>.vsix` as a new version of the existing extension under publisher `kasunkodagoda`.
+`npm run package` runs `vscode:prepublish`, which checks types/lint/formatting, rebuilds the assets, and runs regression tests, followed by release validation. A separate `npm run build` is optional. Upload `rich-markdown-preview-<manifest-version>.vsix` as a new version of the existing extension under publisher `kasunkodagoda`.
 
 The internal package name is `rich-markdown-preview`. The visible name is **Rich Markdown Preview - A Styled Markdown Preview**. Check the current Marketplace for package and display-name collisions before changing either value. A successful local build does not guarantee server-side Marketplace approval.
 

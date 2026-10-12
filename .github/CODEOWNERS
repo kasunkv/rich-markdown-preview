@@ -1,0 +1,18 @@
+# Maintainer review routing. Branch rules must separately require approval.
+* @kasunkv
+
+# Explicit workflow and security boundaries, retained as the project grows.
+/src/extension.ts @kasunkv
+/src/async.ts @kasunkv
+/src/documentation.ts @kasunkv
+/src/references.ts @kasunkv
+/src/render.ts @kasunkv
+/.github/ @kasunkv
+/SECURITY.md @kasunkv
+/CONTRIBUTING.md @kasunkv
+/package*.json @kasunkv
+/build.mjs @kasunkv
+/scripts/ @kasunkv
+/eslint.config.mjs @kasunkv
+/.npmrc @kasunkv
+/.nvmrc @kasunkv

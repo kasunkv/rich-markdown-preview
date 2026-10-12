@@ -8,6 +8,7 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
   const saved = {...initial};
   const messages = [];
   const warnings = [];
+  const errors = [];
   const writes = [];
   const clipboard = [], files = [], dialogs = [], opened = [], external = [], info = [];
   let created = 0, revealed = 0, disposed = 0;
@@ -55,13 +56,32 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
   };
   const module = {exports: {}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {
-    module, exports: module.exports, Buffer, setTimeout, clearTimeout, console,
+    module, exports: module.exports, Buffer, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
     require: name => name === 'vscode' ? vscode : require(name)
   });
   module.exports.activate({subscriptions: [], extensionUri: uri});
   const drain = async () => {await new Promise(setImmediate);};
-  return {columns, handlers, saved, messages, warnings, writes, clipboard, files, dialogs, drain, document, panel, opened, external, info, counts: () => ({created, revealed, disposed})};
+  return {columns, handlers, saved, messages, warnings, errors, writes, clipboard, files, dialogs, drain, document, panel, opened, external, info, counts: () => ({created, revealed, disposed})};
 }
+
+test('rejected webview notifications are observed without an unhandled rejection', async () => {
+  const host = previewHost();
+  await host.handlers.command();
+  host.panel.webview.postMessage = () => Promise.reject(new Error('Disposed webview fixture'));
+  await host.handlers.message({type: 'ready'});
+  await host.drain();
+  assert.ok(host.errors.some(args => args[0].includes('asynchronous operation failed') && args[1].message === 'Disposed webview fixture'));
+});
+
+test('async message callback catches unexpected errors when VS Code ignores its result', async () => {
+  const host = previewHost();
+  await host.handlers.command();
+  host.document.getText = () => {throw new Error('Closed document fixture');};
+  await host.handlers.message({type: 'ready'});
+  assert.equal(host.errors.length, 1);
+  assert.match(host.errors[0][0], /message failed/);
+  assert.equal(host.errors[0][1].message, 'Closed document fixture');
+});
 
 test('preview toolbar settings persist with resource scope', async () => {
   const host = previewHost();

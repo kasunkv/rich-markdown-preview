@@ -1,0 +1,10 @@
+# Keep formatter-managed text consistent in fresh Windows and Unix checkouts.
+* text=auto
+*.ts text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+/CONTRIBUTING.md text eol=lf
+/SECURITY.md text eol=lf
+/.github/** text eol=lf
+/tests/quality.test.cjs text eol=lf

@@ -17,5 +17,5 @@ export const previewStyles = [
   { id: 'atelier', label: 'Atelier' },
   { id: 'ocean', label: 'Ocean' },
   { id: 'manuscript', label: 'Manuscript' },
-  { id: 'circuit', label: 'Circuit' }
+  { id: 'circuit', label: 'Circuit' },
 ] as const;

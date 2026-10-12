@@ -6,7 +6,9 @@
   "publisher": "kasunkodagoda",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.95.0",
+    "node": ">=24.12.0 <25",
+    "npm": ">=11 <12"
   },
   "categories": [
     "Visualization",
@@ -200,7 +202,7 @@
     "check": "tsc --noEmit",
     "test": "npm run build:production && npm run test:only",
     "dev:preview": "npm run build:development && node tests/preview-server.cjs",
-    "vscode:prepublish": "npm run check && npm run build:production && npm run test:only",
+    "vscode:prepublish": "npm run check:quality && npm run build:production && npm run test:only",
     "package": "vsce package --no-dependencies --githubBranch master && npm run verify:release",
     "test:coverage": "npm run build:production && npm run test:coverage:only",
     "test:browser": "npm run build:production && npm run test:browser:only",
@@ -212,7 +214,12 @@
     "test:only": "node --test tests/*.test.cjs",
     "test:coverage:only": "node --test --experimental-test-coverage tests/*.test.cjs",
     "test:browser:only": "node tests/browser.cjs && node tests/documentation-browser.cjs",
-    "test:package:only": "node --test tests/package.test.cjs"
+    "test:package:only": "node --test tests/package.test.cjs",
+    "lint": "eslint src --max-warnings 0",
+    "lint:fix": "npm run lint -- --fix",
+    "format:check": "prettier --check \"src/**/*.ts\" eslint.config.mjs .prettierrc.json CONTRIBUTING.md SECURITY.md \".github/**/*.{md,yml}\" tests/quality.test.cjs",
+    "format": "prettier --write \"src/**/*.ts\" eslint.config.mjs .prettierrc.json CONTRIBUTING.md SECURITY.md \".github/**/*.{md,yml}\" tests/quality.test.cjs",
+    "check:quality": "npm run check && npm run lint && npm run format:check"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -233,8 +240,11 @@
     "@types/vscode": "^1.95.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.25.0",
+    "eslint": "^10.12.0",
     "playwright": "^1.62.1",
+    "prettier": "^3.9.10",
     "typescript": "^5.9.0",
+    "typescript-eslint": "^8.71.2",
     "yauzl": "3.4.0",
     "yazl": "2.5.1"
   },
