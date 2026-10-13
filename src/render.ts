@@ -16,6 +16,24 @@ export interface OutlineItem {
   text: string;
   level: number;
 }
+
+function extractHeadingText(tokens: NonNullable<MarkdownIt.Token['children']>): string {
+  return tokens
+    .map((token) => {
+      if (token.type === 'text' || token.type === 'code_inline' || token.type === 'emoji') return token.content;
+      if (token.type === 'file_reference') return token.meta?.label ?? token.content;
+      if (token.type === 'softbreak' || token.type === 'hardbreak') return ' ';
+      if (token.type === 'image') {
+        const alt = token.children?.length ? extractHeadingText(token.children) : token.content;
+        return alt;
+      }
+      return token.children?.length ? extractHeadingText(token.children) : '';
+    })
+    .join('')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
 export function renderMarkdown(source: string, imageUri: (src: string) => string = (src) => src) {
   const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
   const references: FileReference[] = [];
@@ -85,10 +103,8 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
   const usedIds = new Set<string>();
   md.renderer.rules.heading_open = (tokens, index, options, env, renderer) => {
     const inline = tokens[index + 1];
-    const text = (inline.children ?? [])
-      .filter((t) => ['text', 'code_inline', 'emoji', 'file_reference'].includes(t.type))
-      .map((t) => (t.type === 'file_reference' ? t.meta.label : t.content))
-      .join('');
+    const text = extractHeadingText(inline.children ?? []);
+    const label = text || 'Untitled section';
     const base =
       text
         .toLowerCase()
@@ -105,7 +121,12 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
     usedIds.add(id);
     tokens[index].attrSet('id', 'rmp-heading-' + id);
     tokens[index].attrSet('data-md-anchor', id);
-    outline.push({ id: 'rmp-heading-' + id, fragment: id, text, level: Number(tokens[index].tag.slice(1)) });
+    outline.push({
+      id: 'rmp-heading-' + id,
+      fragment: id,
+      text: label,
+      level: Number(tokens[index].tag.slice(1)),
+    });
     return renderer.renderToken(tokens, index, options);
   };
   const image = md.renderer.rules.image!;
