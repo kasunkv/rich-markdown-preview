@@ -11,6 +11,8 @@ import { previewStyles } from './styles';
 import { referencePaths, type FileReference } from './references';
 import { homedir, platform } from 'node:os';
 import { resolveReference } from './provider-paths';
+import { resolveProviderImageResource } from './provider-images';
+import { renderWithAsyncImages } from './async-images';
 import { DocumentationIndex } from './documentation';
 import { numericPreferenceRanges } from './preference-ranges';
 import { previewResourceRoots, resolveImageResource } from './resources';
@@ -231,21 +233,55 @@ export function activate(context: vscode.ExtensionContext) {
           sendNavigation(true);
           return;
         }
-        const result = renderMarkdown(source, (src) => resolveImageResource(src, document!.uri, webview));
-        fileReferences = result.references;
-        reportAsync(
-          post({
-            type: 'render',
-            renderId,
-            ...result,
-            preferences: effectivePreferences(),
-            documentId: document.uri.toString(),
-            fragment,
-            ...(documentationHome ? { documentationHome: true, documentId: document.uri.toString(), fragment } : {}),
-          }),
-        );
-        fragment = undefined;
-        sendNavigation();
+        const renderedDocument = document;
+        const publish = (result: ReturnType<typeof renderMarkdown>) => {
+          fileReferences = result.references;
+          reportAsync(
+            post({
+              type: 'render',
+              renderId,
+              ...result,
+              preferences: effectivePreferences(),
+              documentId: renderedDocument.uri.toString(),
+              fragment,
+              ...(documentationHome
+                ? { documentationHome: true, documentId: renderedDocument.uri.toString(), fragment }
+                : {}),
+            }),
+          );
+          fragment = undefined;
+          sendNavigation();
+        };
+        if (document.uri.scheme && document.uri.scheme !== 'file') {
+          const acceptedDocument = document;
+          const acceptedModel = renderId;
+          const request = session.capture();
+          reportAsync(
+            session.run(
+              'render provider Markdown',
+              async () => {
+                const result = await renderWithAsyncImages(
+                  (image) => renderMarkdown(source, image),
+                  async (src) =>
+                    /^(https?:|data:)/i.test(src) || src.startsWith('//')
+                      ? resolveImageResource(src, acceptedDocument.uri, webview)
+                      : resolveProviderImageResource(src, acceptedDocument.uri, webview),
+                );
+                if (
+                  !session.current(request) ||
+                  document !== acceptedDocument ||
+                  renderId !== acceptedModel ||
+                  acceptedDocument.getText() !== source
+                )
+                  return;
+                publish(result);
+              },
+              request,
+            ),
+          );
+          return;
+        }
+        publish(renderMarkdown(source, (src) => resolveImageResource(src, document!.uri, webview)));
       });
     const navigate = async (target?: vscode.Uri, anchor?: string, position?: number) => {
       const request = session.supersede();
