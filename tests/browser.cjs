@@ -12,7 +12,7 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
   await page.goto(previewServer.url);
     await page.locator('.mermaid-result').first().waitFor();
     assert.equal(await page.locator('.brand').innerText(), 'Rich Markdown\nPREVIEW');
-    assert.equal(await page.locator('#style option').count(), 18);
+    assert.equal(await page.locator('#rmp-ui-style option').count(), 18);
     assert.equal(await page.locator('.brand-icon').evaluate(img => img.complete && img.naturalWidth > 0), true);
     checks.push('Brand, icon, eighteen styles, and real Mermaid rendering');
 
@@ -43,7 +43,7 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     await render('---\nname: example-skill\ndescription: |\n  First line\n  Second line\ntags: [agents, writing]\nsettings:\n  enabled: true\n---\n# Instructions\n\nSkill body.');
     assert.equal(await page.locator('.frontmatter').getAttribute('open'), '');
     assert.equal(await page.locator('.frontmatter-field').first().innerText(), 'name\nexample-skill');
-    assert.equal(await page.locator('#outline a').count(), 1);
+    assert.equal(await page.locator('#rmp-ui-outline a').count(), 1);
     await page.locator('.frontmatter-raw > summary').click();
     assert.equal(await page.locator('.frontmatter-source').isVisible(), true);
     await page.locator('.frontmatter > summary').click();
@@ -59,9 +59,9 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     await page.locator('.mermaid-result').first().waitFor();
     for (const appearance of ['light','dark']) {
       for (const style of manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum) {
-        await page.selectOption('#style', style); await page.selectOption('#appearance', appearance);
+        await page.selectOption('#rmp-ui-style', style); await page.selectOption('#rmp-ui-appearance', appearance);
         await page.waitForFunction(({style,appearance}) => document.body.dataset.style===style && document.body.dataset.appearance===appearance, {style,appearance});
-        assert.ok(await page.locator('#content').evaluate(el => getComputedStyle(el).color !== getComputedStyle(document.body).backgroundColor));
+        assert.ok(await page.locator('#rmp-ui-content').evaluate(el => getComputedStyle(el).color !== getComputedStyle(document.body).backgroundColor));
       }
     }
     checks.push('All 36 style/appearance combinations');
@@ -75,7 +75,7 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     assert.equal(await table.locator('tbody tr:visible').count(), 1);
     assert.equal(await page.locator('.table-panel').nth(1).locator('tbody tr:visible').count(), 1);
     await table.locator('.table-copy').click();
-    await page.waitForFunction(() => document.getElementById('announcement').textContent === 'Table CSV copied');
+    await page.waitForFunction(() => document.getElementById('rmp-ui-announcement').textContent === 'Table CSV copied');
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '"Name","Value"\r\n"Item 2","2"\r\n');
     const downloadPromise = page.waitForEvent('download'); await table.locator('.table-export').click();
     const download = await downloadPromise; assert.equal(download.suggestedFilename(),'table-1.csv');
@@ -92,12 +92,12 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     await render('# Heading\n\n```typescript\nconst value = 42;\n```\n\n```mermaid\nflowchart LR\n A --> B\n```');
     await page.locator('.mermaid-result').waitFor();
     await page.locator('.copy-code').click();
-    await page.waitForFunction(() => document.getElementById('announcement').textContent === 'Code copied');
+    await page.waitForFunction(() => document.getElementById('rmp-ui-announcement').textContent === 'Code copied');
     assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n','\n'),'const value = 42;\n');
-    await page.check('#wrapCode'); assert.equal(await page.locator('body').evaluate(el => el.classList.contains('wrap-code')),true);
-    await page.click('#toggle-outline'); assert.equal(await page.locator('.outline').isVisible(),false);
-    await page.click('#toggle-outline'); assert.equal(await page.locator('#toggle-outline').getAttribute('aria-expanded'),'true');
-    await page.selectOption('#appearance','auto');
+    await page.check('#rmp-ui-wrapCode'); assert.equal(await page.locator('body').evaluate(el => el.classList.contains('wrap-code')),true);
+    await page.click('#rmp-ui-toggle-outline'); assert.equal(await page.locator('.outline').isVisible(),false);
+    await page.click('#rmp-ui-toggle-outline'); assert.equal(await page.locator('#rmp-ui-toggle-outline').getAttribute('aria-expanded'),'true');
+    await page.selectOption('#rmp-ui-appearance','auto');
     const before = await page.locator('.mermaid-result svg').getAttribute('id');
     await page.evaluate(() => document.body.classList.add('vscode-dark'));
     await page.waitForFunction(before => document.querySelector('.mermaid-result svg')?.id !== before, before);
@@ -106,7 +106,7 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     assert.match(await page.locator('.mermaid-source').innerText(), /invalid diagram syntax/);
     await render(''); assert.equal(await page.locator('.empty').isVisible(),true);
     await page.setViewportSize({width:520,height:800});
-    assert.equal(await page.locator('#toggle-outline').isVisible(),true);
+    assert.equal(await page.locator('#rmp-ui-toggle-outline').isVisible(),true);
     checks.push('Invalid diagram recovery, empty preview, and narrow viewport controls');
     assert.deepEqual(errors, []);
     await testInfo.attach('checks', {body: JSON.stringify(checks), contentType: 'application/json'});
@@ -170,3 +170,56 @@ for (const documentationHome of [false, true]) {
     assert.equal(await search.evaluate(input => document.activeElement === input), false);
   });
 }
+test('content anchors isolate UI, footnotes, duplicates and encoded fragments', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  await page.locator('.mermaid-result').first().waitFor();
+  const source = '# Content\n# Style\n# Outline\n# App\n# Announcement\n# fn1\n# fnref1\n# rmp-ui-style\n# rmp-footnote-fn1\n# Café 日本語\n# Café 日本語\n# Café 日本語-1\n\nNote[^a] again[^a].\n\n[^a]: Note text.';
+  const result = renderMarkdown(source);
+  const preferences = {style:'ocean',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences});
+  await page.evaluate(() => {
+    window.anchorCalls = [];
+    Element.prototype.scrollIntoView = function() { window.anchorCalls.push(this.id); };
+  });
+  const ids = await page.locator('[id]').evaluateAll(nodes => nodes.map(node => node.id));
+  assert.equal(new Set(ids).size, ids.length);
+  for (let index = 0; index < result.outline.length; index++) {
+    const item = result.outline[index];
+    await page.locator('#rmp-ui-outline a').nth(index).click();
+    assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), item.id);
+    await page.locator('#rmp-ui-content').evaluate((content, fragment) => {
+      const link = document.createElement('a');
+      link.href = '#' + encodeURIComponent(fragment);
+      link.textContent = 'fragment';
+      content.append(link);
+      link.click();
+      link.remove();
+    }, item.fragment);
+    assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), item.id);
+  }
+  await page.locator('.footnote-ref a').nth(1).click();
+  assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), 'rmp-footnote-fn1');
+  await page.locator('.footnote-backref').nth(1).click();
+  assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), 'rmp-footnote-fnref1:1');
+  const before = await page.evaluate(() => window.anchorCalls.length);
+  for (const fragment of ['missing-anchor','rmp-ui-announcement','%E0%A4%A']) {
+    await page.locator('#rmp-ui-content').evaluate((content, fragment) => {
+      const link = document.createElement('a');
+      link.setAttribute('href', '#' + fragment);
+      content.append(link); link.click(); link.remove();
+    }, fragment);
+  }
+  assert.equal(await page.evaluate(() => window.anchorCalls.length), before);
+  await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences,fragment:encodeURIComponent('café-日本語-1')});
+  await page.waitForFunction(() => window.anchorCalls.at(-1) === 'rmp-heading-café-日本語-1');
+  const footnotes = renderMarkdown('Note[^a] again[^a].\n\n[^a]: Note text.');
+  await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...footnotes,preferences});
+  for (const [fragment, id] of [['fn1','rmp-footnote-fn1'], ['fnref1:1','rmp-footnote-fnref1:1']]) {
+    await page.locator('#rmp-ui-content').evaluate((content, fragment) => {
+      const link = document.createElement('a');
+      link.href = '#' + encodeURIComponent(fragment);
+      content.append(link); link.click(); link.remove();
+    }, fragment);
+    assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), id);
+  }
+});

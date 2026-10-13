@@ -103,7 +103,7 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
     const outline = document.querySelector<HTMLElement>('.outline')!;
     sidebar.append(tabs, documents, outline);
     document.querySelector('.layout')!.prepend(sidebar);
-    document.getElementById('toggle-outline')!.textContent = 'Navigation';
+    document.getElementById('rmp-ui-toggle-outline')!.textContent = 'Navigation';
     selectTab(showOutline);
     const resize = () =>
       document.documentElement.style.setProperty(

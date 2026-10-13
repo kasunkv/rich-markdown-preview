@@ -62,7 +62,7 @@ test('heading navigation and external links keep their existing behavior', () =>
 test('reference labels remain in the outline and unsupported snippet targets stay visible', () => {
   const result = renderMarkdown('# [[Guide|Guide title]]\n\n--8<-- "${dynamic}/snippet.md"');
   assert.equal(result.outline[0].text, 'Guide title');
-  assert.equal(result.outline[0].id, 'guide-title');
+  assert.equal(result.outline[0].fragment, 'guide-title');
   assert.match(result.html, /\$\{dynamic\}\/snippet.md/);
   assert.equal(result.references.length, 1);
 });
