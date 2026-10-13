@@ -1,3 +1,4 @@
+import { renderLimits } from './render-limits';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import { full as emoji } from 'markdown-it-emoji';
@@ -36,6 +37,12 @@ function extractHeadingText(tokens: NonNullable<MarkdownIt.Token['children']>): 
 }
 
 export function renderMarkdown(source: string, imageUri: (src: string) => string = (src) => src) {
+  if (source.length > renderLimits.sourceCharacters)
+    return {
+      html: '<p role="alert">This document exceeds the supported preview limit of 2,000,000 characters. Open the source to read it.</p>',
+      outline: [],
+      references: [],
+    };
   const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
   const references: FileReference[] = [];
   installReferences(md, references);
@@ -143,6 +150,8 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
   md.renderer.rules.fence = (tokens, index) => {
     const token = tokens[index];
     const language = token.info.trim().split(/\s+/)[0].toLowerCase();
+    if (language === 'mermaid' && token.content.length > renderLimits.diagramCharacters)
+      return '<figure class="diagram"><p class="diagram-error">This Mermaid diagram exceeds the supported limit of 20,000 characters. Open the source to read it.</p></figure>';
     if (language === 'mermaid')
       return `<figure class="diagram"><div class="diagram-label">Mermaid diagram</div><pre class="mermaid-source">${md.utils.escapeHtml(token.content)}</pre></figure>`;
     const code =
