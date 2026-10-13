@@ -11,6 +11,7 @@ Clone the repository, select the Node version with `nvm use` if available, then:
 ```sh
 npm ci
 npm run check:quality
+npm run check:dependencies
 npm test
 npm run test:coverage
 ```
@@ -70,5 +71,8 @@ private vulnerability reporting or branch protection are enabled. Their account
 availability/settings have not been verified for this implementation. A repository
 administrator should inspect Settings > Security and branch rules, record the
 enabled protections and confirm the private reporting mailbox is monitored.
-Dependency and GitHub Actions update automation is intentionally assigned to
-spec 008; this change does not configure it.
+Weekly npm and GitHub Actions update configuration and advisory/package checks
+are implemented by spec 008. See [dependency maintenance](docs/implementation/spec-008.md)
+for license policy, dated advisory exceptions, the KaTeX override and actual
+account activation limits. The configuration must reach the default branch before
+GitHub can run it; verify a real update PR before recording activation.

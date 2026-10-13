@@ -86,6 +86,12 @@ test('actual VSIX excludes incidental files and rejects missing, extra, invalid 
     await rewriteZip(clean, bad, entries => entries.filter(([name]) => name !== file));
     await assert.rejects(verifyVsix(bad), /missing:/);
   }
+  await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension/THIRD_PARTY_NOTICES.txt' ? Buffer.from('Missing license text') : data]));
+  await assert.rejects(verifyVsix(bad), /notices hash mismatch/);
+  await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension/RUNTIME_DEPENDENCIES.json' ? Buffer.from('{}') : data]));
+  await assert.rejects(verifyVsix(bad), /inventory differs from current/);
+  await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension/dist/preview.js' ? Buffer.from('stale build') : data]));
+  await assert.rejects(verifyVsix(bad), /bundle hash mismatch/);
   await rewriteZip(clean, bad, entries => [...entries, ['extension/research/private.html', Buffer.from('sentinel')]]);
   await assert.rejects(verifyVsix(bad), /unexpected:/);
   for (const key of ['name', 'publisher', 'version', 'main', 'icon']) {
