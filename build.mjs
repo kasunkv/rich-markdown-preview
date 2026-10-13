@@ -1,6 +1,6 @@
 import * as esbuild from 'esbuild';
 import coverageTools from './scripts/coverage-instrument.cjs';
-import { mkdir, copyFile, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, copyFile, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dependencyPolicy from './scripts/dependency-policy.cjs';
