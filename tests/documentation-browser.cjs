@@ -44,7 +44,7 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     await page.locator('.documentation-cards').getByRole('button', {name: 'docs/ · 2 documents', exact: true}).click();
     assert.equal(await page.locator('.documentation-file:visible').count(), 2);
     assert.equal(await page.locator('.documentation-file img').count(), 0);
-    await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('SKILL');
+    await page.getByRole('searchbox', {name: 'Filter documentation files or folders'}).fill('SKILL');
     const skill = page.getByRole('button', {name: 'SKILL.md', exact: true});
     await skill.focus(); await page.keyboard.press('Enter');
     await page.getByRole('heading', {name: '.claude/skills/test/SKILL.md', exact: true}).waitFor();
@@ -52,7 +52,7 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     await page.getByRole('button', {name: 'On this page', exact: true}).click();
     assert.equal(await page.locator('#rmp-ui-outline a:visible').count(), 31);
     await page.getByRole('button', {name: 'Documents', exact: true}).click();
-    await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('');
+    await page.getByRole('searchbox', {name: 'Filter documentation files or folders'}).fill('');
     checks.push('Multiple roots, folder home cards, nested filtering, safe filenames, keyboard selection, active file, outline tabs');
 
     await page.locator('.documentation-file').getByText('README.md', {exact: true}).first().click();
@@ -74,9 +74,9 @@ test('documentation browser regressions', async ({page}, testInfo) => {
 
     await page.getByRole('button', {name: 'Home', exact: true}).click();
     assert.equal(await page.getByRole('button', {name: 'Open source', exact: true}).isDisabled(), true);
-    await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('missing-document');
+    await page.getByRole('searchbox', {name: 'Filter documentation files or folders'}).fill('missing-document');
     assert.equal(await page.getByText('No matching documents.', {exact: true}).isVisible(), true);
-    await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('');
+    await page.getByRole('searchbox', {name: 'Filter documentation files or folders'}).fill('');
     await page.selectOption('#rmp-ui-appearance', 'dark');
     await page.setViewportSize({width: 520, height: 800});
     assert.equal(await page.locator('.documentation-sidebar').isVisible(), true);

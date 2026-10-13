@@ -49,8 +49,8 @@ exports.proveResources = async function ({ workspace, checks }) {
       if (mode === 'single-file') await vscode.commands.executeCommand('richMarkdownPreview.openPreview', guide);
       else {
         await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-        const frame = await findFrame('input[aria-label="Filter documentation"]');
-        await frame.locator('input[aria-label="Filter documentation"]').fill('guide.md');
+        const frame = await findFrame('input[aria-label="Filter documentation files or folders"]');
+        await frame.locator('input[aria-label="Filter documentation files or folders"]').fill('guide.md');
         await frame.locator('button.documentation-file[title="docs/guide.md"]').click();
       }
       const frame = await findFrame('#rmp-ui-content img[alt="Sibling authorized"]');
@@ -79,6 +79,7 @@ exports.proveResources = async function ({ workspace, checks }) {
     for (const context of browser.contexts())
       for (const page of context.pages()) await page.emulateMedia({ reducedMotion: 'reduce' });
     if (process.env.RICH_MARKDOWN_PREVIEW_PRIVACY_HOST === '1') await require('./privacy-realhost.cjs').proveExternalImages({ vscode, browser, workspace, findFrame, checks });
+    await require('./find-host.cjs').proveFind({ vscode, workspace, findFrame, checks });
     await require('./navigation-host.cjs').proveNavigation({ vscode, workspace, findFrame, checks });
   } finally {
     await browser.close();

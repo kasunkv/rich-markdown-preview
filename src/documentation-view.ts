@@ -81,8 +81,8 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
     documents.className = 'documentation-documents';
     search = document.createElement('input');
     search.type = 'search';
-    search.placeholder = 'Filter files or folders…';
-    search.setAttribute('aria-label', 'Filter documentation');
+    search.placeholder = 'Filter documentation files or folders…';
+    search.setAttribute('aria-label', 'Filter documentation files or folders');
     search.value = filter;
     search.addEventListener('input', () => {
       filter = search.value;
