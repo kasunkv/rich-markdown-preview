@@ -61,11 +61,11 @@ export function enhanceTables(
     const labels = headers.map((cell) => cell.textContent?.trim() ?? '');
     const rows = Array.from(body.rows);
     const values = rows.map((row) => Array.from(row.cells, (cell) => cell.textContent?.trim() ?? ''));
+    const sectionHeading = Array.from(root.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+      .filter((heading) => !!(heading.compareDocumentPosition(scroll) & Node.DOCUMENT_POSITION_FOLLOWING))
+      .at(-1);
     const section =
-      Array.from(root.querySelectorAll('h1, h2, h3, h4, h5, h6'))
-        .filter((heading) => !!(heading.compareDocumentPosition(scroll) & Node.DOCUMENT_POSITION_FOLLOWING))
-        .at(-1)
-        ?.textContent?.trim() ?? '';
+      sectionHeading?.getAttribute('data-reading-heading-label') ?? sectionHeading?.textContent?.trim() ?? '';
     const identity = JSON.stringify([section, labels]);
     const occurrence = identities.get(identity) ?? 0;
     identities.set(identity, occurrence + 1);

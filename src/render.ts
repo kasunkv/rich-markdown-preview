@@ -8,6 +8,7 @@ import mark from 'markdown-it-mark';
 import subscript from 'markdown-it-sub';
 import superscript from 'markdown-it-sup';
 import { renderFrontmatter } from './frontmatter';
+import { externalImageDecision } from './external-images';
 import { installReferences, type FileReference } from './references';
 
 export interface OutlineItem {
@@ -35,7 +36,12 @@ function extractHeadingText(tokens: NonNullable<MarkdownIt.Token['children']>): 
     .trim();
 }
 
-export function renderMarkdown(source: string, imageUri: (src: string) => string = (src) => src) {
+export function renderMarkdown(
+  source: string,
+  imageUri: (src: string) => string = (src) => src,
+  externalImages: { grants?: ReadonlySet<string>; enabled?: boolean } = {},
+) {
+  const externalImageOrigins = new Set<string>();
   const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
   const references: FileReference[] = [];
   installReferences(md, references);
@@ -106,7 +112,8 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
   const usedIds = new Set<string>();
   md.renderer.rules.heading_open = (tokens, index, options, env, renderer) => {
     const inline = tokens[index + 1];
-    const text = extractHeadingText(inline.children ?? []);
+    const children = inline.children ?? [];
+    const text = extractHeadingText(children);
     const label = text || 'Untitled section';
     const base =
       text
@@ -124,6 +131,11 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
     usedIds.add(id);
     tokens[index].attrSet('id', 'rmp-heading-' + id);
     tokens[index].attrSet('data-md-anchor', id);
+    if (children.some((token) => token.type === 'image'))
+      tokens[index].attrSet(
+        'data-reading-heading-label',
+        extractHeadingText(children.filter((token) => token.type !== 'image')),
+      );
     outline.push({
       id: 'rmp-heading-' + id,
       fragment: id,
@@ -133,12 +145,50 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
     });
     return renderer.renderToken(tokens, index, options);
   };
+  const imageActions = new Map<MarkdownIt.Token, string>();
+  md.renderer.rules.link_close = (tokens, index, options, _env, renderer) =>
+    renderer.renderToken(tokens, index, options) + (imageActions.get(tokens[index]) ?? '');
   const image = md.renderer.rules.image!;
   md.renderer.rules.image = (tokens, index, options, env, renderer) => {
     const src = tokens[index].attrGet('src') ?? '';
-    tokens[index].attrSet('src', imageUri(src));
+    const addAction = (html: string, action: string) => {
+      let linked = false;
+      for (let cursor = 0; cursor < index; cursor++) {
+        if (tokens[cursor].type === 'link_open') linked = true;
+        else if (tokens[cursor].type === 'link_close') linked = false;
+      }
+      if (!linked) return html + action;
+      // Markdown-it emits balanced link tokens; keep buttons outside their enclosing anchor.
+      const closing = tokens.slice(index + 1).find((token) => token.type === 'link_close')!;
+      imageActions.set(closing, (imageActions.get(closing) ?? '') + action);
+      return html;
+    };
+    const decision = externalImageDecision(src, externalImages.grants ?? new Set(), externalImages.enabled);
+    if (decision.kind !== 'local' && decision.origin) externalImageOrigins.add(decision.origin);
+    if (decision.kind === 'blocked') {
+      const alt = md.utils.escapeHtml(
+        extractHeadingText(tokens[index].children ?? []) || tokens[index].content || 'Image',
+      );
+      const action =
+        externalImages.enabled === false
+          ? '<span>Remote images are disabled in Restricted Mode.</span>'
+          : decision.origin
+            ? `<button type="button" class="external-image-action" data-external-image-action="grant" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Allow images from ${md.utils.escapeHtml(decision.origin)}</button>`
+            : '<span>Only valid HTTPS image origins can be allowed.</span>';
+      return decision.origin
+        ? addAction(`<span class="external-image-blocked">${alt}: external image blocked.</span>`, action)
+        : `<span class="external-image-blocked">${alt}: external image blocked. ${action}</span>`;
+    }
+    tokens[index].attrSet('src', decision.kind === 'allowed' ? decision.source : imageUri(src));
+    tokens[index].attrSet('referrerpolicy', 'no-referrer');
     tokens[index].attrSet('loading', 'lazy');
-    return image(tokens, index, options, env, renderer);
+    const html = image(tokens, index, options, env, renderer);
+    return decision.kind === 'allowed'
+      ? addAction(
+          html,
+          `<button type="button" class="external-image-action" data-external-image-action="revoke" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Block images from ${md.utils.escapeHtml(decision.origin)}</button>`,
+        )
+      : html;
   };
   md.renderer.rules.fence = (tokens, index) => {
     const token = tokens[index];
@@ -151,5 +201,10 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
         : md.utils.escapeHtml(token.content);
     return `<div class="code-block"><div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
-  return { html: frontmatter.html + md.render(frontmatter.body), outline, references };
+  return {
+    html: frontmatter.html + md.render(frontmatter.body),
+    outline,
+    references,
+    externalImageOrigins: [...externalImageOrigins],
+  };
 }

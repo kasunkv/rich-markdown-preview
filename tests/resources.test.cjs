@@ -66,10 +66,12 @@ function loadUrl() {
   return module.exports;
 }
 const moduleObject = { exports: {} };
+const canonicalAccess = [];
 let workspaceRoot;
 const vscode = {
   Uri: { joinPath: Utils.joinPath, parse: URI.parse },
   workspace: {
+    isTrusted: true,
     getWorkspaceFolder: (uri) =>
       workspaceRoot &&
       uri.scheme === workspaceRoot.scheme &&
@@ -93,8 +95,8 @@ vm.runInNewContext(
           : name === 'node:fs'
             ? {
                 ...fs,
-                realpathSync: (value) => (value.endsWith('literal?.svg') ? value : fs.realpathSync(value)),
-                statSync: (value) => (value.endsWith('literal?.svg') ? { isFile: () => true } : fs.statSync(value)),
+                realpathSync: (value) => { canonicalAccess.push({type:'realpath',value}); return value.endsWith('literal?.svg') ? value : fs.realpathSync(value); },
+                statSync: (value) => { canonicalAccess.push({type:'stat',value}); return value.endsWith('literal?.svg') ? { isFile: () => true } : fs.statSync(value); },
               }
             : require(name),
     __coverage__: (globalThis.__coverage__ ??= {}),
@@ -105,6 +107,7 @@ const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'rmp-resources-'));
 const root = path.join(temporary, 'workspace');
 fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
 fs.mkdirSync(path.join(root, 'assets'));
+fs.writeFileSync(path.join(root,'docs','guide.md'),'# Fixture');
 for (const name of ['diagram.svg', 'space image.svg', 'literal#.svg'])
   fs.writeFileSync(path.join(root, 'assets', name), '<svg/>');
 fs.writeFileSync(path.join(temporary, 'secret.svg'), '<svg/>');
@@ -194,4 +197,83 @@ process.on('exit', () => {
   assert.ok(path.resolve(temporary).startsWith(path.resolve(os.tmpdir()) + path.sep));
   assert.ok(path.basename(temporary).startsWith('rmp-resources-'));
   fs.rmSync(temporary, { recursive: true, force: true });
+});
+
+test('Restricted Mode navigation requires a canonical local workspace file', () => {
+  workspaceRoot = URI.file(root);
+  const safe = URI.file(path.join(root, 'assets', 'diagram.svg'));
+  assert.equal(policy.restrictedNavigationAllowed(safe), true);
+  assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(root, 'alias', 'diagram.svg'))), true);
+  for (const candidate of [
+    URI.file(path.join(temporary, 'secret.svg')),
+    URI.file(path.join(root, 'escape', 'secret.svg')),
+    URI.file(path.join(root, 'missing.md')),
+    URI.file(path.join(root, 'assets')),
+    URI.parse('command://open/private.md'),
+    URI.parse('file://other-host' + safe.path),
+  ]) assert.equal(policy.restrictedNavigationAllowed(candidate), false, candidate.toString());
+  workspaceRoot = undefined;
+  assert.equal(policy.restrictedNavigationAllowed(safe), false);
+  workspaceRoot = URI.parse('vscode-remote://host/work');
+  assert.equal(policy.restrictedNavigationAllowed(URI.parse('vscode-remote://host/work/guide.md')), false);
+});
+
+test('Restricted Mode rejects lexical outside targets before filesystem discovery', () => {
+  workspaceRoot = URI.file(root);
+  canonicalAccess.length = 0;
+  assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(temporary, 'secret.svg'))), false);
+  assert.deepEqual(canonicalAccess, []);
+  assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(root, 'escape', 'secret.svg'))), false);
+  assert.ok(canonicalAccess.some(entry => entry.type === 'realpath'));
+  assert.ok(!canonicalAccess.some(entry => entry.type === 'stat'), 'Canonical escape is denied before stat');
+});
+
+test('Restricted Mode also rejects inconsistent workspace provider roots lexically', () => {
+  const resolveFolder = vscode.workspace.getWorkspaceFolder;
+  try {
+    // Defend even if provider discovery reports a folder for a target outside it.
+    vscode.workspace.getWorkspaceFolder = () => ({ uri: URI.file(root) });
+    for (const target of [URI.file(temporary), URI.file(path.join(temporary, 'secret.svg'))]) {
+      canonicalAccess.length = 0;
+      assert.equal(policy.restrictedNavigationAllowed(target), false);
+      assert.deepEqual(canonicalAccess, []);
+    }
+    // Different drives produce an absolute relative path on Windows.
+    if (process.platform === 'win32') {
+      canonicalAccess.length = 0;
+      assert.equal(policy.restrictedNavigationAllowed(URI.file('Z:\\outside.md')), false);
+      assert.deepEqual(canonicalAccess, []);
+    }
+    vscode.workspace.getWorkspaceFolder = () => ({ uri: URI.parse('vscode-remote://host/work') });
+    assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(root, 'assets', 'diagram.svg'))), false);
+    vscode.workspace.getWorkspaceFolder = () => ({ uri: URI.file(root).with({authority:'other-host'}) });
+    assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(root, 'assets', 'diagram.svg'))), false);
+  } finally { vscode.workspace.getWorkspaceFolder = resolveFolder; }
+});
+
+test('Restricted local resource roots never fall back to an outside standalone directory', () => {
+  const extension = URI.file(path.join(temporary,'extension'));
+  vscode.workspace.isTrusted = false;
+  try {
+    workspaceRoot = URI.file(root);
+    assert.ok(policy.resolveImageResource('../assets/diagram.svg',document,webview));
+    workspaceRoot = undefined;
+    assert.equal(policy.previewResourceRoots(extension,document).length,2,'Only immutable extension resources remain allowed');
+    assert.equal(policy.resolveImageResource('inline.svg',document,webview),'','Standalone image access stays disabled');
+    workspaceRoot = URI.file(root);
+    assert.ok(policy.resolveImageResource('../assets/diagram.svg',document,webview));
+  } finally { vscode.workspace.isTrusted=true; workspaceRoot=undefined; }
+});
+
+test('privacy delegates contained file URIs to canonical local authorization and preserves unsupported Windows spellings', () => {
+  const {externalImageDecision} = require('./load-external-images.cjs');
+  workspaceRoot = URI.file(root);
+  const inside = URI.file(path.join(root,'assets','diagram.svg')).toString();
+  const outside = URI.file(path.join(temporary,'secret.svg')).toString();
+  assert.equal(externalImageDecision(inside,new Set()).kind,'local');
+  assert.ok(policy.resolveImageResource(inside,document,webview).startsWith('safe-resource:'));
+  assert.equal(externalImageDecision(outside,new Set()).kind,'local');
+  assert.equal(policy.resolveImageResource(outside,document,webview),'');
+  for (const unsupported of ['C:/assets/diagram.svg','C:\\assets\\diagram.svg','/assets/diagram.svg'])
+    assert.equal(policy.resolveImageResource(unsupported,document,webview),'');
 });
