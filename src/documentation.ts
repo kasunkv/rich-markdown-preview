@@ -1,5 +1,6 @@
 import { reportAsync } from './async';
 import * as vscode from 'vscode';
+import { discoverProviderMarkdown } from './provider-discovery';
 
 export interface DocumentationFile {
   id: string;
@@ -66,12 +67,15 @@ export class DocumentationIndex implements vscode.Disposable {
           const include = config.get<string>('documentation.include', markdownPattern);
           const exclude = config.get<string>('documentation.exclude', defaultDocumentationExclude);
           // An explicit exclusion bypasses files.exclude. Dotfolders and gitignored docs remain discoverable.
-          const uris = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(root, include),
-            exclude || null,
-            undefined,
-            cancellation.token,
-          );
+          const uris =
+            root.uri.scheme !== 'file' && root.uri.scheme !== 'vscode-remote'
+              ? await discoverProviderMarkdown(root.uri, include, exclude, cancellation.token)
+              : await vscode.workspace.findFiles(
+                  new vscode.RelativePattern(root, include),
+                  exclude || null,
+                  undefined,
+                  cancellation.token,
+                );
           return uris
             .filter((uri) => /\.(md|markdown)$/i.test(uri.path))
             .map((uri) => ({
@@ -101,7 +105,8 @@ export class DocumentationIndex implements vscode.Disposable {
       }
       this.changed({
         loading: false,
-        error: 'Could not refresh documentation. Retry and check workspace access.',
+        error:
+          'Could not refresh documentation. Retry and check workspace access. Narrow the documentation include/exclude settings if provider discovery exceeds its limits.',
       });
     }
   }

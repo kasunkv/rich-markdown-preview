@@ -166,7 +166,7 @@
           "type": "string",
           "scope": "resource",
           "default": "",
-          "description": "Base directory for file references starting with /. Empty uses the document workspace folder, or document directory for standalone files. Set a workspace-relative path for a skill package root, or an absolute Windows path."
+          "description": "Base directory for file references starting with /. Empty uses the document workspace folder, or document directory for standalone files. Set a workspace-relative path for a skill package root, or an absolute Windows path. Ignored in Restricted Mode; file references remain inside the workspace."
         },
         "richMarkdownPreview.documentation.include": {
           "scope": "resource",
@@ -222,6 +222,7 @@
     "check:quality": "npm run check && npm run lint && npm run format:check",
     "test:host": "npm run build:production && npm run test:host:only",
     "test:host:only": "node scripts/vscode-host.cjs",
+    "test:host:privacy": "npm run build:production && node scripts/vscode-host.cjs --privacy",
     "test:host:package": "node scripts/vscode-host.cjs --mode package",
     "browser:install": "playwright install chromium",
     "browser:install:ci": "playwright install --with-deps chromium",
@@ -242,6 +243,7 @@
     "markdown-it-sup": "^2.0.0",
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.12.0",
+    "minimatch": "10.2.6",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
@@ -313,5 +315,23 @@
     "docs/rich-markdown-preview-light.png",
     "docs/rich-markdown-preview-dark.png",
     "RUNTIME_DEPENDENCIES.json"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Local workspace Markdown and documentation are available. Remote images and navigation outside the workspace are disabled in Restricted Mode.",
+      "restrictedConfigurations": [
+        "richMarkdownPreview.referenceRoot",
+        "markdownLens.referenceRoot",
+        "styledMarkdown.referenceRoot"
+      ]
+    },
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "Trusted provider documents, relative references, images and bounded documentation discovery are available. Host absolute/home references and CSV export are unavailable; opaque providers are blocked in Restricted Mode. A Node extension host is required."
+    }
+  },
+  "extensionKind": [
+    "workspace"
   ]
 }

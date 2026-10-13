@@ -3,7 +3,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {minimatch} = require('minimatch');
 
-function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
+function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, imageOrigins = [], allowImages = true, failImageWrites = false } = {}) {
+  const imageState = {value:imageOrigins,failWrites:failImageWrites,failRead:false};
+  const imageWrites = [];
+  const globalState = {
+    get() {if(imageState.failRead) throw Error('secret user state read'); return imageState.value;},
+    async update(key, value) {imageWrites.push({key,value}); if(imageState.failWrites) throw Error('secret user state write'); imageState.value=Array.from(value);},
+  };
   const event = () => {
     const listeners = new Set();
     return { listen: fn => { listeners.add(fn); return { dispose: () => listeners.delete(fn) }; }, fire: value => [...listeners].forEach(fn => fn(value)), listeners };
@@ -38,7 +44,7 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
     window: {
       createOutputChannel: () => ({appendLine() {},dispose() {}}),
       createStatusBarItem: () => status,
-      showInformationMessage: message => warnings.push(message), showWarningMessage: message => warnings.push(message),
+      showInformationMessage: message => warnings.push(message), showWarningMessage: (message, _options, ...items) => {warnings.push(message); return Promise.resolve(items.includes('Allow images') && allowImages ? 'Allow images' : undefined);},
       showTextDocument: async (doc, options) => { opened.push(doc.uri.path); selections.push(options?.selection); return {revealRange: (range, type) => reveals.push({range, type})}; },
       createWebviewPanel: (type, title, column, options) => {
         const receive = event(), dispose = event(), view = event();
@@ -50,13 +56,13 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
               panel.rawMessage = fn;
               panel.message = message => {
                 if (!message || typeof message !== 'object' || Array.isArray(message) || Object.getPrototypeOf(message) !== Object.prototype || !Object.values(Object.getOwnPropertyDescriptors(message)).every(descriptor => 'value' in descriptor) || message.type === 'ready') return fn(message);
-                const complete = {requestId:'fixture_' + ++requestSequence,renderId:messages.filter(value => value.type === 'render').at(-1)?.renderId,...message};
+                const complete = {requestId:'fixture_' + ++requestSequence,renderId:panel.renderId,...message};
                 if ((message.type === 'tableCopy' || message.type === 'tableExport') && !Object.hasOwn(message,'filename')) complete.filename='table-1.csv';
                 return fn(complete);
               };
               return receive.listen(fn);
             },
-            postMessage: async message => { messages.push(message); return true; }
+            postMessage: async message => { messages.push(message); if(message.type==='render') panel.renderId=message.renderId; return true; }
           }
         };
         panels.push(panel); return panel;
@@ -64,6 +70,7 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
     },
     commands: {registerCommand: (name, fn) => {commands[name] = fn; return {dispose() {}};}, executeCommand: async (_, target) => opened.push(target.path)},
     workspace: {
+      isTrusted:trusted, onDidGrantWorkspaceTrust:()=>({dispose(){}}),
       workspaceFolders: folders.map(root), onDidChangeWorkspaceFolders: workspaceFolders.listen,
       onDidChangeConfiguration: configuration.listen, onDidChangeTextDocument: text.listen,
       getWorkspaceFolder: target => vscode.workspace.workspaceFolders.find(folder => target.path === folder.uri.path || target.path.startsWith(folder.uri.path + '/')),
@@ -82,13 +89,13 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
     }
   };
   const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, Object, URL, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg'})} : require(name)});
-  module.exports.activate({subscriptions: [], extensionUri: uri('/extension')});
+  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, Object, URL, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg' || files.has(value)})} : require(name)});
+  module.exports.activate({subscriptions: [], extensionUri: uri('/extension'), globalState});
   const open = async () => {await commands['richMarkdownPreview.openDocumentationHome'](); if (panels.length) await panels.at(-1).message({type: 'ready'});};
   const openSingle = async (file = '/repo/README.md') => { await commands['richMarkdownPreview.openPreview'](uri(file)); await panels.at(-1).message({type: 'ready'}); };
   const action = (action, id) => panels.at(-1).message({type: 'documentationAction', action, id: id && uri(id).toString()});
   const latest = type => messages.filter(message => message.type === type).at(-1);
-  return {vscode, settings, status, open, openSingle, selections, reveals, action, latest, files, reads, queries, messages, panels, warnings, opened, watchers, workspaceFolders, configuration, text, uri, getDocument};
+  return {globalState, imageState, imageWrites, vscode, settings, status, open, openSingle, selections, reveals, action, latest, files, reads, queries, messages, panels, warnings, opened, watchers, workspaceFolders, configuration, text, uri, getDocument};
 }
 
 

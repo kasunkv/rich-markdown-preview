@@ -289,6 +289,196 @@ test('content anchors isolate UI, footnotes, duplicates and encoded fragments', 
   }
 });
 
+
+test('external image policy sends zero blocked requests and no referrer for explicit grants', async ({ page, previewServer }) => {
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  const requests = [];
+  await page.route('https://privacy.example/**', async route => {
+    requests.push({ url: route.request().url(), headers: route.request().headers() });
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>' });
+  });
+  const preferences = {style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const source = '![Tracking](https://privacy.example/pixel.svg)';
+  const render = async grants => {
+    const result = renderMarkdown(source, undefined, { grants });
+    await page.evaluate(data => window.dispatchEvent(new MessageEvent('message', {data})), { type: 'render', ...result, preferences });
+  };
+  await render(new Set());
+  await page.locator('[data-external-image-action="grant"]').waitFor();
+  await page.waitForTimeout(200);
+  assert.equal(requests.length, 0);
+  await render(new Set(['https://privacy.example']));
+  await page.locator('#rmp-ui-content img').evaluate(img => img.scrollIntoView());
+  await page.waitForFunction(() => document.querySelector('#rmp-ui-content img')?.naturalWidth === 2);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].headers.referer, undefined);
+  assert.equal(await page.locator('[data-external-image-action="revoke"]').count(), 1);
+  await render(new Set());
+  await page.locator('[data-external-image-action="grant"]').waitFor();
+  await page.waitForTimeout(200);
+  assert.equal(requests.length, 1);
+});
+
+test('concrete production-style image CSP blocks an injected ungranted origin', async ({ page, previewServer }) => {
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  const requests = [];
+  for (const origin of ['https://privacy.example', 'https://ungranted.example']) {
+    await page.route(origin + '/**', async route => {
+      requests.push(route.request().url());
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>' });
+    });
+  }
+  await page.evaluate(() => {
+    const frame = document.createElement('iframe');
+    frame.id = 'privacy-csp-proof';
+    frame.srcdoc = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://privacy.example data:"><img src="https://privacy.example/allowed.svg" referrerpolicy="no-referrer"><img src="https://ungranted.example/blocked.svg">`;
+    document.body.append(frame);
+  });
+  const frame = page.frameLocator('#privacy-csp-proof');
+  await frame.locator('img').first().evaluate(img => new Promise(resolve => {
+    if (img.complete) resolve(); else img.addEventListener('load', resolve, {once: true});
+  }));
+  assert.equal(await frame.locator('img').first().evaluate(img => img.naturalWidth), 2);
+  assert.equal(await frame.locator('img').nth(1).evaluate(img => img.naturalWidth), 0);
+  assert.deepEqual(requests, ['https://privacy.example/allowed.svg']);
+});
+
+test('permission HTML reset preserves bounded reading focus and respects intentional focus changes', async ({ page }) => {
+  const directory = fs.mkdtempSync(path.join(path.resolve('.test-results'), 'privacy-focus-'));
+  const fixture = path.join(directory, 'focus.md');
+  fs.writeFileSync(fixture, '---\nname: private\n---\n# Privacy\n![Remote](https://privacy.example/image.svg)\n\n| Name | Value |\n| --- | --- |\n| Alpha | 1 |\n| Beta | 2 |');
+  const server = await require('./preview-server.cjs').startPreviewServer({fixture});
+  try {
+    await page.goto(server.url);
+    const filter = page.locator('.table-search');
+    await filter.fill('Beta');
+    await page.locator('.frontmatter > summary').click();
+    await filter.focus();
+    await filter.evaluate(input => input.setSelectionRange(1, 3, 'backward'));
+    await page.locator('[data-external-image-action="grant"]').evaluate(button => button.click());
+    assert.equal(await page.evaluate(() => window.externalImageActions.at(-1).type), 'grantExternalImageOrigin');
+    const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('preview-state')));
+    assert.ok(saved.permissionFocus.key.length <= 8192);
+    assert.deepEqual(saved.permissionFocus.selection, [1, 3, 'backward']);
+    await page.reload();
+    await page.locator('.table-search').waitFor();
+    await page.waitForFunction(() => document.activeElement?.classList.contains('table-search'));
+    assert.equal(await page.locator('.table-search').inputValue(), 'Beta');
+    assert.deepEqual(await page.locator('.table-search').evaluate(input => [input.selectionStart, input.selectionEnd, input.selectionDirection]), [1, 3, 'backward']);
+    assert.equal(await page.locator('.frontmatter').getAttribute('open'), null);
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('preview-state')).permissionFocus), undefined);
+    await page.locator('[data-external-image-action="grant"]').click();
+    await page.locator('#rmp-ui-style').focus();
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('preview-state')).permissionFocus), undefined);
+    await page.reload();
+    await page.locator('.table-search').waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('table-search')), false);
+    await page.locator('.table-search').evaluate(input => { input.dataset.readingKey = 'x'.repeat(8193); input.focus(); });
+    await page.locator('[data-external-image-action="grant"]').evaluate(button => button.click());
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('preview-state')).permissionFocus), undefined);
+  } finally { await server.close(); fs.rmSync(fixture); fs.rmdirSync(directory); }
+});
+
+
+test('failed permission persistence leaves grant blocked and immediately stops revoked requests', async ({page, previewServer}) => {
+  const {ExternalImagePermissions} = require('./load-external-images.cjs');
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  const requests = [];
+  await page.route('https://privacy.example/**', async route => {
+    requests.push(route.request().url());
+    await route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>'});
+  });
+  const preferences = {style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const render = async (grants, name) => {
+    const result = renderMarkdown(`![Private](https://privacy.example/${name}.svg)`, undefined, {grants});
+    await page.evaluate(data => window.dispatchEvent(new MessageEvent('message',{data})), {type:'render',...result,preferences});
+  };
+  let stored = [];
+  let fail = false;
+  const renders = [];
+  const policy = new ExternalImagePermissions({get: () => stored, update: async (_, origins) => {
+    if (fail) throw Error('read-only user state'); stored = origins;
+  }}, () => renders.push(render(policy.grants, 'granted')));
+  await render(policy.grants, 'default');
+  await page.locator('[data-external-image-action="grant"]').click();
+  const grant = await page.evaluate(() => window.externalImageActions.at(-1));
+  await policy.change('grant', grant.origin, () => true, async () => true);
+  await Promise.all(renders);
+  await page.waitForFunction(() => document.querySelector('#rmp-ui-content img')?.naturalWidth === 2);
+  assert.deepEqual(requests, ['https://privacy.example/granted.svg']);
+  fail = true;
+  await page.locator('[data-external-image-action="revoke"]').click();
+  const revoke = await page.evaluate(() => window.externalImageActions.at(-1));
+  await assert.rejects(policy.change('revoke', revoke.origin, () => true, async () => true), /read-only/);
+  await Promise.all(renders);
+  assert.equal(stored.includes('https://privacy.example'), true);
+  await render(policy.grants, 'revoked-new-request');
+  await page.locator('[data-external-image-action="grant"]').waitFor();
+  assert.equal(await page.locator('#rmp-ui-content img').count(), 0);
+  const failedGrant = new ExternalImagePermissions({get: () => [], update: async () => {throw Error('read-only user state');}});
+  await assert.rejects(failedGrant.change('grant', grant.origin, () => true, async () => true), /read-only/);
+  await render(failedGrant.grants, 'failed-grant-new-request');
+  await page.locator('[data-external-image-action="grant"]').waitFor();
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator('#rmp-ui-content img').count(), 0);
+  assert.deepEqual(requests, ['https://privacy.example/granted.svg']);
+});
+
+test('image permission changes keep table reading keys stable inside image headings', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  await page.route('https://privacy.example/**', route => route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>'}));
+  const source = '# Logo ![Map](https://privacy.example/map.svg)\n\n| Name | Value |\n| --- | --- |\n| Alpha | 1 |\n| Beta | 2 |';
+  const preferences = {style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const render = async grants => {
+    const result = renderMarkdown(source, undefined, {grants});
+    await page.evaluate(data => window.dispatchEvent(new MessageEvent('message',{data})), {type:'render',...result,preferences});
+  };
+  await render(new Set());
+  const filter = page.locator('.table-search');
+  await filter.fill('Beta'); await filter.evaluate(input => input.setSelectionRange(1,3,'backward'));
+  const key = await filter.getAttribute('data-reading-key');
+  await render(new Set(['https://privacy.example']));
+  assert.equal(await filter.inputValue(), 'Beta');
+  assert.equal(await filter.getAttribute('data-reading-key'), key);
+  assert.deepEqual(await filter.evaluate(input => [input.selectionStart,input.selectionEnd,input.selectionDirection]), [1,3,'backward']);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('table-search')), true);
+  await render(new Set());
+  assert.equal(await filter.inputValue(), 'Beta');
+  assert.equal(await filter.getAttribute('data-reading-key'), key);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('table-search')), true);
+});
+
+test('linked image permission controls are keyboard accessible without opening author links', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  const preferences = {style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const result = renderMarkdown('[![Private](https://privacy.example/a)](https://link.example)');
+  await page.evaluate(data => window.dispatchEvent(new MessageEvent('message',{data})), {type:'render',...result,preferences});
+  const action = page.locator('[data-external-image-action="grant"]');
+  assert.equal(await action.evaluate(button => button.closest('a') === null), true);
+  await action.focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => window.externalImageActions.at(-1).origin), 'https://privacy.example');
+  assert.equal(await page.evaluate(() => window.externalLinkClicks?.length ?? 0), 0);
+  assert.equal(page.url(), previewServer.url + '/');
+  await action.evaluate(button => {
+    const link = document.createElement('a'); link.href = 'https://link.example'; button.replaceWith(link); link.append(button);
+    delete button.dataset.externalImageOrigin;
+  });
+  await page.locator('.external-image-action').click();
+  assert.equal(await page.evaluate(() => window.externalImageActions.length), 1);
+  assert.equal(page.url(), previewServer.url + '/');
+  await action.evaluate(button => {button.dataset.externalImageOrigin = 'https://privacy.example'; button.dataset.externalImageAction = 'authorize';});
+  await page.locator('.external-image-action').click();
+  assert.equal(await page.evaluate(() => window.externalImageActions.length), 1);
+  assert.equal(await page.evaluate(() => window.externalLinkClicks?.length ?? 0), 0);
+  assert.equal(page.url(), previewServer.url + '/');
+});
+
+
 test('shared contracts reject malformed inbound state and correlate overlapping actions', async ({page, previewServer}) => {
   await page.addInitScript(() => sessionStorage.setItem('preview-state', JSON.stringify({tables:[],documents:{file:{scroll:'bad'}},documentation:{expanded:[1]}})));
   await page.route(previewServer.url + '/', async route => {
