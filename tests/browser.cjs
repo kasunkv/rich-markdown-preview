@@ -288,3 +288,47 @@ test('content anchors isolate UI, footnotes, duplicates and encoded fragments', 
     assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id, options:{behavior:'smooth', block:'start'}});
   }
 });
+
+test('shared contracts reject malformed inbound state and correlate overlapping actions', async ({page, previewServer}) => {
+  await page.addInitScript(() => sessionStorage.setItem('preview-state', JSON.stringify({tables:[],documents:{file:{scroll:'bad'}},documentation:{expanded:[1]}})));
+  await page.route(previewServer.url + '/', async route => {
+    const response = await route.fetch(); let html = await response.text();
+    html = html.replace('</script><script src="/preview.js">', '</script><script>const originalApi = acquireVsCodeApi; acquireVsCodeApi = () => { const api = originalApi(); return {...api,postMessage: message => {window.contractRequests ??= []; window.contractRequests.push(message); if (!["copy","tableCopy","tableExport"].includes(message.type)) return api.postMessage(message);}}; };</script><script src="/preview.js">');
+    await route.fulfill({response,body:html});
+  });
+  await page.goto(previewServer.url); await page.locator('.mermaid-result').first().waitFor();
+  const emit = async value => page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), value);
+  const preferences = {style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const render = {type:'render',...renderMarkdown('# Contract\n\n~~~js\nconst value = 1;\n~~~\n\n| Name | Value |\n| --- | --- |\n| Formula | =SUM(1) |'),preferences,documentId:'file:///contract.md',renderId:'contract_1'};
+  await emit(render); await page.locator('.copy-code').click(); await page.locator('.copy-code').click();
+  const copies = await page.evaluate(() => window.contractRequests.filter(message => message.type === 'copy'));
+  assert.equal(copies.length,2); assert.notEqual(copies[0].requestId,copies[1].requestId); assert.equal(copies[0].renderId,'contract_1');
+  await emit({type:'copyResult',requestId:copies[0].requestId,success:true});
+  assert.equal(await page.locator('#rmp-ui-announcement').innerText(),'Copying code…');
+  await emit({type:'copyResult',requestId:copies[1].requestId,success:false});
+  assert.equal(await page.locator('#rmp-ui-announcement').innerText(),'Could not copy code. Please try again.');
+  await page.getByRole('button',{name:'Copy CSV',exact:true}).click();
+  const csv = await page.evaluate(() => window.contractRequests.at(-1)); assert.equal(csv.type,'tableCopy'); assert.match(csv.text,/\'=SUM/);
+  await emit({type:'tableActionResult',requestId:csv.requestId,action:'tableExport',success:true});
+  assert.equal(await page.locator('#rmp-ui-announcement').innerText(),'Copying table CSV…');
+  await emit({type:'tableActionResult',requestId:csv.requestId,action:'tableCopy',success:true});
+  assert.equal(await page.locator('#rmp-ui-announcement').innerText(),'Table CSV copied');
+  await emit({...render,renderId:'contract_2'});
+  await emit({type:'copyResult',requestId:copies[1].requestId,success:true});
+  assert.equal(await page.locator('#rmp-ui-announcement').innerText(),'Table CSV copied');
+  await emit({...render,html:'<h1>Poisoned</h1>',preferences:{...preferences,fontSize:'bad'}});
+  assert.equal(await page.locator('#rmp-ui-content h1').innerText(),'Contract');
+  await emit({...render,outline:[{id:'rmp-heading-contract',fragment:'contract',text:'Invalid',level:20}]});
+  assert.equal(await page.locator('#rmp-ui-outline a').first().innerText(),'Contract');
+  await emit({type:'preferences',preferences:{...preferences,style:'unknown'}});
+  assert.equal(await page.locator('#rmp-ui-style').inputValue(),'documentation');
+  const sent = await page.evaluate(() => window.contractRequests.length);
+  await page.locator('.code-block code').evaluate(code => {code.textContent = 'x'.repeat(4194305);});
+  await page.locator('.copy-code').click();
+  assert.match(await page.locator('#rmp-ui-announcement').innerText(),/Try selecting a smaller portion/);
+  assert.equal(await page.evaluate(() => window.contractRequests.length),sent);
+  await page.evaluate(preferences => window.dispatchEvent(new MessageEvent('message',{data:{type:'render',html:'<div class="table-scroll"><table><thead><tr><th>Data</th></tr></thead><tbody><tr><td>'+ 'x'.repeat(4194305) +'</td></tr></tbody></table></div>',outline:[],preferences,documentId:'file:///large.md',renderId:'large_model'}})),preferences);
+  await page.getByRole('button',{name:'Copy CSV',exact:true}).click();
+  assert.match(await page.locator('#rmp-ui-announcement').innerText(),/Try filtering to fewer rows/);
+  assert.equal(await page.evaluate(() => window.contractRequests.length),sent);
+});
