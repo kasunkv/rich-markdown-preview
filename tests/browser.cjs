@@ -57,6 +57,41 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     checks.push('Frontmatter fields, nested YAML, outline, source disclosure, collapse, narrow layout and invalid YAML fallback');
     await render(fs.readFileSync(path.resolve(__dirname, '../samples/showcase.md'), 'utf8'));
     await page.locator('.mermaid-result').first().waitFor();
+    await page.locator('#rmp-ui-outline a').first().click();
+    await render('# Numeric target\n\n[Jump to heading](#numeric-target)');
+    await page.locator('#rmp-ui-content a').click();
+    await render('[External reference](https://example.com)');
+    await page.locator('#rmp-ui-content a').click();
+    await render(fs.readFileSync(path.resolve(__dirname, '../samples/showcase.md'), 'utf8'));
+    const widthValue = page.locator('[data-preference-key="contentWidth"][type="number"]');
+    const widthSlider = page.locator('[data-preference-key="contentWidth"][type="range"]');
+    const widthOutput = page.locator('[data-preference-output="contentWidth"]');
+    for (const [key, min, max] of [['contentWidth',480,1600], ['fontSize',12,24], ['lineHeight',1.3,2.2]]) {
+      const control = page.locator(`[data-preference-key="${key}"][type="number"]`);
+      assert.equal(await control.getAttribute('min'), String(min));
+      assert.equal(await control.getAttribute('max'), String(max));
+    }
+    await widthValue.fill('901');
+    assert.equal(await widthSlider.inputValue(), '901');
+    assert.equal(await widthOutput.textContent(), '901px');
+    await widthValue.fill('901.25');
+    assert.equal(await widthSlider.inputValue(), '901.25');
+    assert.equal(await widthOutput.textContent(), '901.25px');
+    await page.locator('[data-preference-key="fontSize"]').fill('17');
+    await page.locator('[data-preference-key="lineHeight"]').fill('1.8');
+    assert.equal(await page.locator('[data-preference-key="fontSize"]').inputValue(), '17');
+    assert.equal(await page.locator('[data-preference-key="lineHeight"]').inputValue(), '1.8');
+    await page.locator('[data-preference-key="fontSize"]').fill('17.25');
+    await page.locator('[data-preference-key="lineHeight"]').fill('1.83');
+    assert.equal(await page.locator('[data-preference-key="fontSize"]').inputValue(), '17.25');
+    assert.equal(await page.locator('[data-preference-key="lineHeight"]').inputValue(), '1.83');
+    assert.equal(await page.locator('#rmp-ui-content').evaluate(el => getComputedStyle(el).fontSize), '17.25px');
+    assert.equal(await page.locator('#rmp-ui-content').evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--reading-line-height').trim()), '1.83');
+    assert.equal(await page.locator('#rmp-ui-content').evaluate(el => getComputedStyle(el).maxWidth), '901.25px');
+    await page.locator('[data-preference-key="fontSize"]').fill('99');
+    await page.locator('[data-preference-key="fontSize"]').dispatchEvent('change');
+    assert.equal(await page.locator('[data-preference-key="fontSize"]').inputValue(), '17.25');
+    checks.push('Continuous numeric controls preserve integer and fractional values, synchronize the width slider/output, and reject invalid bounds');
     for (const appearance of ['light','dark']) {
       for (const style of manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum) {
         await page.selectOption('#rmp-ui-style', style); await page.selectOption('#rmp-ui-appearance', appearance);
