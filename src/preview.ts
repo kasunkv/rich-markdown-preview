@@ -19,10 +19,10 @@ declare function acquireVsCodeApi(): {
   setState(state: unknown): void;
 };
 const vscode = acquireVsCodeApi();
-const app = document.getElementById('app')!;
-app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="style" aria-label="Style">${previewStyles.map((style) => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="width-value"></output><input id="contentWidth" aria-label="Content width" type="range" min="480" max="1600" step="20"></label><label>Text<select id="fontSize" aria-label="Text size">${[12, 14, 16, 18, 20, 22, 24].map((n) => `<option value="${n}">${n}px</option>`).join('')}</select></label><label>Spacing<select id="lineHeight" aria-label="Line spacing">${[1.3, 1.5, 1.7, 1.9, 2.2].map((n) => `<option value="${n}">${n}</option>`).join('')}</select></label><label class="checkbox"><input id="wrapCode" type="checkbox">Wrap code</label><button id="toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="outline"></nav></aside><main id="content" class="markdown" aria-label="Markdown preview"></main></div><div id="announcement" class="sr-only" aria-live="polite"></div>`;
-const content = document.getElementById('content')!;
-const outline = document.getElementById('outline')!;
+const app = document.getElementById('rmp-ui-app')!;
+app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="rmp-ui-style" aria-label="Style">${previewStyles.map((style) => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="rmp-ui-appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="rmp-ui-width-value"></output><input id="rmp-ui-contentWidth" aria-label="Content width" type="range" min="480" max="1600" step="20"></label><label>Text<select id="rmp-ui-fontSize" aria-label="Text size">${[12, 14, 16, 18, 20, 22, 24].map((n) => `<option value="${n}">${n}px</option>`).join('')}</select></label><label>Spacing<select id="rmp-ui-lineHeight" aria-label="Line spacing">${[1.3, 1.5, 1.7, 1.9, 2.2].map((n) => `<option value="${n}">${n}</option>`).join('')}</select></label><label class="checkbox"><input id="rmp-ui-wrapCode" type="checkbox">Wrap code</label><button id="rmp-ui-toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="rmp-ui-outline"></nav></aside><main id="rmp-ui-content" class="markdown" aria-label="Markdown preview"></main></div><div id="rmp-ui-announcement" class="sr-only" aria-live="polite"></div>`;
+const content = document.getElementById('rmp-ui-content')!;
+const outline = document.getElementById('rmp-ui-outline')!;
 const documentation = documentationView(vscode, content);
 let revision = 0;
 let restored = false;
@@ -76,11 +76,11 @@ function applyPreferences(settings: Preferences, refreshDiagrams = true) {
   document.documentElement.style.setProperty('--reading-size', `${settings.fontSize}px`);
   document.documentElement.style.setProperty('--reading-line-height', `${settings.lineHeight}`);
   for (const [key, value] of Object.entries(settings)) {
-    const control = document.getElementById(key) as HTMLInputElement | HTMLSelectElement;
+    const control = document.getElementById('rmp-ui-' + key) as HTMLInputElement | HTMLSelectElement;
     if (key === 'wrapCode') (control as HTMLInputElement).checked = Boolean(value);
     else control.value = String(value);
   }
-  document.getElementById('width-value')!.textContent = `${settings.contentWidth}px`;
+  document.getElementById('rmp-ui-width-value')!.textContent = `${settings.contentWidth}px`;
   if (refreshDiagrams && (previousDark !== isDark() || previousStyle !== settings.style))
     reportAsync(diagrams(++revision));
 }
@@ -90,8 +90,26 @@ function receivePreferences(saved: Preferences, refreshDiagrams = true) {
   }
   applyPreferences({ ...saved, ...Object.fromEntries(pendingPreferences) }, refreshDiagrams);
 }
-function scrollToHeading(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+// Author fragments use aliases (headings win over footnotes); internal links use
+// exact DOM IDs. Both paths stay inside Markdown, including missing anchors.
+function findContentAnchor(fragment: string, internal = false): HTMLElement | undefined {
+  let id: string;
+  try {
+    id = decodeURIComponent(fragment.replace(/^#/, ''));
+  } catch {
+    return undefined;
+  }
+  const targets = Array.from(content.querySelectorAll<HTMLElement>('[id]'));
+  if (!internal) {
+    const alias =
+      targets.find((target) => target.dataset.mdAnchor === id && /^H[1-6]$/.test(target.tagName)) ??
+      targets.find((target) => target.dataset.mdAnchor === id);
+    if (alias) return alias;
+  }
+  return targets.find((target) => target.id === id);
+}
+function scrollToHeading(fragment: string, internal = false) {
+  findContentAnchor(fragment, internal)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 async function diagrams(version: number) {
   const dark = isDark();
@@ -188,13 +206,13 @@ window.addEventListener('message', (event) => {
     return;
   }
   if (message.type === 'copyResult') {
-    document.getElementById('announcement')!.textContent = message.success
+    document.getElementById('rmp-ui-announcement')!.textContent = message.success
       ? 'Code copied'
       : 'Could not copy code. Please try again.';
     return;
   }
   if (message.type === 'tableActionResult') {
-    document.getElementById('announcement')!.textContent = message.cancelled
+    document.getElementById('rmp-ui-announcement')!.textContent = message.cancelled
       ? 'CSV export cancelled'
       : message.success
         ? message.action === 'tableCopy'
@@ -230,7 +248,7 @@ window.addEventListener('message', (event) => {
     content,
     tableState,
     (action) => {
-      document.getElementById('announcement')!.textContent =
+      document.getElementById('rmp-ui-announcement')!.textContent =
         action.type === 'tableCopy' ? 'Copying table CSV…' : 'Choose where to save the CSV file';
       vscode.postMessage(action);
     },
@@ -251,7 +269,7 @@ window.addEventListener('message', (event) => {
     link.style.paddingLeft = `${Math.min(item.level - 1, 3) * 12 + 10}px`;
     link.addEventListener('click', (event) => {
       event.preventDefault();
-      scrollToHeading(item.id);
+      scrollToHeading(item.id, true);
     });
     outline.append(link);
   }
@@ -271,7 +289,7 @@ document
   .querySelectorAll<HTMLInputElement | HTMLSelectElement>('.controls input, .controls select')
   .forEach((control) => {
     const updateLocal = () => {
-      const key = control.id as keyof Preferences;
+      const key = control.id.slice('rmp-ui-'.length) as keyof Preferences;
       const value =
         key === 'wrapCode'
           ? (control as HTMLInputElement).checked
@@ -286,7 +304,7 @@ document
     // Persist on commit; slider input only updates local layout while dragging.
     control.addEventListener('change', () => vscode.postMessage({ type: 'preference', ...updateLocal() }));
   });
-document.getElementById('toggle-outline')!.addEventListener('click', (event) => {
+document.getElementById('rmp-ui-toggle-outline')!.addEventListener('click', (event) => {
   const hidden = document.body.classList.toggle('hide-outline');
   (event.currentTarget as HTMLElement).setAttribute('aria-expanded', String(!hidden));
 });
@@ -295,7 +313,7 @@ content.addEventListener('click', (event) => {
   const copy = element.closest<HTMLButtonElement>('.copy-code');
   if (copy) {
     vscode.postMessage({ type: 'copy', text: copy.closest('.code-block')?.querySelector('code')?.textContent ?? '' });
-    document.getElementById('announcement')!.textContent = 'Copying code…';
+    document.getElementById('rmp-ui-announcement')!.textContent = 'Copying code…';
     return;
   }
   const link = element.closest<HTMLAnchorElement>('a');
@@ -308,9 +326,10 @@ content.addEventListener('click', (event) => {
     event.preventDefault();
     const href = link.getAttribute('href') ?? '';
     if (href.startsWith('#')) {
-      try {
-        scrollToHeading(decodeURIComponent(href.slice(1)));
-      } catch {}
+      scrollToHeading(
+        href.slice(1),
+        link.closest('.footnote-ref') !== null || link.classList.contains('footnote-backref'),
+      );
     } else vscode.postMessage({ type: 'link', href });
   }
 });

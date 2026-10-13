@@ -11,8 +11,8 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     const files = paths.map(name => ({id: `file:///repo/${name}`, root: 'file:///repo', rootName: 'project', path: name}));
     files.push({id: 'file:///other/README.md', root: 'file:///other', rootName: 'other', path: 'README.md'});
     const sources = Object.fromEntries(files.map(file => [file.id, renderMarkdown(`# ${file.path}\n\n| Name | Value |\n| --- | --- |\n| Alpha | 1 |\n| Beta | 2 |\n\n${Array.from({length: 30}, (_, i) => `## Section ${i}\n\nDocumentation paragraph ${i}.`).join('\n\n')}`)]));
-    await page.setContent('<!doctype html><html><head></head><body><div id="app"></div></body></html>');
-    await page.locator('#app').evaluate((node, logo) => {node.dataset.logo = logo;}, `data:image/png;base64,${fs.readFileSync('assets/rich-markdown-preview.png').toString('base64')}`);
+    await page.setContent('<!doctype html><html><head></head><body><div id="rmp-ui-app"></div></body></html>');
+    await page.locator('#rmp-ui-app').evaluate((node, logo) => {node.dataset.logo = logo;}, `data:image/png;base64,${fs.readFileSync('assets/rich-markdown-preview.png').toString('base64')}`);
     await page.addStyleTag({path: path.resolve('dist/preview.css')});
     await page.evaluate(({files, sources}) => {
       let state, active, position = 0;
@@ -50,7 +50,7 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     await page.getByRole('heading', {name: '.claude/skills/test/SKILL.md', exact: true}).waitFor();
     assert.equal(await skill.getAttribute('aria-current'), 'page');
     await page.getByRole('button', {name: 'On this page', exact: true}).click();
-    assert.equal(await page.locator('#outline a:visible').count(), 31);
+    assert.equal(await page.locator('#rmp-ui-outline a:visible').count(), 31);
     await page.getByRole('button', {name: 'Documents', exact: true}).click();
     await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('');
     checks.push('Multiple roots, folder home cards, nested filtering, safe filenames, keyboard selection, active file, outline tabs');
@@ -77,7 +77,7 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('missing-document');
     assert.equal(await page.getByText('No matching documents.', {exact: true}).isVisible(), true);
     await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('');
-    await page.selectOption('#appearance', 'dark');
+    await page.selectOption('#rmp-ui-appearance', 'dark');
     await page.setViewportSize({width: 520, height: 800});
     assert.equal(await page.locator('.documentation-sidebar').isVisible(), true);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
