@@ -318,3 +318,28 @@ test('external image policy sends zero blocked requests and no referrer for expl
   await page.waitForTimeout(200);
   assert.equal(requests.length, 1);
 });
+
+test('concrete production-style image CSP blocks an injected ungranted origin', async ({ page, previewServer }) => {
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  const requests = [];
+  for (const origin of ['https://privacy.example', 'https://ungranted.example']) {
+    await page.route(origin + '/**', async route => {
+      requests.push(route.request().url());
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>' });
+    });
+  }
+  await page.evaluate(() => {
+    const frame = document.createElement('iframe');
+    frame.id = 'privacy-csp-proof';
+    frame.srcdoc = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://privacy.example data:"><img src="https://privacy.example/allowed.svg" referrerpolicy="no-referrer"><img src="https://ungranted.example/blocked.svg">`;
+    document.body.append(frame);
+  });
+  const frame = page.frameLocator('#privacy-csp-proof');
+  await frame.locator('img').first().evaluate(img => new Promise(resolve => {
+    if (img.complete) resolve(); else img.addEventListener('load', resolve, {once: true});
+  }));
+  assert.equal(await frame.locator('img').first().evaluate(img => img.naturalWidth), 2);
+  assert.equal(await frame.locator('img').nth(1).evaluate(img => img.naturalWidth), 0);
+  assert.deepEqual(requests, ['https://privacy.example/allowed.svg']);
+});

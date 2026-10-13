@@ -4,10 +4,17 @@ export const externalImageGrantsKey = 'richMarkdownPreview.externalImageOrigins.
 /** Reject ambiguous URL spellings and credentials before browser normalization. */
 export function externalImageOrigin(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length > 8192 || /[\s\\\u0000-\u001f\u007f]/u.test(value)) return;
-  if (!/^https:\/\//i.test(value)) return;
+  if (!/^https:\/\/[^/?#]/i.test(value)) return;
   try {
     const url = new URL(value);
     if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return;
+    const hostname = url.hostname;
+    if (
+      !hostname.startsWith('[') &&
+      (hostname.length > 253 ||
+        !hostname.split('.').every((label) => /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/i.test(label)))
+    )
+      return;
     return url.origin;
   } catch {
     return;
@@ -56,8 +63,13 @@ export interface ExternalImageGrantStore {
 export class ExternalImagePermissions {
   readonly grants: Set<string>;
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly revoked = new Set<string>();
+  private readonly revokeVersions = new Map<string, number>();
 
-  constructor(private readonly store: ExternalImageGrantStore) {
+  constructor(
+    private readonly store: ExternalImageGrantStore,
+    private readonly changed: () => void = () => undefined,
+  ) {
     this.grants = readExternalImageGrants(store.get(externalImageGrantsKey));
   }
 
@@ -67,17 +79,30 @@ export class ExternalImagePermissions {
     isCurrentRenderedOrigin: () => boolean,
     confirm: (origin: string) => PromiseLike<boolean>,
   ): Promise<boolean> {
+    if (!isExternalImageOrigin(origin) || !isCurrentRenderedOrigin()) return Promise.resolve(false);
+    const revokeVersion = this.revokeVersions.get(origin) ?? 0;
+    // Deny synchronously, even while a different permission operation is awaiting persistence.
+    if (action === 'revoke') {
+      this.revokeVersions.set(origin, revokeVersion + 1);
+      this.revoked.add(origin);
+      this.grants.delete(origin);
+      this.changed();
+    }
     const apply = async () => {
-      if (!isExternalImageOrigin(origin) || !isCurrentRenderedOrigin()) return false;
-      if (action === 'grant' && !(await confirm(origin))) return false;
-      // A navigation or disposal while the native prompt is open invalidates the request.
-      if (!isCurrentRenderedOrigin()) return false;
-      const next = new Set(this.grants);
+      if (action === 'grant') {
+        if (!isCurrentRenderedOrigin() || !(await confirm(origin)) || !isCurrentRenderedOrigin()) return false;
+      }
+      const next = new Set([...this.grants].filter((grant) => !this.revoked.has(grant)));
       if (action === 'grant') next.add(origin);
-      else next.delete(origin);
       await this.store.update(externalImageGrantsKey, [...next].sort());
+      if (action === 'grant') {
+        if ((this.revokeVersions.get(origin) ?? 0) !== revokeVersion) return false;
+        this.revoked.delete(origin);
+      }
       this.grants.clear();
-      for (const grant of next) this.grants.add(grant);
+      // A revoke during an earlier pending write cannot be reintroduced by that write's snapshot.
+      for (const grant of next) if (!this.revoked.has(grant)) this.grants.add(grant);
+      if (action === 'grant') this.changed();
       return true;
     };
     const result = this.queue.then(apply);

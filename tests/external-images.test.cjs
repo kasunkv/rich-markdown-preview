@@ -104,3 +104,75 @@ test('blocked image alternatives retain readable fallback and escaped origin act
   assert.match(renderMarkdown('![](https://example.com/empty.png)').html, /Image: external image blocked/);
   assert.match(renderMarkdown('![**Formatted**](https://example.com/a.png)').html, /Formatted: external image blocked/);
 });
+
+test('failed revocation denies immediately while failed grant never authorizes', async () => {
+  const { ExternalImagePermissions } = moduleObject.exports;
+  let policy;
+  let stopped = false;
+  policy = new ExternalImagePermissions({
+    get: () => ['https://example.com'],
+    update: async () => {
+      assert.equal(policy.grants.has('https://example.com'), false);
+      assert.equal(stopped, true);
+      throw Error('user state read-only');
+    },
+  }, () => { stopped = externalImageDecision('https://example.com/image', policy.grants).kind === 'blocked'; });
+  await assert.rejects(policy.change('revoke', 'https://example.com', () => true, async () => true), /read-only/);
+  assert.equal(policy.grants.has('https://example.com'), false);
+  assert.equal(externalImageCspOrigins(policy.grants), '');
+});
+
+test('wildcards and CSP delimiters cannot widen concrete HTTPS origins', () => {
+  for (const value of ['https://*', 'https://*.example.com', "https://example.com;", "https://exa'mple.com", 'https://exa_mple.com', 'https://example.com\t', 'https://' + 'x'.repeat(64) + '.test']) {
+    assert.equal(externalImageOrigin(value), undefined, value);
+    assert.equal(isExternalImageOrigin(value), false, value);
+  }
+  assert.equal(externalImageOrigin('https://münich.example/a'), 'https://xn--mnich-kva.example');
+  assert.equal(externalImageCspOrigins(new Set(['https://*', 'https://*.example.com', 'https://example.com;'])), '');
+});
+
+test('revoke denies synchronously during an unrelated pending grant write', async () => {
+  const { ExternalImagePermissions } = moduleObject.exports;
+  let unblock;
+  let writes = 0;
+  const policy = new ExternalImagePermissions({ get: () => ['https://example.com'], update: async () => {
+    if (++writes === 1) await new Promise(resolve => { unblock = resolve; });
+  } });
+  const pending = policy.change('grant', 'https://other.test', () => true, async () => true);
+  while (!unblock) await new Promise(resolve => setImmediate(resolve));
+  const revoke = policy.change('revoke', 'https://example.com', () => true, async () => true);
+  assert.equal(policy.grants.has('https://example.com'), false);
+  unblock(); await pending;
+  assert.equal(policy.grants.has('https://example.com'), false);
+  await revoke;
+  assert.equal(policy.grants.has('https://example.com'), false);
+});
+
+test('a pending same-origin grant never overrides a later revoke', async () => {
+  const { ExternalImagePermissions } = moduleObject.exports;
+  let unblock;
+  let writes = 0;
+  const policy = new ExternalImagePermissions({ get: () => ['https://example.com'], update: async () => {
+    if (++writes === 1) await new Promise(resolve => { unblock = resolve; });
+  } });
+  const pending = policy.change('grant', 'https://example.com', () => true, async () => true);
+  while (!unblock) await new Promise(resolve => setImmediate(resolve));
+  const revoke = policy.change('revoke', 'https://example.com', () => true, async () => true);
+  unblock();
+  assert.equal(await pending, false);
+  assert.equal(policy.grants.has('https://example.com'), false);
+  await revoke;
+});
+
+test('extra authority separators fail closed and stale queued grants never confirm', async () => {
+  for (const value of ['https:///example.com/a', 'https:////example.com/a']) assert.equal(externalImageOrigin(value), undefined);
+  const { ExternalImagePermissions } = moduleObject.exports;
+  const policy = new ExternalImagePermissions({get: () => [], update: async () => {}});
+  let current = true;
+  const pending = policy.change('grant', 'https://example.com', () => current, async () => { throw Error('should not confirm stale request'); });
+  current = false;
+  assert.equal(await pending, false);
+  await policy.change('revoke', 'https://example.com', () => true, async () => true);
+  assert.equal(await policy.change('grant', 'https://example.com', () => true, async () => true), true);
+  assert.equal(policy.grants.has('https://example.com'), true);
+});
