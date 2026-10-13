@@ -23,7 +23,7 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
   let trustRegistrations = 0;
   let requestSequence = 0;
   const disposable = {dispose() {disposed++;}};
-  const uri = {path: fileName, toString: () => `file://${fileName}`};
+  const uri = {scheme: 'file', authority: '', path: fileName, toString: () => `file://${fileName}`};
   const document = {uri, fileName, languageId, getText: () => '# Test'};
   const configuration = {
     inspect: key => ({globalValue: saved[key]}),
@@ -61,7 +61,7 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
   };
   const vscode = {
     StatusBarAlignment: {Left: 1},
-    Uri: {joinPath: (base, ...segments) => ({toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, FileType: {File:1, Directory:2}, ViewColumn: {Beside: -2, Active: -1}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
+    Uri: {joinPath: (base, ...segments) => ({scheme: base.scheme ?? 'file', authority: base.authority ?? '', toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, FileType: {File:1, Directory:2}, ViewColumn: {Beside: -2, Active: -1}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
     window: {createOutputChannel: () => ({appendLine:line => diagnostics.push(line),dispose(){}}), createStatusBarItem: () => ({show() {}, hide() {}, dispose() {}}), activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column) => {created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: (message, _options, ...items) => {warnings.push(message); return Promise.resolve(items.includes('Allow images') && allowImages ? 'Allow images' : undefined);}, showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
     env: {openExternal: async uri => external.push(uri.toString()), clipboard: {writeText: async text => {if(failCopy) throw new Error('Clipboard unavailable'); clipboard.push(text);}}},
     workspace: {

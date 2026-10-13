@@ -19,7 +19,7 @@ export function previewResourceRoots(extension: vscode.Uri, document?: vscode.Ur
   ];
 }
 
-/** Only local disk has a canonical-path contract today; providers fail closed until spec 021. */
+/** File images use canonical disk containment; asynchronous opaque provider images are handled separately. */
 export function resolveImageResource(src: string, document: vscode.Uri, webview: vscode.Webview): string {
   if (/^(https?:|data:)/i.test(src) || src.startsWith('//')) return src;
   try {
