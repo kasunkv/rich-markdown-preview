@@ -99,7 +99,7 @@ export class ExternalImagePermissions {
       if (action === 'grant') next.add(origin);
       await this.store.update(externalImageGrantsKey, [...next].sort());
       if (action === 'grant') {
-        if ((this.revokeVersions.get(origin) ?? 0) !== revokeVersion) return false;
+        if (!isCurrentRenderedOrigin() || (this.revokeVersions.get(origin) ?? 0) !== revokeVersion) return false;
         this.revoked.delete(origin);
       }
       this.grants.clear();

@@ -29,7 +29,12 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
       }
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    throw Error('Native external image permission confirmation missing');
+    const diagnostics = [];
+    for (const context of browser.contexts()) for (const page of context.pages()) {
+      diagnostics.push({url:page.url(),buttons:await page.getByRole('button').allTextContents(),text:await page.locator('body').innerText().catch(() => '')});
+    }
+    await fs.writeFile(path.join(workspace,'privacy-dialog-diagnostics.json'),JSON.stringify(diagnostics,null,2));
+    throw Error('VS Code host-owned external image permission confirmation missing; see privacy-dialog-diagnostics.json');
   };
   for (const mode of ['single-file', 'documentation-home']) {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
@@ -83,5 +88,3 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
     checks.push({mode, multipleDocuments: true, remoteImagePrivacy: { blockedRequests: 0, grantedOrigin: origin, noReferrer: true, forgedOriginDenied: true, exactCsp: true, revoked: true, workspaceSettingBypassDenied: true }});
   }
 };
-
-

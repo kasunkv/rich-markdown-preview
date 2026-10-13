@@ -468,11 +468,11 @@ test('linked image permission controls are keyboard accessible without opening a
     const link = document.createElement('a'); link.href = 'https://link.example'; button.replaceWith(link); link.append(button);
     delete button.dataset.externalImageOrigin;
   });
-  await action.click();
+  await page.locator('.external-image-action').click();
   assert.equal(await page.evaluate(() => window.externalImageActions.length), 1);
   assert.equal(page.url(), previewServer.url + '/');
   await action.evaluate(button => {button.dataset.externalImageOrigin = 'https://privacy.example'; button.dataset.externalImageAction = 'authorize';});
-  await action.click();
+  await page.locator('.external-image-action').click();
   assert.equal(await page.evaluate(() => window.externalImageActions.length), 1);
   assert.equal(await page.evaluate(() => window.externalLinkClicks?.length ?? 0), 0);
   assert.equal(page.url(), previewServer.url + '/');
@@ -522,4 +522,3 @@ test('shared contracts reject malformed inbound state and correlate overlapping 
   assert.match(await page.locator('#rmp-ui-announcement').innerText(),/Try filtering to fewer rows/);
   assert.equal(await page.evaluate(() => window.contractRequests.length),sent);
 });
-
