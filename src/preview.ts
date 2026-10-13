@@ -1,3 +1,4 @@
+import { renderLimits } from './render-limits';
 import { reportAsync } from './async';
 import mermaid from 'mermaid';
 import {
@@ -118,6 +119,10 @@ function saveState() {
 // Keys describe content roles and section labels, so inserting unrelated content does not
 // redirect an ongoing interaction to a different control. Duplicate roles use occurrence.
 function identifyInteractions() {
+  for (const anchor of content.querySelectorAll<HTMLElement>('[data-md-anchor]')) {
+    anchor.dataset.readingKey = JSON.stringify(['anchor', anchor.id]);
+    if (!anchor.hasAttribute('tabindex')) anchor.tabIndex = -1;
+  }
   const occurrences = new Map<string, number>();
   for (const element of content.querySelectorAll<HTMLElement>('details, summary, a[href], button, input, select')) {
     if (element.dataset.readingKey) continue;
@@ -167,11 +172,7 @@ content.addEventListener(
   true,
 );
 function isDark() {
-  return (
-    document.body.dataset.appearance === 'dark' ||
-    (document.body.dataset.appearance === 'auto' &&
-      (document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')))
-  );
+  return getComputedStyle(document.body).colorScheme === 'dark';
 }
 function applyPreferences(settings: Preferences, refreshDiagrams = true) {
   const previousDark = isDark();
@@ -235,6 +236,8 @@ function findContentAnchor(fragment: string, internal = false): HTMLElement | un
 function scrollToHeading(fragment: string, internal = false) {
   const target = findContentAnchor(fragment, internal);
   if (target) {
+    if (!target.hasAttribute('tabindex')) target.tabIndex = -1;
+    target.focus({ preventScroll: true });
     const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
     target.scrollIntoView({ behavior, block: 'start' });
   } else {
@@ -249,6 +252,9 @@ async function diagrams(version: number) {
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
+    secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'maxEdges', 'suppressErrorRendering'],
+    maxTextSize: renderLimits.diagramCharacters,
+    maxEdges: renderLimits.diagramEdges,
     theme: 'base',
     suppressErrorRendering: true,
     themeVariables: {
@@ -314,18 +320,27 @@ async function diagrams(version: number) {
       target.className = 'mermaid-result';
       target.innerHTML = svg;
       figure.querySelector('.diagram-error')?.remove();
-      figure.querySelector('.mermaid-source, .mermaid-result')?.replaceWith(target);
+      const image = target.querySelector('svg');
+      if (image && !image.querySelector('title')) {
+        image.setAttribute('role', 'img');
+        image.setAttribute(
+          'aria-label',
+          `${text.trim().split(/[\s;]/)[0]} diagram. Read Diagram source for its nodes and relationships.`,
+        );
+      }
+      const previous = figure.querySelector('.mermaid-result');
+      if (previous) previous.replaceWith(target);
+      else figure.querySelector('.diagram-source')?.before(target);
     } catch {
       if (version !== revision) return;
       figure.querySelector('.diagram-error')?.remove();
-      const source = document.createElement('pre');
-      source.className = 'mermaid-source';
-      source.textContent = text;
-      figure.querySelector('.mermaid-source, .mermaid-result')?.replaceWith(source);
+      figure.querySelector('.mermaid-result')?.remove();
+      const disclosure = figure.querySelector<HTMLDetailsElement>('.diagram-source');
+      if (disclosure) disclosure.open = true;
       const error = document.createElement('p');
       error.className = 'diagram-error';
       error.textContent = 'Could not render this Mermaid diagram. Check the syntax below.';
-      source.before(error);
+      disclosure?.before(error);
     }
   }
 }
@@ -421,7 +436,8 @@ window.addEventListener('message', (event) => {
   restoreDisclosures();
   diagramSources = new WeakMap();
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) {
-    diagramSources.set(figure, figure.querySelector('.mermaid-source')?.textContent ?? '');
+    const source = figure.querySelector('.mermaid-source');
+    if (source) diagramSources.set(figure, source.textContent ?? '');
   }
   outline.replaceChildren();
   for (const item of message.outline) {
@@ -519,13 +535,11 @@ content.addEventListener('click', (event) => {
   }
 });
 // VS Code changes body classes when its theme changes without sending a preference message.
-const vscodeDarkTheme = () =>
-  document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
-let lastVscodeDarkTheme = vscodeDarkTheme();
+let lastVscodeTheme = document.body.className;
 new MutationObserver(() => {
-  const dark = vscodeDarkTheme();
-  if (currentPreferences.appearance === 'auto' && dark !== lastVscodeDarkTheme) reportAsync(diagrams(++revision));
-  lastVscodeDarkTheme = dark;
+  const theme = document.body.className;
+  if (theme !== lastVscodeTheme) reportAsync(diagrams(++revision));
+  lastVscodeTheme = theme;
 }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 window.addEventListener('scroll', saveState, { passive: true });
 vscode.postMessage({ type: 'ready' });

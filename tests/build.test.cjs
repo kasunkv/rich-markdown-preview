@@ -28,7 +28,7 @@ test('development maps source, watches CSS/TS replacements, disposes and switche
   await fs.copyFile(path.join(__dirname, '../scripts/license-policy.json'), path.join(root, 'scripts/license-policy.json'));
   await fs.writeFile(path.join(root, 'package-lock.json'), JSON.stringify({ packages: {} }));
   const source = 'export function activate() {\n  console.log("breakpoint fixture");\n}\n';
-  for (const file of ['extension.ts', 'preview.ts', 'render.ts', 'tables.ts', 'fragment-navigation.ts']) {
+  for (const file of ['webview-shell.ts', 'extension.ts', 'preview.ts', 'render.ts', 'tables.ts', 'fragment-navigation.ts']) {
     await fs.writeFile(path.join(root, 'src', file), source);
   }
   const css = path.join(root, 'src/preview.css');
@@ -59,7 +59,7 @@ test('development maps source, watches CSS/TS replacements, disposes and switche
   await new Promise(resolve => setTimeout(resolve, 350));
   assert.equal(await fs.readFile(outputCss, 'utf8'), 'body { color: green; }');
   await build({ root, production: true, logLevel: 'silent' });
-  for (const file of ['extension.js', 'preview.js', 'render.cjs', 'tables.cjs', 'fragment-navigation.cjs']) {
+  for (const file of ['webview-shell.cjs', 'extension.js', 'preview.js', 'render.cjs', 'tables.cjs', 'fragment-navigation.cjs']) {
     await assert.rejects(fs.access(path.join(root, 'dist', `${file}.map`)), { code: 'ENOENT' });
     assert.doesNotMatch(await fs.readFile(path.join(root, 'dist', file), 'utf8'), /sourceMappingURL/);
   }
@@ -74,6 +74,7 @@ test('failed watch startup disposes contexts already started', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rich-markdown-build-failure-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.mkdir(path.join(root, 'src'));
+  await fs.writeFile(path.join(root, 'src/webview-shell.ts'), 'export const shell = true;');
   await fs.writeFile(path.join(root, 'src/extension.ts'), 'export const value = "initial";');
   await fs.writeFile(path.join(root, 'src/preview.ts'), 'export const = invalid syntax;');
   await assert.rejects(build({ root, watch: true, logLevel: 'silent' }), /Build failed/);

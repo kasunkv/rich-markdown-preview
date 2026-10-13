@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {minimatch} = require('minimatch');
 
-function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [], allowImages = true, failImageWrites = false } = {}) {
+function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, imageOrigins = [], allowImages = true, failImageWrites = false } = {}) {
+  let wireMessage;
   const imageState = {value:imageOrigins,failWrites:failImageWrites,failRead:false};
   const imageWrites = [];
   const globalState = {
@@ -52,7 +53,8 @@ function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [],
           onDidChangeViewState: view.listen, onDidDispose: dispose.listen,
           dispose() {dispose.fire();},
           webview: { options, cspSource: 'safe:', asWebviewUri: target => target,
-            onDidReceiveMessage: fn => {
+            onDidReceiveMessage: nativeFn => {
+              const fn = message => nativeFn(wireMessage(message));
               panel.rawMessage = fn;
               panel.message = message => {
                 if (!message || typeof message !== 'object' || Array.isArray(message) || Object.getPrototypeOf(message) !== Object.prototype || !Object.values(Object.getOwnPropertyDescriptors(message)).every(descriptor => 'value' in descriptor) || message.type === 'ready') return fn(message);
@@ -70,6 +72,7 @@ function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [],
     },
     commands: {registerCommand: (name, fn) => {commands[name] = fn; return {dispose() {}};}, executeCommand: async (_, target) => opened.push(target.path)},
     workspace: {
+      isTrusted:trusted, onDidGrantWorkspaceTrust:()=>({dispose(){}}),
       workspaceFolders: folders.map(root), onDidChangeWorkspaceFolders: workspaceFolders.listen,
       onDidChangeConfiguration: configuration.listen, onDidChangeTextDocument: text.listen,
       getWorkspaceFolder: target => vscode.workspace.workspaceFolders.find(folder => target.path === folder.uri.path || target.path.startsWith(folder.uri.path + '/')),
@@ -88,7 +91,9 @@ function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [],
     }
   };
   const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, Object, URL, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg'})} : require(name)});
+  const runtime = vm.createContext({module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, URL, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg' || files.has(value)})} : require(name)});
+  wireMessage = require('./vm-wire.cjs').wireParser(runtime);
+  vm.runInContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), runtime);
   module.exports.activate({subscriptions: [], extensionUri: uri('/extension'), globalState});
   const open = async () => {await commands['richMarkdownPreview.openDocumentationHome'](); if (panels.length) await panels.at(-1).message({type: 'ready'});};
   const openSingle = async (file = '/repo/README.md') => { await commands['richMarkdownPreview.openPreview'](uri(file)); await panels.at(-1).message({type: 'ready'}); };

@@ -9,6 +9,7 @@ import dependencyPolicy from './scripts/dependency-policy.cjs';
 export const targets = { node: 'node20', browser: 'chrome128' };
 const staticAssets = ['preview.css'];
 const builds = [
+  { entryPoints: ['src/webview-shell.ts'], outfile: 'dist/webview-shell.cjs', platform: 'node', format: 'cjs' },
   {
     entryPoints: ['src/extension.ts'],
     outfile: 'dist/extension.js',

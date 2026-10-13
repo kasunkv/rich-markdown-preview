@@ -66,3 +66,19 @@ test('reference labels remain in the outline and unsupported snippet targets sta
   assert.match(result.html, /\$\{dynamic\}\/snippet.md/);
   assert.equal(result.references.length, 1);
 });
+
+// Resolution candidates are URI-relative; these fixtures preserve each dialect's public root contract.
+test('reference candidate dialects retain root fallbacks and filename URL suffix boundaries',()=>{
+ const ts=require('typescript'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');function load(name){const filename=path.resolve('src/'+name+'.ts');const source=process.env.SOURCE_COVERAGE_ROOT?require('../scripts/coverage-instrument.cjs').instrument(filename).code:fs.readFileSync(filename,'utf8');const m={exports:{}};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:m,exports:m.exports,require:name=>load(name.slice(2)),__coverage__:globalThis.__coverage__??={}});return m.exports;}const m={exports:load('references')};
+ const paths=(syntax,path)=>Array.from(m.exports.referencePaths({syntax,path}));
+ assert.deepEqual(paths('Jekyll','guide.md#details'),['/_includes/guide.md']);
+ assert.deepEqual(paths('Retype','guide'),['guide','guide.md','_includes/guide','_includes/guide.md','/_includes/guide','/_includes/guide.md']);
+ assert.deepEqual(paths('Retype','guide.md'),['guide.md','_includes/guide.md','/_includes/guide.md']);
+ assert.deepEqual(paths('Obsidian','guide'),['guide.md','/guide.md']);assert.deepEqual(paths('Obsidian','guide.md'),['guide.md','/guide.md']);
+ assert.deepEqual(paths('PyMdown','guide.md:1,3-5'),['guide.md']);assert.deepEqual(paths('Markdown','file%23name.md?view=1#details'),['file%23name.md']);
+});
+
+test('empty, malformed and unsupported provider directives remain literal without privileged targets',()=>{
+ for(const source of ['{{include: }}','{{include: bad<name>.md}}','--8<--\nmissing-close.md','--8<-- "readonly://authority/private.md"','@""','[!INCLUDE [](command:bad)]'])assert.equal(renderMarkdown(source).references.length,0,source);
+ const result=renderMarkdown('Paragraph before snippet\n\n--8<--\none.md\n\n;disabled.md\n--8<--');assert.deepEqual(result.references.map(reference=>reference.path),['one.md']);
+});

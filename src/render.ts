@@ -1,3 +1,5 @@
+import { messageLimits, validateRenderContent } from './messages';
+import { renderLimits, renderLimitFailure, hasInternalDiagramResource } from './render-limits';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import { full as emoji } from 'markdown-it-emoji';
@@ -17,6 +19,22 @@ export interface OutlineItem {
   text: string;
   level: number;
   sourceLine: number;
+}
+
+export interface RenderedMarkdown {
+  html: string;
+  outline: OutlineItem[];
+  references: FileReference[];
+  externalImageOrigins: string[];
+}
+
+/** Recheck final output after async resource URI substitution as well as initial rendering. */
+export function boundRenderedModel(model: RenderedMarkdown): RenderedMarkdown {
+  if (model.references.length > messageLimits.items || !validateRenderContent(model.html, model.outline))
+    return renderLimitFailure(
+      'The rendered content exceeds the supported preview limits. Open the source to read it, or split it into smaller documents.',
+    );
+  return model;
 }
 
 function extractHeadingText(tokens: NonNullable<MarkdownIt.Token['children']>): string {
@@ -41,6 +59,10 @@ export function renderMarkdown(
   imageUri: (src: string) => string = (src) => src,
   externalImages: { grants?: ReadonlySet<string>; enabled?: boolean } = {},
 ) {
+  if (source.length > renderLimits.sourceCharacters)
+    return renderLimitFailure(
+      'This document exceeds the supported preview limit of 2,000,000 characters. Open the source to read it.',
+    );
   const externalImageOrigins = new Set<string>();
   const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
   const references: FileReference[] = [];
@@ -169,9 +191,14 @@ export function renderMarkdown(
       const alt = md.utils.escapeHtml(
         extractHeadingText(tokens[index].children ?? []) || tokens[index].content || 'Image',
       );
-      const action = decision.origin
-        ? `<button type="button" class="external-image-action" data-external-image-action="grant" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Allow images from ${md.utils.escapeHtml(decision.origin)}</button>`
-        : '<span>Only valid HTTPS image origins can be allowed.</span>';
+      const action =
+        decision.reason === 'unsupported-ipv6'
+          ? '<span>IPv6 image hosts are unsupported by the preview Content Security Policy.</span>'
+          : externalImages.enabled === false
+            ? '<span>Remote images are disabled in Restricted Mode.</span>'
+            : decision.origin
+              ? `<button type="button" class="external-image-action" data-external-image-action="grant" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Allow images from ${md.utils.escapeHtml(decision.origin)}</button>`
+              : '<span>Only valid HTTPS image origins can be allowed.</span>';
       return decision.origin
         ? addAction(`<span class="external-image-blocked">${alt}: external image blocked.</span>`, action)
         : `<span class="external-image-blocked">${alt}: external image blocked. ${action}</span>`;
@@ -190,18 +217,22 @@ export function renderMarkdown(
   md.renderer.rules.fence = (tokens, index) => {
     const token = tokens[index];
     const language = token.info.trim().split(/\s+/)[0].toLowerCase();
+    if (language === 'mermaid' && token.content.length > renderLimits.diagramCharacters)
+      return '<figure class="diagram"><p class="diagram-error">This Mermaid diagram exceeds the supported limit of 20,000 characters. Open the source to read it.</p></figure>';
+    if (language === 'mermaid' && hasInternalDiagramResource(token.content, md.utils.unescapeAll))
+      return `<figure class="diagram" aria-label="Mermaid diagram source"><figcaption class="diagram-label">Mermaid diagram</figcaption><p class="diagram-error">This diagram contains unsupported internal preview resource URLs or ambiguous URL escapes. Use ordinary Markdown images, data images, or an explicitly allowed HTTPS origin.</p><details class="diagram-source" open><summary>Diagram source</summary><pre class="diagram-disabled-source" tabindex="0"><code>${md.utils.escapeHtml(token.content)}</code></pre></details></figure>`;
     if (language === 'mermaid')
-      return `<figure class="diagram"><div class="diagram-label">Mermaid diagram</div><pre class="mermaid-source">${md.utils.escapeHtml(token.content)}</pre></figure>`;
+      return `<figure class="diagram" aria-label="Mermaid diagram"><figcaption class="diagram-label">Mermaid diagram</figcaption><details class="diagram-source"><summary>Diagram source</summary><pre class="mermaid-source" tabindex="0">${md.utils.escapeHtml(token.content)}</pre></details></figure>`;
     const code =
       language && hljs.getLanguage(language)
         ? hljs.highlight(token.content, { language, ignoreIllegals: true }).value
         : md.utils.escapeHtml(token.content);
     return `<div class="code-block"><div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
-  return {
+  return boundRenderedModel({
     html: frontmatter.html + md.render(frontmatter.body),
     outline,
     references,
     externalImageOrigins: [...externalImageOrigins],
-  };
+  });
 }

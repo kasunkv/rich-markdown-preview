@@ -123,3 +123,9 @@ test('negative regression fixture fails the coverage command with exit code 1', 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+test('coverage instrumentation obeys production no-eval CSP', () => {
+  const filename = require('node:path').resolve('src/render-limits.ts');
+  const code = require('../scripts/coverage-instrument.cjs').instrument(filename).code;
+  assert.doesNotMatch(code, /new Function|eval\(/);
+  assert.match(code, /var global = globalThis/);
+});
