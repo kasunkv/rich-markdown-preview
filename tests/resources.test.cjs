@@ -195,3 +195,16 @@ process.on('exit', () => {
   assert.ok(path.basename(temporary).startsWith('rmp-resources-'));
   fs.rmSync(temporary, { recursive: true, force: true });
 });
+
+test('privacy delegates contained file URIs to canonical local authorization and preserves unsupported Windows spellings', () => {
+  const {externalImageDecision} = require('./load-external-images.cjs');
+  workspaceRoot = URI.file(root);
+  const inside = URI.file(path.join(root,'assets','diagram.svg')).toString();
+  const outside = URI.file(path.join(temporary,'secret.svg')).toString();
+  assert.equal(externalImageDecision(inside,new Set()).kind,'local');
+  assert.ok(policy.resolveImageResource(inside,document,webview).startsWith('safe-resource:'));
+  assert.equal(externalImageDecision(outside,new Set()).kind,'local');
+  assert.equal(policy.resolveImageResource(outside,document,webview),'');
+  for (const unsupported of ['C:/assets/diagram.svg','C:\\assets\\diagram.svg','/assets/diagram.svg'])
+    assert.equal(policy.resolveImageResource(unsupported,document,webview),'');
+});

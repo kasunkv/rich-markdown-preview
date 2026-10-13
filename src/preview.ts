@@ -17,7 +17,9 @@ interface ReadingState {
   tables?: TableState;
   disclosures?: Record<string, boolean>;
 }
+type InteractionSelection = [number, number, 'forward' | 'backward' | 'none'];
 interface PreviewState extends ReadingState {
+  permissionFocus?: { key: string; documentId?: string; selection?: InteractionSelection };
   documentation?: DocumentationViewState;
   documentId?: string;
   documents?: Record<string, ReadingState>;
@@ -83,6 +85,24 @@ let tableState: TableState = vscode.getState()?.tables ?? {};
 let disclosureState: Record<string, boolean> = vscode.getState()?.disclosures ?? {};
 let documentId = vscode.getState()?.documentId;
 const readingStates = vscode.getState()?.documents ?? {};
+function rememberPermissionFocus() {
+  const active = document.activeElement;
+  const key = active instanceof HTMLElement ? active.dataset.readingKey : undefined;
+  const selection: InteractionSelection | undefined =
+    active instanceof HTMLInputElement && active.selectionStart !== null && active.selectionEnd !== null
+      ? [active.selectionStart, active.selectionEnd, active.selectionDirection ?? 'none']
+      : undefined;
+  saveState();
+  vscode.setState({
+    ...vscode.getState(),
+    permissionFocus: key && key.length <= 8192 ? { key, documentId, selection } : undefined,
+  });
+}
+app.addEventListener('focusin', (event) => {
+  const saved = vscode.getState()?.permissionFocus;
+  if (saved && (!(event.target instanceof HTMLElement) || event.target.dataset.readingKey !== saved.key))
+    vscode.setState({ ...vscode.getState(), permissionFocus: undefined });
+});
 function saveState() {
   if (documentId)
     readingStates[documentId] = { scroll: window.scrollY, tables: tableState, disclosures: disclosureState };
@@ -101,11 +121,11 @@ function identifyInteractions() {
   const occurrences = new Map<string, number>();
   for (const element of content.querySelectorAll<HTMLElement>('details, summary, a[href], button, input, select')) {
     if (element.dataset.readingKey) continue;
+    const sectionHeading = Array.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+      .filter((heading) => !!(heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
+      .at(-1);
     const section =
-      Array.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6'))
-        .filter((heading) => !!(heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
-        .at(-1)
-        ?.textContent?.trim() ?? '';
+      sectionHeading?.getAttribute('data-reading-heading-label') ?? sectionHeading?.textContent?.trim() ?? '';
     const details = element.closest('details');
     const role = details?.className || element.className;
     const label = element.tagName === 'DETAILS' ? element.querySelector('summary')?.textContent : element.textContent;
@@ -353,15 +373,18 @@ window.addEventListener('message', (event) => {
     pendingActions.clear();
   }
   if (message.documentationHome) documentation.enable();
+  const savedFocus = !restored ? vscode.getState()?.permissionFocus : undefined;
+  const resumeFocus = savedFocus?.documentId === documentId && document.hasFocus() ? savedFocus : undefined;
+  if (!restored) vscode.setState({ ...vscode.getState(), permissionFocus: undefined });
   const active = document.activeElement;
   const focusKey =
     active instanceof HTMLElement && (content.contains(active) || outline.contains(active))
       ? active.dataset.readingKey
-      : undefined;
-  const selection: [number, number, 'forward' | 'backward' | 'none'] | undefined =
+      : resumeFocus?.key;
+  const selection: InteractionSelection | undefined =
     active instanceof HTMLInputElement && active.selectionStart !== null && active.selectionEnd !== null
       ? [active.selectionStart, active.selectionEnd, active.selectionDirection ?? 'none']
-      : undefined;
+      : resumeFocus?.selection;
   if (restored) captureDisclosures();
   const changedDocument = typeof message.documentId === 'string' && message.documentId !== documentId;
   if (changedDocument) {
@@ -459,6 +482,19 @@ document.getElementById('rmp-ui-toggle-outline')!.addEventListener('click', (eve
 });
 content.addEventListener('click', (event) => {
   const element = event.target as HTMLElement;
+  const imageAction = element.closest<HTMLButtonElement>('[data-external-image-action]');
+  if (imageAction) {
+    event.preventDefault();
+    const origin = imageAction.dataset.externalImageOrigin;
+    const action = imageAction.dataset.externalImageAction;
+    if (!origin || (action !== 'grant' && action !== 'revoke')) return;
+    rememberPermissionFocus();
+    vscode.postMessage({
+      type: action === 'grant' ? 'grantExternalImageOrigin' : 'revokeExternalImageOrigin',
+      origin,
+    });
+    return;
+  }
   const copy = element.closest<HTMLButtonElement>('.copy-code');
   if (copy) {
     document.getElementById('rmp-ui-announcement')!.textContent = 'Copying code…';

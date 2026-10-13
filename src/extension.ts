@@ -2,6 +2,7 @@ import { validateWebviewMessage, normalizeCSV, validLink, messageLimits, type Ho
 import { reportAsync as observeAsync } from './async';
 import { PreviewSession, PreviewHostBridge, PreviewNavigationAdapter, sessionDiagnostic } from './preview-session';
 import { PreviewPreferenceStore } from './preview-preferences';
+import { ExternalImagePermissions, externalImageCspOrigins } from './external-images';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import { renderMarkdown } from './render';
@@ -68,6 +69,16 @@ export function activate(context: vscode.ExtensionContext) {
     observeAsync(operation, () => lifecycle.fail('host operation'));
   context.subscriptions.push(output, lifecycle);
   const panels = new Map<string, vscode.WebviewPanel>();
+  const externalImageRefreshers = new Set<() => void>();
+  const externalImagePermissions = new ExternalImagePermissions(
+    {
+      get: (key) => lifecycle.boundary('read external image permissions', () => context.globalState.get(key)),
+      update: (key, value) => context.globalState.update(key, value),
+    },
+    () => {
+      for (const refresh of externalImageRefreshers) refresh();
+    },
+  );
   const status = vscode.window.createStatusBarItem(
     'richMarkdownPreview.documentationHome',
     vscode.StatusBarAlignment.Left,
@@ -162,8 +173,15 @@ export function activate(context: vscode.ExtensionContext) {
     const effectivePreferences = () => preferenceStore.effective();
     const nonce = randomBytes(16).toString('hex');
     let fileReferences: FileReference[] = [];
+    let externalImageOrigins = new Set<string>();
+    // Spec 020 can supply the same trust/suspension input to both rendering and CSP.
+    const remoteImagePolicy = () => ({ grants: externalImagePermissions.grants, enabled: true });
     const resource = (file: string) => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', file));
-    webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Rich Markdown Preview</title></head><body><div id="rmp-ui-app" data-logo="${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png'))}"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
+    const setWebviewHtml = () => {
+      const policy = remoteImagePolicy();
+      webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: ${externalImageCspOrigins(policy.grants, policy.enabled)}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Rich Markdown Preview</title></head><body><div id="rmp-ui-app" data-logo="${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png'))}"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
+    };
+    setWebviewHtml();
     let index: DocumentationIndex | undefined;
     let indexStatus: { loading: boolean; error?: string } = { loading: true };
     const history: { id?: string; fragment?: string }[] = [{}];
@@ -205,12 +223,27 @@ export function activate(context: vscode.ExtensionContext) {
     const refreshModelIdentity = (source = document?.getText() ?? '') => {
       const identity = document?.uri.toString() ?? 'home';
       if (!renderId || identity !== renderedDocumentId || source !== renderedSource) {
+        externalImageOrigins.clear();
         renderedDocumentId = identity;
         renderedSource = source;
         renderId = nonce + '_' + ++renderRevision;
       }
       return source;
     };
+    const resetExternalImagePolicy = () =>
+      session.boundary('reset external image policy', () => {
+        session.supersede();
+        renderId = '';
+        fileReferences = [];
+        externalImageOrigins.clear();
+        setWebviewHtml();
+      });
+    externalImageRefreshers.add(resetExternalImagePolicy);
+    session.own({
+      dispose: () => {
+        externalImageRefreshers.delete(resetExternalImagePolicy);
+      },
+    });
     const update = () =>
       session.boundary('render Markdown', () => {
         const source = refreshModelIdentity();
@@ -230,8 +263,13 @@ export function activate(context: vscode.ExtensionContext) {
           sendNavigation(true);
           return;
         }
-        const result = renderMarkdown(source, (src) => resolveImageResource(src, document!.uri, webview));
+        const result = renderMarkdown(
+          source,
+          (src) => resolveImageResource(src, document!.uri, webview),
+          remoteImagePolicy(),
+        );
         fileReferences = result.references;
+        externalImageOrigins = new Set(result.externalImageOrigins);
         reportAsync(
           post({
             type: 'render',
@@ -434,6 +472,41 @@ export function activate(context: vscode.ExtensionContext) {
           const acceptedRenderId = message.renderId;
           const requestId = message.requestId;
           const currentModel = () => session.current(request) && acceptedRenderId === renderId;
+          if (message.type === 'grantExternalImageOrigin' || message.type === 'revokeExternalImageOrigin') {
+            const action = message.type === 'grantExternalImageOrigin' ? 'grant' : 'revoke';
+            const canChange = () =>
+              currentModel() &&
+              externalImageOrigins.has(message.origin) &&
+              (action === 'revoke' || remoteImagePolicy().enabled);
+            try {
+              await externalImagePermissions.change(
+                action,
+                message.origin,
+                canChange,
+                async (origin) =>
+                  (await vscode.window.showWarningMessage(
+                    `Allow images from ${origin} in all previews?`,
+                    {
+                      modal: true,
+                      detail:
+                        'Image requests can reveal your IP address to this origin. No document referrer is sent. This origin is remembered in your VS Code user storage.',
+                    },
+                    'Allow images',
+                  )) === 'Allow images',
+              );
+            } catch {
+              if (!session.current()) return;
+              session.fail('save external image permission');
+              reportAsync(
+                vscode.window.showWarningMessage(
+                  action === 'revoke'
+                    ? 'External images are blocked for this session, but the revocation could not be saved. Retry before restarting VS Code.'
+                    : 'The image permission could not be saved. Images remain blocked. Check user storage access and retry.',
+                ),
+              );
+            }
+            return;
+          }
           if (message.type === 'documentationAction' && index) {
             if (message.action === 'open' && typeof message.id === 'string') {
               const target = index.resolve(message.id);

@@ -35,7 +35,7 @@ test('outline labels include recursive image alt text, formatted content, and li
   assert.equal(result.outline[1].text, 'Build system map guide v2 continues 🚀 onward');
   assert.equal(result.outline[1].fragment, 'build-system-map-guide-v2-continues-onward');
   assert.equal(result.outline[1].id, 'rmp-heading-build-system-map-guide-v2-continues-onward');
-  assert.match(result.html, /<h1 id="rmp-heading-architecture" data-md-anchor="architecture"><img[^>]+alt="Architecture"/);
+  assert.match(result.html, /<h1 id="rmp-heading-architecture" data-md-anchor="architecture"[^>]*><img[^>]+alt="Architecture"/);
 });
 test('escaped and Unicode heading text remains readable and unnamed headings get a stable label without changing fallback anchors', () => {
   const source = '# Café \\*literal 日本語\n# ![](blank.png)\n# ![](blank.png)';
@@ -85,7 +85,7 @@ test('callouts support known markers, nested content, and safe HTML without chan
 });
 
 test('empty source, Unicode headings, formatted headings and document-local state render consistently', () => {
-  assert.deepEqual(renderMarkdown(''),{html:'',outline:[],references:[]});
+  assert.deepEqual(renderMarkdown(''),{html:'',outline:[],references:[],externalImageOrigins:[]});
   const source='# 日本語 **Heading** `code`\n# !!!\n# !!!\n# 日本語 **Heading** `code`';
   const result=renderMarkdown(source);
   assert.deepEqual(result.outline.map(item=>item.fragment),['日本語-heading-code','section','section-1','日本語-heading-code-1']);

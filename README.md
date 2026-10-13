@@ -181,3 +181,11 @@ Rich Markdown Preview is available under the [MIT License](LICENSE).
 ### Local images
 
 Both single-file previews and Documentation Home can load images inside the document’s active workspace folder, including sibling paths such as `../assets/diagram.svg`. Standalone documents can load images only from their own directory. Spaces and encoded filename characters are supported; URL queries and fragments remain separate from the file path. Missing images, traversal outside the allowed root, and symlinks that escape its canonical directory are blocked. Local images from remote or virtual filesystem providers are currently blocked; provider support is tracked separately.
+
+### External image privacy
+
+Remote Markdown images are blocked by default in single-file previews and Documentation Home. Use **Allow images from https://…** beside a blocked image, then confirm in VS Code, to allow that exact HTTPS origin. Images use a `no-referrer` policy. HTTP, protocol-relative URLs, credentials, and malformed remote URLs cannot be granted. Local images continue to follow the local resource policy.
+
+Grants belong to your VS Code extension storage, apply across documents, and are never read from workspace settings. Use **Block images from https://…** beside an allowed image to revoke its origin. Permission changes refresh open previews and their CSP; grants for a different scheme, host, or port do not match. Opening external links remains an explicit user action; reference/include syntax does not download remote content.
+
+This replaces the previous automatic HTTPS image loading default. Existing documents may show blocked-image actions until you explicitly grant their origins.
