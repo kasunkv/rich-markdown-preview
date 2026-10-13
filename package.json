@@ -243,6 +243,7 @@
     "markdown-it-sup": "^2.0.0",
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.12.0",
+    "minimatch": "10.2.6",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
@@ -323,6 +324,13 @@
         "markdownLens.referenceRoot",
         "styledMarkdown.referenceRoot"
       ]
+    },
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "Trusted provider documents, relative references, images and bounded documentation discovery are available. Host absolute/home references and CSV export are unavailable; opaque providers are blocked in Restricted Mode. A Node extension host is required."
     }
-  }
+  },
+  "extensionKind": [
+    "workspace"
+  ]
 }

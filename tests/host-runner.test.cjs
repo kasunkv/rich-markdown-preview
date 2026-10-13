@@ -25,6 +25,7 @@ test('host runner isolates each run and propagates host failures with current ev
       directories.push(directory);
       assert.ok(options.launchArgs.includes(`--user-data-dir=${path.join(directory, 'user')}`));
       assert.ok(options.launchArgs.includes(`--extensions-dir=${path.join(directory, 'extensions')}`));
+      assert.equal(options.launchArgs.filter(value=>value===`--shared-data-dir=${path.join(directory,'shared')}`).length,1);
       assert.ok((await fs.readFile(path.join(env.RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE, 'URI space # percent % café.md'), 'utf8')).includes('Local image'));
       await fs.writeFile(env.RICH_MARKDOWN_PREVIEW_TEST_RESULT, JSON.stringify({ hostVersion: '1.95.0', passed: env.RICH_MARKDOWN_PREVIEW_FORCE_FAILURE !== '1' }));
       if (env.RICH_MARKDOWN_PREVIEW_FORCE_FAILURE === '1') throw new Error('Host exited 1');
@@ -100,14 +101,14 @@ test('direct trust launcher keeps real trust, normal modals and all storage isol
   const {EventEmitter}=require('node:events');
   const {runTrustTests}=require('../scripts/vscode-host.cjs');
   const directory=path.resolve('.test-results','host','fixture-trust-unit');
-  const options={vscodeExecutablePath:'/immutable/Code.exe',launchArgs:[path.join(directory,'workspace'),'--user-data-dir='+path.join(directory,'user'),'--extensions-dir='+path.join(directory,'extensions')],privacyDevelopmentPaths:['/source','/fixture/harness'],extensionTestsEnv:{RICH_MARKDOWN_PREVIEW_TEST_RESULT:path.join(directory,'suite.json'),TRUST_FIXTURE:'1'}};
+  const options={vscodeExecutablePath:'/immutable/Code.exe',launchArgs:[path.join(directory,'workspace'),'--user-data-dir='+path.join(directory,'user'),'--extensions-dir='+path.join(directory,'extensions'),'--shared-data-dir='+path.join(directory,'shared')],privacyDevelopmentPaths:['/source','/fixture/harness'],extensionTestsEnv:{RICH_MARKDOWN_PREVIEW_TEST_RESULT:path.join(directory,'suite.json'),TRUST_FIXTURE:'1'}};
   let calls=0;
   const spawn=(executable,args,config)=>{
     calls++;
     assert.equal(executable,options.vscodeExecutablePath);
     assert.ok(!args.includes('--disable-workspace-trust'));
     assert.ok(!args.some(value=>value.startsWith('--extensionTestsPath')));
-    assert.ok(args.includes('--shared-data-dir='+path.join(directory,'shared')));
+    assert.equal(args.filter(value=>value==='--shared-data-dir='+path.join(directory,'shared')).length,1);
     assert.ok(args.includes('--extensionDevelopmentPath=/fixture/harness'));
     assert.equal(config.env.TRUST_FIXTURE,'1');assert.equal(config.windowsHide,true);
     const child=new EventEmitter();child.kill=()=>{};setImmediate(()=>child.emit('exit',calls===1?0:1));return child;
@@ -153,14 +154,14 @@ test('normal privacy launcher omits test mode and bounds cleanup to its spawned 
   const {PassThrough} = require('node:stream');
   const {runPrivacyHost} = require('../scripts/vscode-host.cjs');
   const directory = path.resolve('.test-results','host','fixture-only');
-  const options = {vscodeExecutablePath:'/immutable/Code.exe',privacyDevelopmentPaths:['/extension','/fixture/harness'],launchArgs:[path.join(directory,'workspace'),'--user-data-dir='+path.join(directory,'user'),'--extensions-dir='+path.join(directory,'extensions')],extensionTestsEnv:{RICH_MARKDOWN_PREVIEW_TEST_RESULT:path.join(directory,'suite.json')}};
+  const options = {vscodeExecutablePath:'/immutable/Code.exe',privacyDevelopmentPaths:['/extension','/fixture/harness'],launchArgs:[path.join(directory,'workspace'),'--user-data-dir='+path.join(directory,'user'),'--extensions-dir='+path.join(directory,'extensions'),'--shared-data-dir='+path.join(directory,'shared')],extensionTestsEnv:{RICH_MARKDOWN_PREVIEW_TEST_RESULT:path.join(directory,'suite.json')}};
   let kills=0;
   const child = () => {const result=new EventEmitter();result.stdout=new PassThrough();result.stderr=new PassThrough();result.kill=()=>{kills++;result.emit('exit',0);};return result;};
   await assert.rejects(runPrivacyHost({...options,launchArgs:[]}),/isolated/);
   await assert.rejects(runPrivacyHost({...options,launchArgs:[...options.launchArgs,'--extensionTestsPath=/bad']}),/normal modal/);
   const launch = runPrivacyHost(options,{spawn:(executable,args,config)=>{
     assert.equal(executable,options.vscodeExecutablePath);assert.equal(config.windowsHide,true);
-    assert.ok(args.includes('--shared-data-dir='+path.join(directory,'shared')));
+    assert.equal(args.filter(value=>value==='--shared-data-dir='+path.join(directory,'shared')).length,1);
     assert.ok(args.includes('--extensionDevelopmentPath=/fixture/harness'));
     assert.equal(args.some(arg=>arg.startsWith('--extensionTestsPath')),false);
     const result=child();setImmediate(()=>result.emit('exit',0));return result;
@@ -185,4 +186,16 @@ test('saved-origin trust fixture seeds only its own production user-store row, n
       assert.deepEqual(JSON.parse(rows[0].value),{'richMarkdownPreview.externalImageOrigins.v1':['https://trust-preview.invalid','https://saved-trust.invalid']});
     }finally{database.close();}
   }finally{assert.equal(path.dirname(directory),path.resolve('.test-results','host'));await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('provider host creates initial isolated roots and registers its provider before the suite',async()=>{
+ const directories=[];
+ const electron={downloadAndUnzipVSCode:async()=>'/unused/host',runPrivacyHost:async options=>{
+  const directory=path.dirname(options.extensionTestsEnv.RICH_MARKDOWN_PREVIEW_TEST_RESULT);directories.push(directory);
+  const filename=path.join(directory,'providers.code-workspace');assert.ok(options.launchArgs.includes(filename));
+  const workspace=JSON.parse(await fs.readFile(filename,'utf8'));assert.equal(workspace.folders[0].path,path.join(directory,'workspace'));assert.deepEqual(workspace.folders.slice(1).map(root=>root.uri),['rmp-readonly://fixture/one','rmp-readonly://fixture/two']);
+  const harness=await fs.readFile(path.join(directory,'privacy-harness','extension.cjs'),'utf8');assert.match(harness,/registerProviderFixture\(vscode\);setTimeout/);assert.ok(harness.includes('vscode-providers.cjs'));assert.ok(options.extensionTestsPath.endsWith('vscode-providers.cjs'));
+  await fs.writeFile(options.extensionTestsEnv.RICH_MARKDOWN_PREVIEW_TEST_RESULT,JSON.stringify({passed:true,hostVersion:'1.95.0',checks:['stubbed provider launcher; not actual host proof']}));return 0;
+ }};
+ try{const result=await run(parseArgs(['--providers']),electron);assert.equal(result.providerHost,true);assert.equal(result.passed,true);}finally{for(const directory of directories){assert.equal(path.dirname(directory),path.resolve('.test-results','host'));await fs.rm(directory,{recursive:true,force:true});}}
 });

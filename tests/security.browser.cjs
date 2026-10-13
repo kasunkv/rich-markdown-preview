@@ -111,3 +111,16 @@ test('Mermaid edge ceiling cannot be enlarged by document directives', async ({ 
     expect(page.securityRequests).toEqual([]);
   } finally { await server.close(); }
 });
+test('expanded model fallback is actually received and clears stale outline before recovery', async ({ page }) => {
+  const server = await boot(page);
+  try {
+    await render(page, '# Previous content');
+    await expect(page.locator('#rmp-ui-outline a')).toHaveCount(1);
+    await render(page, '### x\n'.repeat(100001));
+    await expect(page.locator('#rmp-ui-content [role="alert"]')).toContainText('rendered content');
+    await expect(page.locator('#rmp-ui-outline a')).toHaveCount(0);
+    await render(page, '# After output limit');
+    await expect(page.locator('#rmp-ui-content h1')).toHaveText('After output limit');
+    expect(page.securityRequests).toEqual([]);
+  } finally { await server.close(); }
+});

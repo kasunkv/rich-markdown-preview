@@ -1,4 +1,5 @@
-import { renderLimits } from './render-limits';
+import { messageLimits, validateRenderContent } from './messages';
+import { renderLimits, renderLimitFailure } from './render-limits';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import { full as emoji } from 'markdown-it-emoji';
@@ -43,12 +44,9 @@ export function renderMarkdown(
   externalImages: { grants?: ReadonlySet<string>; enabled?: boolean } = {},
 ) {
   if (source.length > renderLimits.sourceCharacters)
-    return {
-      html: '<p role="alert">This document exceeds the supported preview limit of 2,000,000 characters. Open the source to read it.</p>',
-      outline: [],
-      references: [],
-      externalImageOrigins: [],
-    };
+    return renderLimitFailure(
+      'This document exceeds the supported preview limit of 2,000,000 characters. Open the source to read it.',
+    );
   const externalImageOrigins = new Set<string>();
   const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
   const references: FileReference[] = [];
@@ -211,10 +209,10 @@ export function renderMarkdown(
         : md.utils.escapeHtml(token.content);
     return `<div class="code-block"><div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
-  return {
-    html: frontmatter.html + md.render(frontmatter.body),
-    outline,
-    references,
-    externalImageOrigins: [...externalImageOrigins],
-  };
+  const html = frontmatter.html + md.render(frontmatter.body);
+  if (references.length > messageLimits.items || !validateRenderContent(html, outline))
+    return renderLimitFailure(
+      'This document�s rendered content exceeds the supported preview limits. Open the source to read it, or split it into smaller documents.',
+    );
+  return { html, outline, references, externalImageOrigins: [...externalImageOrigins] };
 }
