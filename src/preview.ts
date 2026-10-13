@@ -89,11 +89,11 @@ function identifyInteractions() {
   const occurrences = new Map<string, number>();
   for (const element of content.querySelectorAll<HTMLElement>('details, summary, a[href], button, input, select')) {
     if (element.dataset.readingKey) continue;
+    const sectionHeading = Array.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+      .filter((heading) => !!(heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
+      .at(-1);
     const section =
-      Array.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6'))
-        .filter((heading) => !!(heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
-        .at(-1)
-        ?.textContent?.trim() ?? '';
+      sectionHeading?.getAttribute('data-reading-heading-label') ?? sectionHeading?.textContent?.trim() ?? '';
     const details = element.closest('details');
     const role = details?.className || element.className;
     const label = element.tagName === 'DETAILS' ? element.querySelector('summary')?.textContent : element.textContent;
@@ -437,6 +437,7 @@ content.addEventListener('click', (event) => {
   const element = event.target as HTMLElement;
   const imageAction = element.closest<HTMLButtonElement>('[data-external-image-action]');
   if (imageAction) {
+    event.preventDefault();
     const origin = imageAction.dataset.externalImageOrigin;
     const action = imageAction.dataset.externalImageAction;
     if (!origin || (action !== 'grant' && action !== 'revoke')) return;

@@ -425,3 +425,54 @@ test('failed permission persistence leaves grant blocked and immediately stops r
   assert.equal(await page.locator('#rmp-ui-content img').count(), 0);
   assert.deepEqual(requests, ['https://privacy.example/granted.svg']);
 });
+
+test('image permission changes keep table reading keys stable inside image headings', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  await page.route('https://privacy.example/**', route => route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>'}));
+  const source = '# Logo ![Map](https://privacy.example/map.svg)\n\n| Name | Value |\n| --- | --- |\n| Alpha | 1 |\n| Beta | 2 |';
+  const preferences = {style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const render = async grants => {
+    const result = renderMarkdown(source, undefined, {grants});
+    await page.evaluate(data => window.dispatchEvent(new MessageEvent('message',{data})), {type:'render',...result,preferences});
+  };
+  await render(new Set());
+  const filter = page.locator('.table-search');
+  await filter.fill('Beta'); await filter.evaluate(input => input.setSelectionRange(1,3,'backward'));
+  const key = await filter.getAttribute('data-reading-key');
+  await render(new Set(['https://privacy.example']));
+  assert.equal(await filter.inputValue(), 'Beta');
+  assert.equal(await filter.getAttribute('data-reading-key'), key);
+  assert.deepEqual(await filter.evaluate(input => [input.selectionStart,input.selectionEnd,input.selectionDirection]), [1,3,'backward']);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('table-search')), true);
+  await render(new Set());
+  assert.equal(await filter.inputValue(), 'Beta');
+  assert.equal(await filter.getAttribute('data-reading-key'), key);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('table-search')), true);
+});
+
+test('linked image permission controls are keyboard accessible without opening author links', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  const preferences = {style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const result = renderMarkdown('[![Private](https://privacy.example/a)](https://link.example)');
+  await page.evaluate(data => window.dispatchEvent(new MessageEvent('message',{data})), {type:'render',...result,preferences});
+  const action = page.locator('[data-external-image-action="grant"]');
+  assert.equal(await action.evaluate(button => button.closest('a') === null), true);
+  await action.focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => window.externalImageActions.at(-1).origin), 'https://privacy.example');
+  assert.equal(await page.evaluate(() => window.externalLinkClicks?.length ?? 0), 0);
+  assert.equal(page.url(), previewServer.url + '/');
+  await action.evaluate(button => {
+    const link = document.createElement('a'); link.href = 'https://link.example'; button.replaceWith(link); link.append(button);
+    delete button.dataset.externalImageOrigin;
+  });
+  await action.click();
+  assert.equal(await page.evaluate(() => window.externalImageActions.length), 1);
+  assert.equal(page.url(), previewServer.url + '/');
+  await action.evaluate(button => {button.dataset.externalImageOrigin = 'https://privacy.example'; button.dataset.externalImageAction = 'authorize';});
+  await action.click();
+  assert.equal(await page.evaluate(() => window.externalImageActions.length), 1);
+  assert.equal(await page.evaluate(() => window.externalLinkClicks?.length ?? 0), 0);
+  assert.equal(page.url(), previewServer.url + '/');
+});

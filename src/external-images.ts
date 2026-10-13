@@ -42,6 +42,7 @@ export function externalImageDecision(
   grants: ReadonlySet<string>,
   enabled = true,
 ): ExternalImageDecision {
+  if (source.trim() !== source || /[\\\u0000-\u001f\u007f]/u.test(source)) return { kind: 'blocked' };
   const origin = externalImageOrigin(source);
   if (origin) {
     return enabled && grants.has(origin) ? { kind: 'allowed', source, origin } : { kind: 'blocked', origin };
@@ -70,7 +71,7 @@ export class ExternalImagePermissions {
 
   constructor(
     private readonly store: ExternalImageGrantStore,
-    private readonly changed: () => void = () => undefined,
+    private readonly changed: (action: 'grant' | 'revoke', origin: string) => void = () => undefined,
   ) {
     this.grants = readExternalImageGrants(store.get(externalImageGrantsKey));
   }
@@ -88,7 +89,7 @@ export class ExternalImagePermissions {
       this.revokeVersions.set(origin, revokeVersion + 1);
       this.revoked.add(origin);
       this.grants.delete(origin);
-      this.changed();
+      this.changed(action, origin);
     }
     const apply = async () => {
       if (action === 'grant') {
@@ -104,7 +105,7 @@ export class ExternalImagePermissions {
       this.grants.clear();
       // A revoke during an earlier pending write cannot be reintroduced by that write's snapshot.
       for (const grant of next) if (!this.revoked.has(grant)) this.grants.add(grant);
-      if (action === 'grant') this.changed();
+      if (action === 'grant') this.changed(action, origin);
       return true;
     };
     const result = this.queue.then(apply);

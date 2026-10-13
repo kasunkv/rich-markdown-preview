@@ -35,7 +35,7 @@ test('outline labels include recursive image alt text, formatted content, and li
   assert.equal(result.outline[1].text, 'Build system map guide v2 continues 🚀 onward');
   assert.equal(result.outline[1].fragment, 'build-system-map-guide-v2-continues-onward');
   assert.equal(result.outline[1].id, 'rmp-heading-build-system-map-guide-v2-continues-onward');
-  assert.match(result.html, /<h1 id="rmp-heading-architecture" data-md-anchor="architecture"><img[^>]+alt="Architecture"/);
+  assert.match(result.html, /<h1 id="rmp-heading-architecture" data-md-anchor="architecture"[^>]*><img[^>]+alt="Architecture"/);
 });
 test('escaped and Unicode heading text remains readable and unnamed headings get a stable label without changing fallback anchors', () => {
   const source = '# Café \\*literal 日本語\n# ![](blank.png)\n# ![](blank.png)';
@@ -120,5 +120,6 @@ test('heading aliases isolate interface and footnote collisions with stable Unic
   assert.match(result.html, /id="rmp-footnote-fnref1:1"/);
   assert.deepEqual(renderMarkdown(source), result);
 });
+
 
 

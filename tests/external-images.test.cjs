@@ -185,3 +185,34 @@ test('hostnames over the DNS length limit cannot authorize a CSP source', () => 
   const hostname = Array(4).fill('a'.repeat(63)).join('.');
   assert.equal(externalImageOrigin(`https://${hostname}/image.svg`), undefined);
 });
+
+test('browser-trimmed or backslash-normalized remote spellings never become local images', () => {
+  for (const source of [' https://example.com/a', 'https://example.com/a ', '\thttps://example.com/a', '\\example.com\\a', 'local\nfile.png'])
+    assert.equal(externalImageDecision(source, new Set()).kind, 'blocked');
+  assert.equal(externalImageDecision('local%20file.png', new Set()).kind, 'local');
+});
+
+test('linked image permission actions remain outside author anchors', () => {
+  const {renderMarkdown} = require('../dist/render.cjs');
+  const source = '[before ![One](https://example.com/a) between ![Two](https://example.com/b) after](https://link.test)\n\n[Plain](https://link.test) ![Three](https://example.com/c)';
+  for (const grants of [new Set(),new Set(['https://example.com'])]) {
+    const html = renderMarkdown(source, undefined, {grants}).html;
+    assert.doesNotMatch(html, /<a\b[^>]*>(?:(?!<\/a>)[\s\S])*<button/);
+    assert.match(html, /after<\/a><button/);
+    assert.equal((html.match(/data-external-image-action=/g) ?? []).length, 3);
+  }
+});
+
+test('effective change hook identifies confirmed persisted grants and immediate revocations', async () => {
+  const {ExternalImagePermissions} = moduleObject.exports;
+  const events = [];
+  let fail = false;
+  const policy = new ExternalImagePermissions({get: () => [], update: async () => {if (fail) throw Error('write failed');}}, (action, origin) => events.push({action,origin}));
+  await policy.change('grant', 'https://example.com', () => true, async () => true);
+  assert.deepEqual(events, [{action:'grant',origin:'https://example.com'}]);
+  fail = true;
+  await assert.rejects(policy.change('grant', 'https://other.test', () => true, async () => true), /failed/);
+  assert.equal(events.length, 1);
+  await assert.rejects(policy.change('revoke', 'https://example.com', () => true, async () => true), /failed/);
+  assert.deepEqual(events.at(-1), {action:'revoke',origin:'https://example.com'});
+});
