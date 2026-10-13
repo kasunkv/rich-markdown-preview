@@ -622,5 +622,31 @@
       "skipped": 0,
       "pct": 100
     }
+  },
+  "render-work.ts": {
+    "lines": {
+      "total": 41,
+      "covered": 41,
+      "skipped": 0,
+      "pct": 100
+    },
+    "functions": {
+      "total": 15,
+      "covered": 15,
+      "skipped": 0,
+      "pct": 100
+    },
+    "statements": {
+      "total": 43,
+      "covered": 43,
+      "skipped": 0,
+      "pct": 100
+    },
+    "branches": {
+      "total": 26,
+      "covered": 26,
+      "skipped": 0,
+      "pct": 100
+    }
   }
 }
