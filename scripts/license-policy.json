@@ -1,0 +1,33 @@
+{
+  "allowedLicenses": [
+    "MIT",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "Python-2.0",
+    "Unlicense",
+    "(MPL-2.0 OR Apache-2.0)"
+  ],
+  "exceptions": [],
+  "textSources": [
+    {
+      "package": "fastdom",
+      "version": "1.0.12",
+      "file": "README.md",
+      "after": "## License",
+      "sha256": "258e8ff35f4866cf3a53c8855667af5ee7840a816aa000fcc0d388520e2787d7",
+      "rationale": "The distributed README contains the complete MIT license and copyright. Remove when upstream supplies a root LICENSE file."
+    }
+  ],
+  "licenseSources": [
+    {
+      "package": "khroma",
+      "version": "2.1.0",
+      "license": "MIT",
+      "file": "LICENSE",
+      "sha256": "66b333b0f66759a0b710459e03f7029abe17f4358114a128d2c972e642961b49",
+      "rationale": "Manifest omits license; distributed LICENSE explicitly grants MIT. Remove when upstream corrects metadata."
+    }
+  ]
+}

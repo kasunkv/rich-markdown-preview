@@ -8,3 +8,4 @@
 /SECURITY.md text eol=lf
 /.github/** text eol=lf
 /tests/quality.test.cjs text eol=lf
+/THIRD_PARTY_NOTICES.txt text eol=lf

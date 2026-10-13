@@ -19,6 +19,9 @@ test('development maps source, watches CSS/TS replacements, disposes and switche
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rich-markdown-build-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.mkdir(path.join(root, 'src'));
+  await fs.mkdir(path.join(root, 'scripts'));
+  await fs.copyFile(path.join(__dirname, '../scripts/license-policy.json'), path.join(root, 'scripts/license-policy.json'));
+  await fs.writeFile(path.join(root, 'package-lock.json'), JSON.stringify({ packages: {} }));
   const source = 'export function activate() {\n  console.log("breakpoint fixture");\n}\n';
   for (const file of ['extension.ts', 'preview.ts', 'render.ts', 'tables.ts']) {
     await fs.writeFile(path.join(root, 'src', file), source);
