@@ -236,4 +236,3 @@ Packaging uses the supplied GitHub repository and its `master` branch to resolve
 The internal package name is `rich-markdown-preview`. The visible name is **Rich Markdown Preview - A Styled Markdown Preview**. Check the current Marketplace for package and display-name collisions before changing either value. A successful local build does not guarantee server-side Marketplace approval.
 
 For opaque upload failures, open the browser developer tools before retrying and inspect the failing upload request's response. Capture the status, error message, and request/correlation ID; do not share cookies or authentication headers. If Marketplace still rejects a valid package, use its **Contact Microsoft** link and include that diagnostic information.
-
