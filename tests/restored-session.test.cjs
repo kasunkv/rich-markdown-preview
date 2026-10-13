@@ -1,0 +1,36 @@
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const ts = require('typescript');
+const file = path.resolve(__dirname, '../src/restored-session.ts');
+const source = process.env.SOURCE_COVERAGE_DIR ? require('../scripts/coverage-instrument.cjs').instrument(file).code : fs.readFileSync(file, 'utf8');
+const exportsObject = {};
+vm.runInNewContext(ts.transpileModule(source, {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText, {exports:exportsObject, Object, Array, Reflect, Number, Promise, __coverage__:globalThis.__coverage__});
+const {decodeRestoredSession:decode,validateRestoredTarget:validate} = exportsObject;
+const saved = () => ({version:1,kind:'preview',target:'file:///repo/read.md',workspaceRoot:'file:///repo',history:['file:///repo/read.md'],cursor:0});
+test('session codec rejects forged, obsolete, unbounded and accessor-bearing saved state',()=>{
+ const getter = saved(); Object.defineProperty(getter,'target',{get(){throw Error('getter must not execute');}});
+ const indexed = saved(); Object.defineProperty(indexed.history,'0',{get(){throw Error('array getter must not execute');}});
+ const sparse = saved(); sparse.history = Array(1);
+ const symbol = saved(); symbol[Symbol('grant')] = true;
+ for(const value of [null,[],1,Object.create(saved()),getter,indexed,sparse,symbol,{...saved(),version:0},{...saved(),kind:'documentation'}, {...saved(),privacyGrants:['https://example.com']}, {...saved(),target:''}, {...saved(),target:'file:///repo/bad\n.md'}, {...saved(),target:'x'.repeat(8193)}, {...saved(),workspaceRoot:4}, {...saved(),history:{}}, {...saved(),history:Array(21).fill('file:///repo/read.md')}, {...saved(),cursor:0.1}, {...saved(),cursor:-2}, {...saved(),cursor:1}, {...saved(),cursor:-1}, {...saved(),target:'file:///other.md'}, {...saved(),target:undefined}]) assert.equal(decode(value,'preview'),undefined);
+ const accepted=decode(saved(),'preview');assert.equal(accepted.target,saved().target);assert.notEqual(accepted.history,saved().history);
+ assert.ok(decode({version:1,kind:'documentation',history:[],cursor:-1},'documentation'));
+ assert.equal(decode({...saved(),workspaceRoot:'bad root'},'preview'),undefined);
+ assert.equal(decode({...saved(),history:['bad value']},'preview'),undefined);
+});
+test('restoration never stats unchecked targets and rechecks live policy after provider await',async()=>{
+ const calls=[];let allowed=true;
+ const policy={parse:value=>value.startsWith('file:///repo')?value:undefined,allowed:()=>allowed,exists:async value=>{calls.push(value);return true;}};
+ assert.equal(await validate(saved(),policy),saved().target);assert.equal(calls.length,1);
+ for(const session of [{...saved(),target:undefined},{...saved(),target:'command:evil'},{...saved(),workspaceRoot:'file:///removed'}])assert.equal(await validate(session,policy),undefined);
+ allowed=false;assert.equal(await validate(saved(),policy),undefined);assert.equal(calls.length,1);
+ allowed=true;policy.exists=async()=>{allowed=false;return true;};assert.equal(await validate(saved(),policy),undefined);
+ allowed=true;policy.exists=async()=>false;assert.equal(await validate(saved(),policy),undefined);
+ policy.exists=async()=>{throw Error('private provider detail');};assert.equal(await validate(saved(),policy),undefined);
+ policy.parse=()=>{throw Error('malformed URI');};assert.equal(await validate(saved(),policy),undefined);
+ const standalone={...saved(),workspaceRoot:undefined};policy.parse=value=>value;policy.exists=async()=>true;
+ assert.equal(await validate(standalone,policy),standalone.target);
+});
