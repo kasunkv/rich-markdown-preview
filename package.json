@@ -228,7 +228,8 @@
     "screenshots:marketing": "npm run build:production && node scripts/browser-runner.cjs --marketing",
     "validate": "npm run check:quality && npm run build:production && npm run test:coverage:only && npm run test:browser:only && npm run test:host:only",
     "test:browser:harness": "node --test tests/browser-harness/*.test.cjs",
-    "test:coverage:baseline": "node scripts/source-coverage.cjs --update-baseline"
+    "test:coverage:baseline": "node scripts/source-coverage.cjs --update-baseline",
+    "check:dependencies": "node scripts/audit-dependencies.cjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -309,6 +310,7 @@
     "LICENSE",
     "THIRD_PARTY_NOTICES.txt",
     "docs/rich-markdown-preview-light.png",
-    "docs/rich-markdown-preview-dark.png"
+    "docs/rich-markdown-preview-dark.png",
+    "RUNTIME_DEPENDENCIES.json"
   ]
 }
