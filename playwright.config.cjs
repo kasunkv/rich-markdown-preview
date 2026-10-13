@@ -8,7 +8,7 @@ module.exports = defineConfig({
       ? 'failure-probe.browser.cjs'
       : process.env.BROWSER_MARKETING === '1'
         ? 'marketing.browser.cjs'
-        : ['browser.cjs', 'documentation-browser.cjs'],
+        : ['browser.cjs', 'documentation-browser.cjs', 'security.browser.cjs'],
   outputDir: path.join(process.env.BROWSER_RUN_DIR, 'artifacts'),
   timeout: 90000,
   globalTimeout: 180000,
@@ -29,3 +29,4 @@ module.exports = defineConfig({
     screenshot: 'only-on-failure',
   },
 });
+

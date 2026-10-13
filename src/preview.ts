@@ -1,3 +1,4 @@
+import { renderLimits } from './render-limits';
 import { reportAsync } from './async';
 import mermaid from 'mermaid';
 import {
@@ -245,6 +246,9 @@ async function diagrams(version: number) {
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
+    secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'maxEdges', 'suppressErrorRendering'],
+    maxTextSize: renderLimits.diagramCharacters,
+    maxEdges: renderLimits.diagramEdges,
     theme: 'base',
     suppressErrorRendering: true,
     themeVariables: {
@@ -426,7 +430,8 @@ window.addEventListener('message', (event) => {
   restoreDisclosures();
   diagramSources = new WeakMap();
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) {
-    diagramSources.set(figure, figure.querySelector('.mermaid-source')?.textContent ?? '');
+    const source = figure.querySelector('.mermaid-source');
+    if (source) diagramSources.set(figure, source.textContent ?? '');
   }
   outline.replaceChildren();
   for (const item of message.outline) {

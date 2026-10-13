@@ -54,7 +54,8 @@ exports.proveResources = async function ({ workspace, checks }) {
         await frame.locator('button.documentation-file[title="docs/guide.md"]').click();
       }
       const frame = await findFrame('#rmp-ui-content img[alt="Sibling authorized"]');
-      await frame.waitForFunction(() => document.querySelector('img[alt="Sibling authorized"]')?.naturalWidth > 0);
+      try { await frame.waitForFunction(() => document.querySelector('img[alt="Sibling authorized"]')?.naturalWidth > 0); }
+      catch (error) { await fs.writeFile(path.join(workspace,'resource-policy-diagnostic.json'), JSON.stringify(await frame.evaluate(() => ({ policy:document.querySelector('meta[http-equiv="Content-Security-Policy"]').content, image:document.querySelector('img[alt="Sibling authorized"]').src, widths:Array.from(document.images).map(img=>[img.src,img.naturalWidth]) })),null,2)); throw error; }
       const evidence = await frame.evaluate(() =>
         Array.from(document.querySelectorAll('#rmp-ui-content img')).map((img) => ({
           alt: img.alt,
@@ -74,6 +75,30 @@ exports.proveResources = async function ({ workspace, checks }) {
       assert.equal(denied.naturalWidth, 0);
       assert.equal(outOfRootResponses.length, 0, 'No successful outside-root request');
     }
+    // Harmless fixture-only raw resource probe bypasses the Markdown image resolver.
+    const outside = path.join(path.dirname(workspace),'raw-alias-outside');
+    const alias = path.join(workspace,'assets','raw-alias');
+    await fs.mkdir(outside);
+    await fs.writeFile(path.join(outside,'outside.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="47" height="23"/>');
+    await fs.symlink(outside,alias,process.platform==='win32'?'junction':'dir');
+    await vscode.commands.executeCommand('richMarkdownPreview.openPreview',guide);
+    let aliasFrame = await findFrame('img[alt="Sibling authorized"]');
+    const raw = new URL(await aliasFrame.locator('img[alt="Sibling authorized"]').getAttribute('src'));
+    raw.pathname=raw.pathname.replace('/assets/diagram.svg','/assets/raw-alias/outside.svg');raw.search='';raw.hash='';
+    const aliasRequests=[];for(const context of browser.contexts())for(const page of context.pages())page.on('request',request=>{if(request.url().includes('/assets/raw-alias/outside.svg'))aliasRequests.push(request.url());});
+    const aliasDoc = vscode.Uri.file(path.join(workspace,'raw-alias-proof.md'));
+    const rawValues=[raw.href,raw.href.replace('vscode-resource','%76scode-resource'),raw.href.replace('vscode-resource',String.fromCharCode(92)+'u0076scode-resource'),raw.href.replace('vscode-resource',String.fromCharCode(92)+'U00000076scode-resource')];
+    await fs.writeFile(aliasDoc.fsPath,'# Raw alias boundary\n\n![Resolver denied](assets/raw-alias/outside.svg)\n\n'+rawValues.map(value=>'```mermaid\nflowchart TD\nA@{img: "'+value+'",label: "Raw alias boundary",h: 20} --> B[Valid image graph]\n```').join('\n\n'));
+    await vscode.commands.executeCommand('richMarkdownPreview.openPreview',aliasDoc);
+    aliasFrame=await findFrame('#rmp-heading-raw-alias-boundary');
+    await aliasFrame.waitForFunction(()=>document.querySelectorAll('.mermaid-result,.diagram-error').length===4);
+    const aliasEvidence=await aliasFrame.evaluate(()=>({resolverSource:document.querySelector('img[alt="Resolver denied"]').getAttribute('src'),renderedRawImage:document.querySelectorAll('.mermaid-result .image-shape').length,blockedForms:document.querySelectorAll('.diagram-error').length,diagramError:document.querySelector('.diagram-error')?.textContent}));
+    await fs.writeFile(path.join(workspace,'raw-alias-boundary.json'),JSON.stringify(aliasEvidence,null,2));
+    assert.equal(aliasEvidence.resolverSource,'');assert.equal(aliasEvidence.blockedForms,4);
+    assert.equal(aliasEvidence.renderedRawImage,0,'Raw Mermaid resource URL must not read the harmless outside-root alias image');
+    assert.deepEqual(aliasRequests,[],'No raw alias request occurs before the internal URL rejection');
+    checks.push({rawAliasBoundary:{...aliasEvidence,rawRequests:aliasRequests.length}});
+    await require('./csp-realhost.cjs').proveProductionCsp({ vscode, browser, workspace, findFrame, checks });
     // Background Electron does not reliably advance smooth-scroll animation.
     // Prove actual viewport movement via spec 014's native auto path; browser tests cover smooth options.
     for (const context of browser.contexts())

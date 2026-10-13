@@ -9,6 +9,7 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
     get() {if(imageState.failRead) throw Error('secret user state read'); return imageState.value;},
     async update(key, value) {imageWrites.push({key,value}); if(imageState.failWrites) throw Error('secret user state write'); imageState.value=Array.from(value);},
   };
+  let wireMessage;
   const saved = {...initial};
   const messages = [];
   const warnings = [];
@@ -42,9 +43,10 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
     onDidChangeViewState: handler => {handlers.view = handler; return disposable;},
     onDidDispose: handler => {handlers.dispose = handler; return disposable;},
     webview: {
-      cspSource: 'https://safe-resource', asWebviewUri: () => 'safe-resource',
+      cspSource: 'https://safe-resource', options: {}, asWebviewUri: () => 'https://safe-resource',
       postMessage: message => { messages.push(message); return Promise.resolve(true); },
-      onDidReceiveMessage: handler => {
+      onDidReceiveMessage: nativeHandler => {
+        const handler = message => nativeHandler(wireMessage(message));
         handlers.rawMessage = handler;
         handlers.message = async message => {
           if (!message || typeof message !== 'object' || Array.isArray(message) || Object.getPrototypeOf(message) !== Object.prototype || !Object.values(Object.getOwnPropertyDescriptors(message)).every(descriptor => 'value' in descriptor)) return handler(message);
@@ -62,7 +64,7 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
   const vscode = {
     StatusBarAlignment: {Left: 1},
     Uri: {joinPath: (base, ...segments) => ({scheme: base.scheme ?? 'file', authority: base.authority ?? '', toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, FileType: {File:1, Directory:2}, ViewColumn: {Beside: -2, Active: -1}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
-    window: {createOutputChannel: () => ({appendLine:line => diagnostics.push(line),dispose(){}}), createStatusBarItem: () => ({show() {}, hide() {}, dispose() {}}), activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column) => {created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: (message, _options, ...items) => {warnings.push(message); return Promise.resolve(items.includes('Allow images') && allowImages ? 'Allow images' : undefined);}, showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
+    window: {createOutputChannel: () => ({appendLine:line => diagnostics.push(line),dispose(){}}), createStatusBarItem: () => ({show() {}, hide() {}, dispose() {}}), activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column, options) => {panel.webview.options=options;created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: (message, _options, ...items) => {warnings.push(message); return Promise.resolve(items.includes('Allow images') && allowImages ? 'Allow images' : undefined);}, showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
     env: {openExternal: async uri => external.push(uri.toString()), clipboard: {writeText: async text => {if(failCopy) throw new Error('Clipboard unavailable'); clipboard.push(text);}}},
     workspace: {
       isTrusted: workspaceTrusted,
@@ -79,10 +81,12 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
   };
   initializeVscode?.(vscode);
   const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {
-    module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, Object, URL, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
+  const runtime = vm.createContext({
+    module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, URL, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
     require: name => name === 'vscode' ? vscode : require(name)
   });
+  wireMessage = require('./vm-wire.cjs').wireParser(runtime);
+  vm.runInContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), runtime);
   const subscriptions=[];
   module.exports.activate({subscriptions, extensionUri: uri, globalState});
   const drain = async () => {await new Promise(setImmediate);};
