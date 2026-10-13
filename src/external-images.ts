@@ -4,7 +4,8 @@ export const externalImageGrantsKey = 'richMarkdownPreview.externalImageOrigins.
 /** Reject ambiguous URL spellings and credentials before browser normalization. */
 export function externalImageOrigin(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length > 8192 || /[\s\\\u0000-\u001f\u007f]/u.test(value)) return;
-  if (!/^https:\/\/[^/?#]/i.test(value)) return;
+  const authority = /^https:\/\/([^/?#]+)/i.exec(value)?.[1];
+  if (!authority || authority.includes('@')) return;
   try {
     const url = new URL(value);
     if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return;
@@ -45,7 +46,8 @@ export function externalImageDecision(
   if (origin) {
     return enabled && grants.has(origin) ? { kind: 'allowed', source, origin } : { kind: 'blocked', origin };
   }
-  if (/^(?:https?:|\/\/)/i.test(source)) return { kind: 'blocked' };
+  if (source.startsWith('//') || (/^[a-z][a-z\d+.-]*:/i.test(source) && !/^(?:file:|data:)/i.test(source)))
+    return { kind: 'blocked' };
   return { kind: 'local', source };
 }
 

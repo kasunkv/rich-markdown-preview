@@ -176,3 +176,17 @@ test('extra authority separators fail closed and stale queued grants never confi
   assert.equal(await policy.change('grant', 'https://example.com', () => true, async () => true), true);
   assert.equal(policy.grants.has('https://example.com'), true);
 });
+
+test('non-HTTPS remote schemes never reach image URI adaptation', () => {
+  for (const source of ['ftp://example.com/image', 'mailto:remote@example.com', 'vscode-resource://example/image'])
+    assert.equal(externalImageDecision(source, new Set()).kind, 'blocked');
+  assert.equal(externalImageDecision('FILE:///a.png', new Set()).kind, 'local');
+  assert.equal(externalImageDecision('DATA:image/png;base64,eA==', new Set()).kind, 'local');
+});
+
+
+test('empty userinfo markers are rejected while at-signs in paths remain legal', () => {
+  for (const value of ['https://@example.com/a', 'https://:@example.com/a', 'https://%40example.com/a'])
+    assert.equal(externalImageOrigin(value), undefined);
+  assert.equal(externalImageOrigin('https://example.com/a@b.png'), 'https://example.com');
+});
