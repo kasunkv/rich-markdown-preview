@@ -7,7 +7,7 @@ test('skill and article frontmatter render before the body without polluting the
   assert.ok(html.startsWith('<details class="frontmatter" open>'));
   for (const text of ['example-skill','A useful skill with multiple lines.','agents','writing','enabled','true','retries','3','null','View YAML source']) assert.ok(html.includes(text), text);
   assert.ok(html.indexOf('</details>') < html.indexOf('<h1'));
-  assert.deepEqual(outline, [{id:'instructions', text:'Instructions', level:1}]);
+  assert.deepEqual(outline, [{id:'rmp-heading-instructions', fragment:'instructions', text:'Instructions', level:1}]);
 });
 
 test('frontmatter handles BOM, CRLF, end delimiters, literal blocks, empty and metadata-only files', () => {

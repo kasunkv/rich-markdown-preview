@@ -22,11 +22,11 @@ test('tables retain alignment, column header semantics, and keyboard scroll regi
 });
 test('uses unique heading anchors and resolves local image resources', () => {
   const result = renderMarkdown('# Hello\n## Hello\n\n![demo](images/demo.png)', src => `safe-resource/${src}`);
-  assert.deepEqual(result.outline.map(h => h.id), ['hello', 'hello-1']); assert.match(result.html, /src="safe-resource\/images\/demo.png"/);
+  assert.deepEqual(result.outline.map(h => h.fragment), ['hello', 'hello-1']); assert.match(result.html, /src="safe-resource\/images\/demo.png"/);
 });
 test('heading suffixes do not collide with literal heading names', () => {
   const result = renderMarkdown('# Hello\n# Hello-1\n# Hello');
-  assert.deepEqual(result.outline.map(h => h.id), ['hello', 'hello-1', 'hello-2']);
+  assert.deepEqual(result.outline.map(h => h.fragment), ['hello', 'hello-1', 'hello-2']);
 });
 test('task lists render accessible read-only checked and unchecked controls', () => {
   const { html } = renderMarkdown('- [ ] Pending **task**\n- [x] Done\n  - [X] Nested done\n\n- [ ] Loose task\n\n  A second paragraph.');
@@ -69,7 +69,7 @@ test('empty source, Unicode headings, formatted headings and document-local stat
   assert.deepEqual(renderMarkdown(''),{html:'',outline:[],references:[]});
   const source='# 日本語 **Heading** `code`\n# !!!\n# !!!\n# 日本語 **Heading** `code`';
   const result=renderMarkdown(source);
-  assert.deepEqual(result.outline.map(item=>item.id),['日本語-heading-code','section','section-1','日本語-heading-code-1']);
+  assert.deepEqual(result.outline.map(item=>item.fragment),['日本語-heading-code','section','section-1','日本語-heading-code-1']);
   assert.deepEqual(renderMarkdown(source),result);
 });
 
@@ -85,4 +85,19 @@ test('all supported callouts render and inline marker text stays ordinary prose'
     assert.match(renderMarkdown(`> [!${marker}]\n> Body`).html,new RegExp('markdown-alert-'+marker.toLowerCase()));
   }
   assert.doesNotMatch(renderMarkdown('> [!TIP] ordinary text').html,/markdown-alert/);
+});
+
+test('heading aliases isolate interface and footnote collisions with stable Unicode duplicates', () => {
+  const source = '# Content\n# Style\n# Outline\n# App\n# Announcement\n# fn1\n# fnref1\n# rmp-ui-style\n# rmp-footnote-fn1\n# Café 日本語\n# Café 日本語\n# Café 日本語-1\n\nNote[^a] again[^a].\n\n[^a]: Note text.';
+  const result = renderMarkdown(source);
+  const ids = [...result.html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.deepEqual(result.outline.map(item => item.fragment), ['content','style','outline','app','announcement','fn1','fnref1','rmp-ui-style','rmp-footnote-fn1','café-日本語','café-日本語-1','café-日本語-1-1']);
+  for (const item of result.outline) {
+    assert.equal(item.id, 'rmp-heading-' + item.fragment);
+    assert.ok(result.html.includes(`data-md-anchor="${item.fragment}"`));
+  }
+  assert.match(result.html, /id="rmp-footnote-fn1"/);
+  assert.match(result.html, /id="rmp-footnote-fnref1:1"/);
+  assert.deepEqual(renderMarkdown(source), result);
 });

@@ -7,7 +7,7 @@ const root = path.join(__dirname, '..');
 async function startPreviewServer({ fixture = 'samples/showcase.md', port = 0 } = {}) {
   const fixturePath = path.resolve(root, fixture);
   const result = renderMarkdown(fs.readFileSync(fixturePath, 'utf8'));
-  const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/preview.css"><title>Rich Markdown Preview — browser QA</title></head><body><div id="app"></div><script>
+  const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/preview.css"><title>Rich Markdown Preview — browser QA</title></head><body><div id="rmp-ui-app"></div><script>
 let preferences={style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
 let state=JSON.parse(sessionStorage.getItem('preview-state')??'null');
 function acquireVsCodeApi(){return {getState:()=>state,setState:s=>{state=s;sessionStorage.setItem('preview-state',JSON.stringify(s));},postMessage:async m=>{
