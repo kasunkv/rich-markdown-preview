@@ -75,7 +75,7 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
   const module = {exports: {}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {
     module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, Object, URL, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
-    require: name => name === 'vscode' ? vscode : require(name)
+    require: name => name === 'vscode' ? vscode : name === './render.cjs' ? require('../dist/render.cjs') : require(name)
   });
   const subscriptions=[];
   module.exports.activate({subscriptions, extensionUri: uri, globalState});

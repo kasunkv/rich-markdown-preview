@@ -5,8 +5,6 @@ import { PreviewPreferenceStore } from './preview-preferences';
 import { ExternalImagePermissions, externalImageCspOrigins } from './external-images';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
-import { renderMarkdown } from './render';
-import { resolveSourceFragment, fragmentWarning } from './fragment-navigation';
 import { parseResourceUrl } from './resource-url';
 import { previewStyles } from './styles';
 import { referencePaths, type FileReference } from './references';
@@ -14,6 +12,11 @@ import { homedir } from 'node:os';
 import { DocumentationIndex } from './documentation';
 import { numericPreferenceRanges } from './preference-ranges';
 import { previewResourceRoots, resolveImageResource } from './resources';
+
+// Keep the renderer outside the activation bundle: Node loads and caches this asset on first use.
+function renderer(): typeof import('./fragment-navigation') {
+  return require('./render.cjs') as typeof import('./fragment-navigation');
+}
 
 const defaults = {
   style: 'documentation',
@@ -263,7 +266,7 @@ export function activate(context: vscode.ExtensionContext) {
           sendNavigation(true);
           return;
         }
-        const result = renderMarkdown(
+        const result = renderer().renderMarkdown(
           source,
           (src) => resolveImageResource(src, document!.uri, webview),
           remoteImagePolicy(),
@@ -301,10 +304,10 @@ export function activate(context: vscode.ExtensionContext) {
         }
         if (next && anchor) {
           const resolved = session.boundary('parse source heading', () =>
-            resolveSourceFragment(next.getText(), anchor),
+            renderer().resolveSourceFragment(next.getText(), anchor),
           );
           if (!resolved) return;
-          const warning = fragmentWarning(resolved);
+          const warning = renderer().fragmentWarning(resolved);
           if (warning) reportAsync(vscode.window.showWarningMessage(warning));
         }
         document = next;
@@ -341,10 +344,10 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         if (document && target.toString() === document.uri.toString()) {
           const resolved = session.boundary('parse source heading', () =>
-            resolveSourceFragment(document!.getText(), anchor),
+            renderer().resolveSourceFragment(document!.getText(), anchor),
           );
           if (!resolved) return;
-          const warning = fragmentWarning(resolved);
+          const warning = renderer().fragmentWarning(resolved);
           if (warning) reportAsync(vscode.window.showWarningMessage(warning));
           fragment = anchor;
           update();
@@ -368,10 +371,10 @@ export function activate(context: vscode.ExtensionContext) {
             return;
           }
           const resolved = session.boundary('parse source heading', () =>
-            resolveSourceFragment(source.getText(), anchor),
+            renderer().resolveSourceFragment(source.getText(), anchor),
           );
           const warning = resolved
-            ? fragmentWarning(resolved)
+            ? renderer().fragmentWarning(resolved)
             : 'Could not locate this heading. Open the source to locate this section.';
           if (warning) reportAsync(vscode.window.showWarningMessage(warning));
           if (resolved?.kind === 'heading') {
@@ -385,11 +388,11 @@ export function activate(context: vscode.ExtensionContext) {
           }
         } else {
           if (anchor) {
-            const resolved = resolveSourceFragment('', anchor);
+            const resolved = renderer().resolveSourceFragment('', anchor);
             reportAsync(
               vscode.window.showWarningMessage(
                 resolved.kind === 'unsupported-line' || resolved.kind === 'malformed'
-                  ? fragmentWarning(resolved)!
+                  ? renderer().fragmentWarning(resolved)!
                   : 'Heading navigation is supported only for Markdown files. Open the source to locate this section.',
               ),
             );

@@ -14,10 +14,10 @@ const builds = [
     outfile: 'dist/extension.js',
     platform: 'node',
     format: 'cjs',
-    external: ['vscode'],
+    external: ['vscode', './render.cjs'],
   },
   { entryPoints: ['src/preview.ts'], outfile: 'dist/preview.js', platform: 'browser', format: 'iife' },
-  { entryPoints: ['src/render.ts'], outfile: 'dist/render.cjs', platform: 'node', format: 'cjs' },
+  { entryPoints: ['src/fragment-navigation.ts'], outfile: 'dist/render.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/fragment-navigation.ts'], outfile: 'dist/fragment-navigation.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/tables.ts'], outfile: 'dist/tables.cjs', platform: 'node', format: 'cjs' },
 ];
@@ -66,6 +66,7 @@ export async function build({
     await Promise.all(contexts.map((ctx) => ctx.dispose()));
   };
   const productionInputs = new Set();
+  const runtimeBundles = ['dist/extension.js', 'dist/preview.js', 'dist/render.cjs'];
   const assets = {
     absWorkingDir: root,
     entryPoints: staticAssets,
@@ -110,7 +111,7 @@ export async function build({
       } else {
         const result = await esbuild.build(config);
         if (!result.metafile) continue;
-        if (['dist/extension.js', 'dist/preview.js'].includes(options.outfile)) {
+        if (runtimeBundles.includes(options.outfile)) {
           for (const input of Object.keys(result.metafile.inputs)) productionInputs.add(input);
         }
       }
@@ -120,7 +121,7 @@ export async function build({
       await dependencyPolicy.generateRuntime(
         root,
         [...productionInputs],
-        ['dist/extension.js', 'dist/preview.js'],
+        runtimeBundles,
         policy,
       );
     }
