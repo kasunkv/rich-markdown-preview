@@ -91,10 +91,53 @@ test('accessors, inherited data and malformed nested records fall back without i
   const order = Object.defineProperty([], '0', { enumerable: true, get() { reads++; throw Error('secret'); } });
   const nested = { readingStateVersion: 1, documentOrder: [], documents: Object.defineProperty({}, 'file:///a.md', {
     enumerable: true, get() { reads++; throw Error('secret'); } }) };
+  const expanded = Object.defineProperty([], '0', { enumerable: true, get() { reads++; return 'root'; } });
+  const selection = Object.defineProperty([0, 0, 'none'], '0', { enumerable: true, get() { reads++; return 0; } });
   const empty = { readingStateVersion: 1, documents: {}, documentOrder: [] };
   assert.deepEqual(restoreReadingState(accessor), empty);
   assert.deepEqual(restoreReadingState(inherited), empty);
   assert.deepEqual(restoreReadingState({ readingStateVersion: 1, documentOrder: order }), empty);
   assert.deepEqual(restoreReadingState(nested), empty);
+  assert.deepEqual(restoreReadingState({ readingStateVersion: 1, documents: {}, documentOrder: [], documentation: { expanded } }), empty);
+  assert.deepEqual(restoreReadingState({ permissionFocus: { key: 'focus', selection } }), empty);
   assert.equal(reads, 0);
+});
+
+test('a validated reload session shares the byte cap without authorizing or losing the active target', () => {
+  const target = 'file:///active.md';
+  const history = Array.from({ length: 20 }, (_, index) => `file:///docs/${index}-${'a'.repeat(4000)}.md`);
+  history[10] = target;
+  const restored = restoreReadingState({ readingStateVersion: 1, documentId: target,
+    documents: { [target]: { scroll: 321 } }, documentOrder: [target], permissionFocus: { key: 'search', documentId: target },
+    session: { version: 1, kind: 'documentation', target, workspaceRoot: 'file:///docs', history, cursor: 10 } });
+  assert.ok(size(restored) <= readingStateLimits.bytes);
+  assert.equal(restored.documents[target].scroll, 321);
+  assert.equal(restored.permissionFocus.key, 'search');
+  assert.equal(restored.session.history[restored.session.cursor], target);
+  assert.ok(restored.session.history.length < 20);
+  assert.equal(restoreReadingState({ ...restored, session: { ...restored.session, admin: true } }).session, undefined);
+});
+
+test('a long valid document URI remains the active reading position', () => {
+  const id = `file:///docs/${'a'.repeat(3000)}.md`;
+  const state = restoreReadingState({ documentId: id, documents: { [id]: { scroll: 410 } } });
+  assert.equal(state.documents[id].scroll, 410);
+  assert.equal(state.documentId, id);
+  assert.ok(size(state) <= readingStateLimits.bytes);
+});
+
+test('multibyte session URIs cannot exceed the complete persisted envelope budget', () => {
+  const target = `file:///${'界'.repeat(8180)}`;
+  const state = restoreReadingState({ readingStateVersion: 1, documents: {}, documentOrder: [],
+    session: { version: 1, kind: 'preview', target, workspaceRoot: target, history: [target], cursor: 0 } });
+  assert.ok(size(state) <= readingStateLimits.bytes, `state used ${size(state)} bytes`);
+  assert.equal(state.session?.target, target);
+  assert.equal(state.session?.workspaceRoot, undefined);
+});
+
+test('a structured-cloned state may share table objects without being cyclic', () => {
+  const tables = { first: { query: 'guide', column: 0, direction: 'none', density: 'comfortable' } };
+  const state = restoreReadingState({ readingStateVersion: 1, documentId: 'file:///guide.md', documentOrder: ['file:///guide.md'],
+    tables, documents: { 'file:///guide.md': { scroll: 20, tables } } });
+  assert.equal(state.documents['file:///guide.md'].tables.first.query, 'guide');
 });

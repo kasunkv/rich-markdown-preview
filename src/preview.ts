@@ -4,33 +4,24 @@ import mermaid from 'mermaid';
 import {
   validateWebviewMessage,
   validateHostMessage,
-  validateRestoredState,
   type Preferences,
   type WebviewMessage,
   type WebviewCommand,
 } from './messages';
 import { previewStyles } from './styles';
 import { enhanceTables, type TableState } from './tables';
-import { documentationView, type DocumentationViewState } from './documentation-view';
+import { documentationView } from './documentation-view';
 import { numericPreferenceRanges } from './preference-ranges';
-interface ReadingState {
-  scroll?: number;
-  tables?: TableState;
-  disclosures?: Record<string, boolean>;
-}
+import { boundReadingState, restoreReadingState, type PersistedReadingState, type ReadingState } from './reading-state';
 type InteractionSelection = [number, number, 'forward' | 'backward' | 'none'];
-interface PreviewState extends ReadingState {
-  permissionFocus?: { key: string; documentId?: string; selection?: InteractionSelection };
-  documentation?: DocumentationViewState;
-  documentId?: string;
-  documents?: Record<string, ReadingState>;
-}
 declare function acquireVsCodeApi(): {
   postMessage(message: WebviewMessage): void;
   getState(): unknown;
   setState(state: unknown): void;
 };
 const api = acquireVsCodeApi();
+let savedState = restoreReadingState(api.getState());
+let lastSavedJson = JSON.stringify(savedState);
 let renderId = 'bootstrap';
 const requestPrefix = Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(16)).join('');
 let requestSequence = 0;
@@ -38,6 +29,7 @@ let latestActionRequestId: string | undefined;
 const pendingActions = new Map<string, { type: string; renderId: string }>();
 const vscode = {
   postMessage(command: WebviewCommand) {
+    if (['documentationAction', 'reference', 'link'].includes(command.type)) flushScrollState(true);
     const message =
       command.type === 'ready' ? command : { ...command, requestId: requestPrefix + '_' + ++requestSequence, renderId };
     if (!validateWebviewMessage(message)) {
@@ -56,12 +48,17 @@ const vscode = {
     }
     api.postMessage(message);
   },
-  getState(): PreviewState | undefined {
-    const value = api.getState();
-    return validateRestoredState(value) ? (value as PreviewState) : undefined;
+  getState(): PersistedReadingState {
+    return savedState;
   },
-  setState(state: PreviewState) {
-    api.setState(state);
+  setState(state: unknown) {
+    savedState = restoreReadingState(state);
+    readingStates = savedState.documents;
+    const json = JSON.stringify(savedState);
+    if (json !== lastSavedJson) {
+      api.setState(savedState);
+      lastSavedJson = json;
+    }
   },
 };
 const app = document.getElementById('rmp-ui-app')!;
@@ -82,10 +79,10 @@ let currentPreferences: Preferences = {
 };
 const pendingPreferences = new Map<keyof Preferences, Preferences[keyof Preferences]>();
 let diagramSources = new WeakMap<HTMLElement, string>();
-let tableState: TableState = vscode.getState()?.tables ?? {};
-let disclosureState: Record<string, boolean> = vscode.getState()?.disclosures ?? {};
-let documentId = vscode.getState()?.documentId;
-const readingStates = vscode.getState()?.documents ?? {};
+let tableState: TableState = savedState.tables ?? {};
+let disclosureState: Record<string, boolean> = savedState.disclosures ?? {};
+let documentId = savedState.documentId;
+let readingStates: Record<string, ReadingState> = savedState.documents;
 function rememberPermissionFocus() {
   const active = document.activeElement;
   const key = active instanceof HTMLElement ? active.dataset.readingKey : undefined;
@@ -107,6 +104,8 @@ app.addEventListener('focusin', (event) => {
 function saveState() {
   if (documentId)
     readingStates[documentId] = { scroll: window.scrollY, tables: tableState, disclosures: disclosureState };
+  const order = savedState.documentOrder.filter((id) => id !== documentId);
+  if (documentId) order.push(documentId);
   vscode.setState({
     ...vscode.getState(),
     scroll: window.scrollY,
@@ -114,7 +113,26 @@ function saveState() {
     disclosures: disclosureState,
     documentId,
     documents: readingStates,
+    documentOrder: order,
   });
+}
+let scrollDelay: ReturnType<typeof setTimeout> | undefined;
+let scrollDeadline: ReturnType<typeof setTimeout> | undefined;
+let scrollDirty = false;
+function flushScrollState(force = false) {
+  clearTimeout(scrollDelay);
+  clearTimeout(scrollDeadline);
+  scrollDelay = scrollDeadline = undefined;
+  if (scrollDirty || force) {
+    scrollDirty = false;
+    saveState();
+  }
+}
+function scheduleScrollState() {
+  scrollDirty = true;
+  clearTimeout(scrollDelay);
+  scrollDelay = setTimeout(() => flushScrollState(), 200);
+  scrollDeadline ??= setTimeout(() => flushScrollState(), 1000);
 }
 // Keys describe content roles and section labels, so inserting unrelated content does not
 // redirect an ongoing interaction to a different control. Duplicate roles use occurrence.
@@ -125,7 +143,7 @@ function identifyInteractions() {
   }
   const occurrences = new Map<string, number>();
   for (const element of content.querySelectorAll<HTMLElement>(
-    'details, summary, a[href], button, input, select, .diagram-source pre',
+    'details, summary, pre[tabindex], a[href], button, input, select',
   )) {
     if (element.dataset.readingKey) continue;
     const sectionHeading = Array.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6'))
@@ -366,6 +384,11 @@ window.addEventListener('message', (event) => {
     if (message.requestId !== latestActionRequestId) return;
   }
   if (message.type === 'documentation') {
+    if (!message.loading && !message.error) {
+      const documents = new Set(message.files.map((file) => file.id));
+      documents.add('home');
+      vscode.setState(boundReadingState(savedState, documents));
+    }
     documentation.receive(message);
     return;
   }
@@ -410,7 +433,7 @@ window.addEventListener('message', (event) => {
   if (restored) captureDisclosures();
   const changedDocument = typeof message.documentId === 'string' && message.documentId !== documentId;
   if (changedDocument) {
-    if (restored) saveState();
+    if (restored) flushScrollState(true);
     documentId = message.documentId;
     tableState = readingStates[documentId!]?.tables ?? {};
     disclosureState = readingStates[documentId!]?.disclosures ?? {};
@@ -468,6 +491,7 @@ window.addEventListener('message', (event) => {
     }
   }
   window.scrollTo(0, scroll);
+  saveState();
   // Mermaid may change document height; restore the requested position after it settles.
   reportAsync(
     diagrams(version).then(() => {
@@ -548,5 +572,9 @@ new MutationObserver(() => {
   if (theme !== lastVscodeTheme) reportAsync(diagrams(++revision));
   lastVscodeTheme = theme;
 }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
-window.addEventListener('scroll', saveState, { passive: true });
+window.addEventListener('scroll', scheduleScrollState, { passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushScrollState();
+});
+window.addEventListener('pagehide', () => flushScrollState());
 vscode.postMessage({ type: 'ready' });
