@@ -147,6 +147,7 @@ exports.run = async function () {
     }
     assert.equal(previews().length, 2, 'Disposed panels reopen independently');
     checks.push('Encoded URI, multiple documents, live edit/save, reuse and disposal/reopen passed');
+    await require('./vscode-resources.cjs').proveResources({workspace,checks});
     if (process.env.RICH_MARKDOWN_PREVIEW_FORCE_FAILURE === '1') throw new Error('Forced host failure fixture');
     await fs.mkdir(path.dirname(output), {recursive:true});
     await fs.writeFile(output, JSON.stringify({passed:true,hostVersion:vscode.version,checks},null,2));

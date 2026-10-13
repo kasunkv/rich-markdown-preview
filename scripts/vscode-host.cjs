@@ -60,7 +60,11 @@ async function run(options, electron = require('@vscode/test-electron')) {
       report.vsix = vsix;
       report.vsixSha256 = require('node:crypto').createHash('sha256').update(await fs.readFile(vsix)).digest('hex');
     }
-    const exitCode = await electron.runTests({ vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', 'vscode-settings.cjs'), launchArgs: [workspace, ...profiles, '--skip-welcome', '--skip-release-notes', '--disable-workspace-trust', '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
+    const debugServer = require('node:net').createServer();
+    await new Promise(resolve => debugServer.listen(0, '127.0.0.1', resolve));
+    const debugPort = debugServer.address().port;
+    await new Promise(resolve => debugServer.close(resolve));
+    const exitCode = await electron.runTests({ vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', 'vscode-settings.cjs'), launchArgs: [workspace, ...profiles, `--remote-debugging-port=${debugPort}`, '--remote-debugging-address=127.0.0.1', '--skip-welcome', '--skip-release-notes', '--disable-workspace-trust', '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { RICH_MARKDOWN_PREVIEW_DEBUG_PORT: String(debugPort), RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
     report.suite = JSON.parse(await fs.readFile(path.join(directory, 'suite.json'), 'utf8'));
     report.hostVersion = report.suite.hostVersion;
     if (exitCode !== 0 || !report.suite.passed) throw new Error(`Host smoke failed (exit ${exitCode})`);
