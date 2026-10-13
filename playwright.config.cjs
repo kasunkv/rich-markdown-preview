@@ -29,4 +29,3 @@ module.exports = defineConfig({
     screenshot: 'only-on-failure',
   },
 });
-
