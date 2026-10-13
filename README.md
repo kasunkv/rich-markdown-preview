@@ -73,7 +73,9 @@ Filtering searches file paths, not document contents. Files in excluded folders 
 
 Use the toolbar to change **Style**, **Appearance**, **Width**, **Text**, **Spacing**, and **Wrap code**. The **Outline** button toggles section navigation. Drag the Width slider or enter an exact value; the slider and pixel readout stay in sync and save when you commit the value. Text size and line spacing accept any value within their displayed ranges.
 
-Reading preferences save for the file's workspace folder, or globally for standalone files. If a settings file cannot be saved, the preview keeps your selection for the current session and shows a warning.
+Reading preferences save for the file's workspace folder, or globally for standalone files. If a settings file cannot be saved, the preview keeps your selection until navigation starts a new document session and shows a warning.
+
+Open **View > Output** and select **Rich Markdown Preview** to see operation diagnostics and retry guidance. Diagnostics omit document text, clipboard/CSV data and provider error details.
 
 You can also search for **Rich Markdown Preview** in VS Code Settings. The settings use the `richMarkdownPreview.*` namespace:
 

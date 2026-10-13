@@ -1,86 +1,6 @@
-const { test } = require('node:test');
+const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
-const fs = require('node:fs');
-const path = require('node:path');
-const { minimatch } = require('minimatch');
-
-function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
-  const event = () => {
-    const listeners = new Set();
-    return { listen: fn => { listeners.add(fn); return { dispose: () => listeners.delete(fn) }; }, fire: value => [...listeners].forEach(fn => fn(value)), listeners };
-  };
-  const uri = value => ({ scheme:'file', fsPath:value, path: value, with: changes => ({...uri(value),...changes}), toString: () => `file://${value}` });
-  const root = value => ({ name: value.split('/').pop(), uri: uri(value) });
-  const commands = {}, messages = [], panels = [], warnings = [], opened = [], queries = [], watchers = [], reads = [], selections = [], reveals = [];
-  const files = new Map([
-    ['/repo/README.md', '# Welcome\n\n[Guide](docs/guide.md#details)\n\n[Code](src/app.ts)'],
-    ['/repo/docs/guide.md', '# Guide\n\n## Details\n\n![Image](../assets/test.svg)'],
-    ['/repo/reports/2026/october/summary.MD', '# Summary'],
-    ['/repo/.claude/skills/test/SKILL.md', '# Skill'],
-    ['/repo/node_modules/pkg/README.md', '# Dependency'],
-    ['/repo/dist/README.md', '# Build'],
-    ['/repo/src/app.ts', 'export const value = 1;'],
-    ['/other/README.markdown', '# Other']
-  ]);
-  const configuration = event(), workspaceFolders = event(), text = event();
-  const status = { visible: false, show() {this.visible = true;}, hide() {this.visible = false;}, dispose() {} };
-  const getDocument = target => {
-    if (!files.has(target.path)) throw new Error('Missing file');
-    return { uri: target, fileName: target.path, languageId: 'markdown', getText: () => files.get(target.path) };
-  };
-  const vscode = {
-    Uri: { file: uri, parse: value => uri(value.replace(/^file:\/\//, '')), joinPath: (base, ...parts) => uri(path.posix.join(base.path, ...parts)) },
-    Range: class { constructor(startLine, startCharacter, endLine, endCharacter) { this.start = {line: startLine, character: startCharacter}; this.end = {line: endLine, character: endCharacter}; } },
-    TextEditorRevealType: {InCenterIfOutsideViewport: 2},
-    StatusBarAlignment: {Left: 1}, ViewColumn: {Active: -1, Beside: -2}, FileType: {File: 1, Directory: 2}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
-    RelativePattern: class { constructor(base, pattern) { this.baseUri = base.uri ?? base; this.pattern = pattern; } },
-    CancellationTokenSource: class { token = {isCancellationRequested: false}; cancel() {this.token.isCancellationRequested = true;} dispose() {} },
-    window: {
-      createStatusBarItem: () => status,
-      showInformationMessage: message => warnings.push(message), showWarningMessage: message => warnings.push(message),
-      showTextDocument: async (doc, options) => { opened.push(doc.uri.path); selections.push(options?.selection); return {revealRange: (range, type) => reveals.push({range, type})}; },
-      createWebviewPanel: (type, title, column, options) => {
-        const receive = event(), dispose = event(), view = event();
-        const panel = { type, title, column, visible: true, reveals: 0, reveal() {this.reveals++;},
-          onDidChangeViewState: view.listen, onDidDispose: dispose.listen,
-          dispose() {dispose.fire();},
-          webview: { options, cspSource: 'safe:', asWebviewUri: target => target,
-            onDidReceiveMessage: fn => {panel.message = fn; return receive.listen(fn);},
-            postMessage: async message => { messages.push(message); return true; }
-          }
-        };
-        panels.push(panel); return panel;
-      }
-    },
-    commands: {registerCommand: (name, fn) => {commands[name] = fn; return {dispose() {}};}, executeCommand: async (_, target) => opened.push(target.path)},
-    workspace: {
-      workspaceFolders: folders.map(root), onDidChangeWorkspaceFolders: workspaceFolders.listen,
-      onDidChangeConfiguration: configuration.listen, onDidChangeTextDocument: text.listen,
-      getWorkspaceFolder: target => vscode.workspace.workspaceFolders.find(folder => target.path === folder.uri.path || target.path.startsWith(folder.uri.path + '/')),
-      getConfiguration: (section, target) => ({get: (key, fallback) => section === 'richMarkdownPreview' ? settings[`${target?.path}:${key}`] ?? settings[key] ?? fallback : fallback, inspect: () => ({})}),
-      openTextDocument: async target => {reads.push(target.path); return getDocument(target);},
-      fs: { stat: async target => {if (!files.has(target.path)) throw new Error('Missing file'); return {type: 1};} },
-      findFiles: async (include, exclude, max, token) => {
-        queries.push({include, exclude, token});
-        return [...files.keys()].filter(file => file.startsWith(include.baseUri.path + '/') && minimatch(file.slice(include.baseUri.path.length + 1), include.pattern, {dot: true}) && (!exclude || !minimatch(file, exclude, {dot: true}))).map(uri);
-      },
-      createFileSystemWatcher: pattern => {
-        const create = event(), remove = event();
-        const watcher = {pattern, onDidCreate: create.listen, onDidDelete: remove.listen, create: create.fire, remove: remove.fire, disposed: false, dispose() {this.disposed = true;} };
-        watchers.push(watcher); return watcher;
-      }
-    }
-  };
-  const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg'})} : require(name)});
-  module.exports.activate({subscriptions: [], extensionUri: uri('/extension')});
-  const open = async () => {await commands['richMarkdownPreview.openDocumentationHome'](); if (panels.length) await panels.at(-1).message({type: 'ready'});};
-  const openSingle = async (file = '/repo/README.md') => { await commands['richMarkdownPreview.openPreview'](uri(file)); await panels.at(-1).message({type: 'ready'}); };
-  const action = (action, id) => panels.at(-1).message({type: 'documentationAction', action, id: id && uri(id).toString()});
-  const latest = type => messages.filter(message => message.type === type).at(-1);
-  return {vscode, settings, status, open, openSingle, selections, reveals, action, latest, files, reads, queries, messages, panels, warnings, opened, watchers, workspaceFolders, configuration, text, uri, getDocument};
-}
+const {host} = require('./documentation-host.cjs');
 
 test('home entry points appear without opening Markdown, and a workspace is required', async () => {
   const h = host(); assert.equal(h.status.visible, true); assert.equal(h.status.command, 'richMarkdownPreview.openDocumentationHome');
@@ -139,7 +59,7 @@ test('refresh handles additions, deletion of active docs, excludes, empty result
   assert.equal(h.latest('render').documentId, 'home'); assert.ok(h.latest('documentation').files.some(file => file.path === 'docs/new.md'));
   h.settings['documentation.include'] = 'docs/**'; await h.action('refresh'); assert.equal(h.latest('documentation').files.length, 2);
   h.settings['documentation.include'] = 'missing/**'; await h.action('refresh'); assert.equal(h.latest('documentation').files.length, 0);
-  h.vscode.workspace.findFiles = async () => {throw new Error('Search unavailable');}; await h.action('refresh'); assert.match(h.latest('documentation').error, /Search unavailable/);
+  h.vscode.workspace.findFiles = async () => {throw new Error('Search unavailable');}; await h.action('refresh'); assert.match(h.latest('documentation').error, /Retry and check workspace access/);
 });
 
 test('watchers debounce changes, live edits update previews, and disposal removes listeners', async () => {
@@ -250,4 +170,18 @@ test('Home warns about missing and malformed fragments while preserving navigati
   await h.panels[0].message({type: 'link', href: 'src/app.ts#%ZZ'});
   assert.equal(h.opened.at(-1), '/repo/src/app.ts');
   assert.match(h.warnings.at(-1), /percent encoding/);
+});
+
+test('failed and stale documentation operations keep boundaries useful without provider details',async()=>{
+  const h=host();await h.open();await h.action('open','/repo/README.md');h.files.delete('/repo/docs/guide.md');await h.action('open','/repo/docs/guide.md');assert.match(h.warnings.at(-1),/Could not open this document/);assert.equal(h.latest('render').documentId,'file:///repo/README.md');
+  h.files.set('/repo/docs/guide.md','# Guide');h.settings['documentation.exclude']='**/README.md';h.vscode.workspace.getWorkspaceFolder=()=>undefined;await h.action('refresh');await new Promise(setImmediate);assert.equal(h.latest('render').documentId,'home');
+});
+test('pending selected-document stat cannot navigate a newer or disposed preview',async()=>{
+  for(const dispose of [false,true]){
+    const h=host();await h.open();await h.action('open','/repo/README.md');h.settings['documentation.exclude']='**/README.md';let reject;h.vscode.workspace.fs.stat=()=>new Promise((_,no)=>{reject=no;});await h.action('refresh');
+    if(dispose)h.panels[0].dispose();else await h.action('open','/repo/docs/guide.md');const count=h.messages.length;reject(Error('private provider'));await new Promise(setImmediate);assert.equal(h.messages.length,count);if(!dispose)assert.equal(h.latest('render').documentId,'file:///repo/docs/guide.md');h.panels[0].dispose();
+  }
+});
+test('navigation delivery completion is ignored after disposal',async()=>{
+  const h=host();await h.open();const completions=[];h.panels[0].webview.postMessage=()=>new Promise(resolve=>completions.push(resolve));const refresh=h.action('refresh');await refresh;h.panels[0].dispose();completions.forEach(resolve=>resolve(true));await new Promise(setImmediate);await h.panels[0].message({type:'ready'});h.configuration.fire({affectsConfiguration:()=>true});assert.ok(h.watchers.every(w=>w.disposed));
 });
