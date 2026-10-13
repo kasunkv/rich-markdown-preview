@@ -148,6 +148,79 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     console.log(checks.map(check => `PASS ${check}`).join('\n'));
 });
 
+for (const documentationHome of [false, true]) {
+  test(`reading interactions survive refresh (${documentationHome ? 'documentation' : 'single file'})`, async ({page, previewServer}) => {
+    await page.goto(previewServer.url);
+    await page.locator('.table-search').first().waitFor();
+    const labels = await page.locator('.table-panel').first().locator('.table-sort > span:first-child').allTextContents();
+    await page.evaluate(labels => sessionStorage.setItem('preview-state', JSON.stringify({tables:{[JSON.stringify([0, labels])]:{query:'legacy-migration',column:0,direction:'ascending',density:'compact'}}})), labels);
+    await page.reload();
+    assert.equal(await page.locator('.table-search').first().inputValue(), 'legacy-migration');
+    const preferences = {style:'documentation', appearance:'light', contentWidth:900, fontSize:16, lineHeight:1.7, wrapCode:false};
+    const source = '---\ntitle: Reading\n---\n# Inventory\n\n| Name | Value |\n| --- | --- |\n| Alpha | 2 |\n| Alphabet | 1 |\n| Beta | 3 |';
+    const render = async (text = source, documentId = 'file:///reading.md', fragment) => page.evaluate(message => window.dispatchEvent(new MessageEvent('message', {data:message})), {type:'render', ...renderMarkdown(text), preferences, documentationHome, documentId, fragment});
+    await render();
+    const search = page.locator('.table-search');
+    await page.locator('.table-sort').nth(1).click();
+    await page.locator('.table-density').selectOption('compact');
+    await page.locator('.frontmatter-raw > summary').click();
+    await page.locator('.frontmatter > summary').click();
+    await search.fill('Alpha');
+    await search.evaluate(input => input.setSelectionRange(1, 4, 'backward'));
+    await render(source + '\n\nNew paragraph.');
+    assert.equal(await search.evaluate(input => document.activeElement === input), true);
+    assert.deepEqual(await search.evaluate(input => [input.value, input.selectionStart, input.selectionEnd, input.selectionDirection]), ['Alpha', 1, 4, 'backward']);
+    assert.equal(await page.locator('.frontmatter').evaluate(el => el.open), false);
+    assert.equal(await page.locator('.frontmatter-raw').evaluate(el => el.open), true);
+    assert.equal(await page.locator('.table-panel').getAttribute('data-density'), 'compact');
+    assert.equal(await page.locator('th').nth(1).getAttribute('aria-sort'), 'ascending');
+    await page.keyboard.type('p');
+    assert.equal(await search.inputValue(), 'Apa');
+    // A different table inserted before this section must not move its interaction state.
+    await search.fill('Alpha');
+    await render('| Other |\n| --- |\n| New |\n\n' + source.replace(/^---[\s\S]*?---\n/, ''));
+    assert.equal(await page.locator('.table-search').nth(0).inputValue(), '');
+    assert.equal(await page.locator('.table-search').nth(1).inputValue(), 'Alpha');
+    assert.equal(await page.locator('.table-search').nth(1).evaluate(input => document.activeElement === input), true);
+    // Removed controls leave focus on the reading container, with no stale focus target.
+    await render('# Inventory\n\nTable removed.');
+    assert.equal(await page.locator('main.markdown').evaluate(el => document.activeElement === el), true);
+    await render();
+    await search.fill('Alpha');
+    await page.getByRole('combobox', {name:'Style', exact:true}).focus();
+    await render();
+    assert.equal(await page.getByRole('combobox', {name:'Style', exact:true}).evaluate(el => document.activeElement === el), true);
+    if (documentationHome) await page.getByRole('button', {name:'On this page', exact:true}).click();
+    await page.locator('nav a').last().focus();
+    await render();
+    assert.equal(await page.locator('nav a').last().evaluate(el => document.activeElement === el), true);
+    await page.locator('.frontmatter > summary').focus();
+    await render();
+    assert.equal(await page.locator('.frontmatter > summary').evaluate(el => document.activeElement === el), true);
+    for (const selector of ['.table-density', '.table-sort', '.table-copy']) {
+      await page.locator(selector).first().focus();
+      await render();
+      assert.equal(await page.locator(selector).first().evaluate(el => document.activeElement === el), true);
+    }
+    await search.focus();
+    await render(source + '\n\n```mermaid\ngraph TD; A-->B;\n```');
+    await page.getByRole('combobox', {name:'Style', exact:true}).focus();
+    await page.locator('.mermaid-result').waitFor();
+    assert.equal(await page.getByRole('combobox', {name:'Style', exact:true}).evaluate(el => document.activeElement === el), true);
+    await search.focus();
+    await render(source, 'file:///reading.md', 'inventory');
+    assert.equal(await search.evaluate(input => document.activeElement === input), false);
+    await page.locator('.frontmatter > summary').click();
+    await render(source, 'file:///other.md');
+    assert.equal(await search.inputValue(), '');
+    assert.equal(await page.locator('.frontmatter').evaluate(el => el.open), true);
+    assert.equal(await page.locator('.table-panel').getAttribute('data-density'), 'comfortable');
+    await render(source, 'file:///reading.md');
+    assert.equal(await search.inputValue(), 'Alpha');
+    assert.equal(await page.locator('.frontmatter').evaluate(el => el.open), false);
+    assert.equal(await search.evaluate(input => document.activeElement === input), false);
+  });
+}
 test('content anchors isolate UI, footnotes, duplicates and encoded fragments', async ({page, previewServer}) => {
   await page.goto(previewServer.url);
   await page.locator('.mermaid-result').first().waitFor();
