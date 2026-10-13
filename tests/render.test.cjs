@@ -120,3 +120,11 @@ test('heading aliases isolate interface and footnote collisions with stable Unic
   assert.match(result.html, /id="rmp-footnote-fnref1:1"/);
   assert.deepEqual(renderMarkdown(source), result);
 });
+
+test('diagrams retain a named figure and keyboard source disclosure', () => {
+  const { html } = renderMarkdown('```mermaid\ngraph TD; A-->B\n```');
+  assert.match(html, /<figure class="diagram"[^>]*aria-label="Mermaid diagram"/);
+  assert.match(html, /<figcaption class="diagram-label">/);
+  assert.match(html, /<details class="diagram-source"><summary>Diagram source<\/summary>/);
+  assert.match(html, /<pre class="mermaid-source" tabindex="0"/);
+});

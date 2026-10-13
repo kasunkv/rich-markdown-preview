@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "scope": "VSIX production JavaScript inputs (not build/test tooling)",
-  "lockfileSha256": "0bb63ed66afdde170853c53db051d7c3e9d7eba79992b3a35b70253cc08c6885",
+  "lockfileSha256": "50d54779e99d4105fc40ac7fa07356f9a50659b9031c7d8cd8ab6d334697e292",
   "bundles": [
     {
       "file": "dist/extension.js",
-      "sha256": "a3b0e4e19251abba5d48dcb1ba5ae25a85fb46097fd4ff34cbd73e7dbab63ab5"
+      "sha256": "5a67f953dab2017a5629288206f5e2caa4b5fc2833c6ed1631656cab2f285556"
     },
     {
       "file": "dist/preview.js",
-      "sha256": "3d7b122ad27d6e80cde55bf6b4eb9f95cc1d0295d1fcae764d99d02e623d3cba"
+      "sha256": "639d960acd98f34bb98bc2e28babdb3276cb6d11e639b4ce1f2cef4ee7ed35ec"
     }
   ],
   "noticesSha256": "077d1b32d91e1be05206cb409c9e550f4c38d9e511f6dea2218f942339255f81",

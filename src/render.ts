@@ -144,7 +144,7 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
     const token = tokens[index];
     const language = token.info.trim().split(/\s+/)[0].toLowerCase();
     if (language === 'mermaid')
-      return `<figure class="diagram"><div class="diagram-label">Mermaid diagram</div><pre class="mermaid-source">${md.utils.escapeHtml(token.content)}</pre></figure>`;
+      return `<figure class="diagram" aria-label="Mermaid diagram"><figcaption class="diagram-label">Mermaid diagram</figcaption><details class="diagram-source"><summary>Diagram source</summary><pre class="mermaid-source" tabindex="0">${md.utils.escapeHtml(token.content)}</pre></details></figure>`;
     const code =
       language && hljs.getLanguage(language)
         ? hljs.highlight(token.content, { language, ignoreIllegals: true }).value

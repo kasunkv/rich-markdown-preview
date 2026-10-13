@@ -147,11 +147,7 @@ content.addEventListener(
   true,
 );
 function isDark() {
-  return (
-    document.body.dataset.appearance === 'dark' ||
-    (document.body.dataset.appearance === 'auto' &&
-      (document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')))
-  );
+  return getComputedStyle(document.body).colorScheme === 'dark';
 }
 function applyPreferences(settings: Preferences, refreshDiagrams = true) {
   const previousDark = isDark();
@@ -294,18 +290,27 @@ async function diagrams(version: number) {
       target.className = 'mermaid-result';
       target.innerHTML = svg;
       figure.querySelector('.diagram-error')?.remove();
-      figure.querySelector('.mermaid-source, .mermaid-result')?.replaceWith(target);
+      const image = target.querySelector('svg');
+      if (image && !image.querySelector('title')) {
+        image.setAttribute('role', 'img');
+        image.setAttribute(
+          'aria-label',
+          `${text.trim().split(/[\s;]/)[0]} diagram. Read Diagram source for its nodes and relationships.`,
+        );
+      }
+      const previous = figure.querySelector('.mermaid-result');
+      if (previous) previous.replaceWith(target);
+      else figure.querySelector('.diagram-source')?.before(target);
     } catch {
       if (version !== revision) return;
       figure.querySelector('.diagram-error')?.remove();
-      const source = document.createElement('pre');
-      source.className = 'mermaid-source';
-      source.textContent = text;
-      figure.querySelector('.mermaid-source, .mermaid-result')?.replaceWith(source);
+      figure.querySelector('.mermaid-result')?.remove();
+      const disclosure = figure.querySelector<HTMLDetailsElement>('.diagram-source');
+      if (disclosure) disclosure.open = true;
       const error = document.createElement('p');
       error.className = 'diagram-error';
       error.textContent = 'Could not render this Mermaid diagram. Check the syntax below.';
-      source.before(error);
+      disclosure?.before(error);
     }
   }
 }
@@ -483,13 +488,11 @@ content.addEventListener('click', (event) => {
   }
 });
 // VS Code changes body classes when its theme changes without sending a preference message.
-const vscodeDarkTheme = () =>
-  document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
-let lastVscodeDarkTheme = vscodeDarkTheme();
+let lastVscodeTheme = document.body.className;
 new MutationObserver(() => {
-  const dark = vscodeDarkTheme();
-  if (currentPreferences.appearance === 'auto' && dark !== lastVscodeDarkTheme) reportAsync(diagrams(++revision));
-  lastVscodeDarkTheme = dark;
+  const theme = document.body.className;
+  if (theme !== lastVscodeTheme) reportAsync(diagrams(++revision));
+  lastVscodeTheme = theme;
 }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 window.addEventListener('scroll', saveState, { passive: true });
 vscode.postMessage({ type: 'ready' });

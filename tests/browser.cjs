@@ -332,3 +332,97 @@ test('shared contracts reject malformed inbound state and correlate overlapping 
   assert.match(await page.locator('#rmp-ui-announcement').innerText(),/Try filtering to fewer rows/);
   assert.equal(await page.evaluate(() => window.contractRequests.length),sent);
 });
+
+test('high contrast overrides presets and rendered diagrams retain keyboard alternatives', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  const result = renderMarkdown('# Accessible reading\n\n```mermaid\ngraph TD; Reader-->Source\n```');
+  await page.evaluate(result => window.dispatchEvent(new MessageEvent('message', {data:{type:'render', ...result, preferences:{style:'ocean',appearance:'auto',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false}}})), result);
+  await page.locator('.mermaid-result svg').waitFor();
+  assert.equal(await page.locator('.diagram-source .mermaid-source').count(), 1);
+  const summary = page.locator('.diagram-source summary');
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('.diagram-source').getAttribute('open'), '');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement.className), 'mermaid-source');
+  assert.match(await page.locator('.mermaid-result svg').getAttribute('aria-label'), /graph diagram/);
+  for (const style of manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum) {
+    for (const appearance of ['auto','light','dark']) {
+      for (const theme of ['vscode-high-contrast','vscode-high-contrast-light']) {
+        const colors = await page.evaluate(({style,appearance,theme}) => {
+          document.body.className = theme;
+          document.body.dataset.style = style;
+          document.body.dataset.appearance = appearance;
+          const css = getComputedStyle(document.body);
+          return {bg:css.backgroundColor,text:css.color,scheme:css.colorScheme};
+        }, {style,appearance,theme});
+        assert.deepEqual(colors, theme === 'vscode-high-contrast'
+          ? {bg:'rgb(0, 0, 0)',text:'rgb(255, 255, 255)',scheme:'dark'}
+          : {bg:'rgb(255, 255, 255)',text:'rgb(0, 0, 0)',scheme:'light'}, `${style}/${appearance}/${theme}`);
+      }
+    }
+  }
+});
+
+test('computed cascades meet text and control contrast across every appearance and preset', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  const result = renderMarkdown('# Contrast\n\n###### Small heading\n\nBody [link](#contrast) and `inline code`.\n\n> Muted quote\n\n```js\nconst value = 123; // comment\n"string";\n```\n\n| Name | Count |\n|---|---|\n| Alpha | 1 |\n| Beta | 2 |');
+  await page.evaluate(result => window.dispatchEvent(new MessageEvent('message', {data:{type:'render', ...result, preferences:{style:'ocean',appearance:'auto',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false}}})), result);
+  for (const style of manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum) {
+    for (const appearance of ['auto','light','dark']) {
+      for (const theme of ['vscode-light','vscode-dark','vscode-high-contrast','vscode-high-contrast-light']) {
+        const failures = await page.evaluate(({style,appearance,theme}) => {
+          document.body.className = theme;
+          Object.assign(document.body.dataset,{style,appearance});
+          const canvas = document.createElement('canvas'); canvas.width=canvas.height=1;
+          const ctx=canvas.getContext('2d');
+          const rgba=color=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data].map(n=>n/255);};
+          const blend=(a,b)=>a.slice(0,3).map((n,i)=>n*a[3]+b[i]*(1-a[3]));
+          const background=el=>{const chain=[];for(let node=el;node;node=node.parentElement)chain.unshift(node);let bg=[1,1,1];for(const node of chain)bg=blend(rgba(getComputedStyle(node).backgroundColor),bg);return bg;};
+          const luminance=rgb=>rgb.map(n=>n<=.04045?n/12.92:((n+.055)/1.055)**2.4).reduce((s,n,i)=>s+n*[.2126,.7152,.0722][i],0);
+          const ratio=(a,b)=>(Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
+          const failures=[];
+          const check=(el,property,min)=>{const css=getComputedStyle(el), bg=background(el);const r=ratio(blend(rgba(css[property]),bg),bg);if(r+.01<min)failures.push(`${el.tagName}.${el.className} ${property} ${r.toFixed(2)} < ${min}`);};
+          for(const el of document.querySelectorAll('.markdown p,.markdown h6,.markdown a,.markdown code,.hljs-keyword,.hljs-string,.hljs-number,.hljs-comment,.controls label,.code-toolbar,.table-count,.table-sort,td'))check(el,'color',4.5);
+          for(const el of document.querySelectorAll('select,input[type="number"],.table-search'))check(el,'borderTopColor',3);
+          document.querySelector('#rmp-ui-toggle-outline').focus();
+          check(document.activeElement,'outlineColor',3);
+          return failures;
+        }, {style,appearance,theme});
+        assert.deepEqual(failures,[],`${style}/${appearance}/${theme}`);
+      }
+    }
+  }
+});
+
+test('axe, keyboard, zoom reflow and reduced motion accessibility smoke', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  const result = renderMarkdown('---\ntitle: Accessible reading\n---\n\n# Keyboard reading\n\n[Heading link](#keyboard-reading)\n\n```mermaid\ngraph TD; Reader-->Source\n```\n\n| Name | Count |\n|---|---|\n| Alpha | 1 |\n| Beta | 2 |');
+  await page.evaluate(result => window.dispatchEvent(new MessageEvent('message',{data:{type:'render',...result,preferences:{style:'ocean',appearance:'auto',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false}}})),result);
+  await page.locator('.mermaid-result').first().waitFor();
+  // The production shell language is owned by spec022. This fixture prerequisite
+  // is explicit until that shared shell is integrated.
+  await page.evaluate(() => document.documentElement.lang='en');
+  await page.evaluate(fs.readFileSync(require.resolve('axe-core/axe.min.js'),'utf8'));
+  const results = await page.evaluate(async () => axe.run(document, {runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+  assert.deepEqual(results.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)})),[]);
+  await page.emulateMedia({reducedMotion:'reduce'});
+  assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).scrollBehavior),'auto');
+  for(const zoom of [2,4]) {
+    // 1280 CSS px at normal scale becomes 640/320 at browser zoom. CSS zoom
+    // scales controls/text and layout together while preserving keyboard input.
+    await page.setViewportSize({width:1280,height:1000});
+    await page.evaluate(zoom=>document.body.style.zoom=String(zoom),zoom);
+    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+1);
+    assert.equal(overflow,false,`${zoom*100}% page reflow`);
+    await page.locator('#rmp-ui-toggle-outline').focus();
+    await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#rmp-ui-toggle-outline').getAttribute('aria-expanded'),'true');
+    const summary=page.locator('.frontmatter > summary').first();
+    await summary.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
+    const sort=page.locator('.table-sort').first();
+    await sort.focus(); await page.keyboard.press('Enter');
+    assert.match(await sort.locator('..').getAttribute('aria-sort'),/ascending|descending/);
+    assert.equal(await page.locator('.table-count').first().getAttribute('aria-live'),'polite');
+  }
+});
