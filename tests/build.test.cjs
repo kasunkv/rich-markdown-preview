@@ -8,7 +8,12 @@ const { SourceMap } = require('node:module');
 async function eventually(check) {
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
-    if (await check()) return;
+    try {
+      if (await check()) return;
+    } catch (error) {
+      // Output may be temporarily locked or replaced while the watcher writes.
+      if (!['EBUSY', 'ENOENT'].includes(error.code)) throw error;
+    }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.fail('Watcher did not update output within 10 seconds');

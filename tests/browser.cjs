@@ -129,7 +129,7 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     await page.locator('.copy-code').click();
     await page.waitForFunction(() => document.getElementById('rmp-ui-announcement').textContent === 'Code copied');
     assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n','\n'),'const value = 42;\n');
-    await page.check('#rmp-ui-wrap-code'); assert.equal(await page.locator('body').evaluate(el => el.classList.contains('wrap-code')),true);
+    await page.check('#rmp-ui-wrapCode'); assert.equal(await page.locator('body').evaluate(el => el.classList.contains('wrap-code')),true);
     await page.click('#rmp-ui-toggle-outline'); assert.equal(await page.locator('.outline').isVisible(),false);
     await page.click('#rmp-ui-toggle-outline'); assert.equal(await page.locator('#rmp-ui-toggle-outline').getAttribute('aria-expanded'),'true');
     await page.selectOption('#rmp-ui-appearance','auto');
@@ -146,4 +146,58 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     assert.deepEqual(errors, []);
     await testInfo.attach('checks', {body: JSON.stringify(checks), contentType: 'application/json'});
     console.log(checks.map(check => `PASS ${check}`).join('\n'));
+});
+
+test('content anchors isolate UI, footnotes, duplicates and encoded fragments', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  await page.locator('.mermaid-result').first().waitFor();
+  const source = '# Content\n# Style\n# Outline\n# App\n# Announcement\n# fn1\n# fnref1\n# rmp-ui-style\n# rmp-footnote-fn1\n# Café 日本語\n# Café 日本語\n# Café 日本語-1\n\nNote[^a] again[^a].\n\n[^a]: Note text.';
+  const result = renderMarkdown(source);
+  const preferences = {style:'ocean',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences});
+  await page.evaluate(() => {
+    window.anchorCalls = [];
+    Element.prototype.scrollIntoView = function() { window.anchorCalls.push(this.id); };
+  });
+  const ids = await page.locator('[id]').evaluateAll(nodes => nodes.map(node => node.id));
+  assert.equal(new Set(ids).size, ids.length);
+  for (let index = 0; index < result.outline.length; index++) {
+    const item = result.outline[index];
+    await page.locator('#rmp-ui-outline a').nth(index).click();
+    assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), item.id);
+    await page.locator('#rmp-ui-content').evaluate((content, fragment) => {
+      const link = document.createElement('a');
+      link.href = '#' + encodeURIComponent(fragment);
+      link.textContent = 'fragment';
+      content.append(link);
+      link.click();
+      link.remove();
+    }, item.fragment);
+    assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), item.id);
+  }
+  await page.locator('.footnote-ref a').nth(1).click();
+  assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), 'rmp-footnote-fn1');
+  await page.locator('.footnote-backref').nth(1).click();
+  assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), 'rmp-footnote-fnref1:1');
+  const before = await page.evaluate(() => window.anchorCalls.length);
+  for (const fragment of ['missing-anchor','rmp-ui-announcement','%E0%A4%A']) {
+    await page.locator('#rmp-ui-content').evaluate((content, fragment) => {
+      const link = document.createElement('a');
+      link.setAttribute('href', '#' + fragment);
+      content.append(link); link.click(); link.remove();
+    }, fragment);
+  }
+  assert.equal(await page.evaluate(() => window.anchorCalls.length), before);
+  await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences,fragment:encodeURIComponent('café-日本語-1')});
+  await page.waitForFunction(() => window.anchorCalls.at(-1) === 'rmp-heading-café-日本語-1');
+  const footnotes = renderMarkdown('Note[^a] again[^a].\n\n[^a]: Note text.');
+  await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...footnotes,preferences});
+  for (const [fragment, id] of [['fn1','rmp-footnote-fn1'], ['fnref1:1','rmp-footnote-fnref1:1']]) {
+    await page.locator('#rmp-ui-content').evaluate((content, fragment) => {
+      const link = document.createElement('a');
+      link.href = '#' + encodeURIComponent(fragment);
+      content.append(link); link.click(); link.remove();
+    }, fragment);
+    assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), id);
+  }
 });

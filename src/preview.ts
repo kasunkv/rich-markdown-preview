@@ -20,8 +20,8 @@ declare function acquireVsCodeApi(): {
   setState(state: unknown): void;
 };
 const vscode = acquireVsCodeApi();
-const app = document.getElementById('app')!;
-app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="rmp-ui-style" data-preference-key="style" aria-label="Style">${previewStyles.map((style) => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="rmp-ui-appearance" data-preference-key="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="rmp-ui-width-value" data-preference-output="contentWidth"></output><input id="rmp-ui-content-width" data-preference-key="contentWidth" aria-label="Content width" type="range" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"><input id="rmp-ui-content-width-value" data-preference-key="contentWidth" aria-label="Content width value" type="number" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"></label><label>Text <input id="rmp-ui-font-size" data-preference-key="fontSize" aria-label="Text size" type="number" min="${numericPreferenceRanges.fontSize[0]}" max="${numericPreferenceRanges.fontSize[1]}" step="any"></label><label>Spacing <input id="rmp-ui-line-height" data-preference-key="lineHeight" aria-label="Line spacing" type="number" min="${numericPreferenceRanges.lineHeight[0]}" max="${numericPreferenceRanges.lineHeight[1]}" step="any"></label><label class="checkbox"><input id="rmp-ui-wrap-code" data-preference-key="wrapCode" type="checkbox">Wrap code</label><button id="rmp-ui-toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="rmp-ui-outline"></nav></aside><main id="rmp-ui-content" class="markdown" aria-label="Markdown preview"></main></div><div id="rmp-ui-announcement" class="sr-only" aria-live="polite"></div>`;
+const app = document.getElementById('rmp-ui-app')!;
+app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="rmp-ui-style" data-preference-key="style" aria-label="Style">${previewStyles.map((style) => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="rmp-ui-appearance" data-preference-key="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="rmp-ui-width-value" data-preference-output="contentWidth"></output><input id="rmp-ui-contentWidth" data-preference-key="contentWidth" aria-label="Content width" type="range" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"><input id="rmp-ui-contentWidth-entry" data-preference-key="contentWidth" aria-label="Content width value" type="number" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"></label><label>Text <input id="rmp-ui-fontSize" data-preference-key="fontSize" aria-label="Text size" type="number" min="${numericPreferenceRanges.fontSize[0]}" max="${numericPreferenceRanges.fontSize[1]}" step="any"></label><label>Spacing <input id="rmp-ui-lineHeight" data-preference-key="lineHeight" aria-label="Line spacing" type="number" min="${numericPreferenceRanges.lineHeight[0]}" max="${numericPreferenceRanges.lineHeight[1]}" step="any"></label><label class="checkbox"><input id="rmp-ui-wrapCode" data-preference-key="wrapCode" type="checkbox">Wrap code</label><button id="rmp-ui-toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="rmp-ui-outline"></nav></aside><main id="rmp-ui-content" class="markdown" aria-label="Markdown preview"></main></div><div id="rmp-ui-announcement" class="sr-only" aria-live="polite"></div>`;
 const content = document.getElementById('rmp-ui-content')!;
 const outline = document.getElementById('rmp-ui-outline')!;
 const documentation = documentationView(vscode, content);
@@ -107,8 +107,26 @@ function preferenceControlValue(control: HTMLInputElement | HTMLSelectElement, k
 function validNumericControl(control: HTMLInputElement | HTMLSelectElement) {
   return Boolean(control.value) && control.validity.valid && Number.isFinite(Number(control.value));
 }
-function scrollToHeading(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+// Author fragments use aliases (headings win over footnotes); internal links use
+// exact DOM IDs. Both paths stay inside Markdown, including missing anchors.
+function findContentAnchor(fragment: string, internal = false): HTMLElement | undefined {
+  let id: string;
+  try {
+    id = decodeURIComponent(fragment.replace(/^#/, ''));
+  } catch {
+    return undefined;
+  }
+  const targets = Array.from(content.querySelectorAll<HTMLElement>('[id]'));
+  if (!internal) {
+    const alias =
+      targets.find((target) => target.dataset.mdAnchor === id && /^H[1-6]$/.test(target.tagName)) ??
+      targets.find((target) => target.dataset.mdAnchor === id);
+    if (alias) return alias;
+  }
+  return targets.find((target) => target.id === id);
+}
+function scrollToHeading(fragment: string, internal = false) {
+  findContentAnchor(fragment, internal)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 async function diagrams(version: number) {
   const dark = isDark();
@@ -268,7 +286,7 @@ window.addEventListener('message', (event) => {
     link.style.paddingLeft = `${Math.min(item.level - 1, 3) * 12 + 10}px`;
     link.addEventListener('click', (event) => {
       event.preventDefault();
-      scrollToHeading(item.id);
+      scrollToHeading(item.id, true);
     });
     outline.append(link);
   }
@@ -327,9 +345,10 @@ content.addEventListener('click', (event) => {
     event.preventDefault();
     const href = link.getAttribute('href') ?? '';
     if (href.startsWith('#')) {
-      try {
-        scrollToHeading(decodeURIComponent(href.slice(1)));
-      } catch {}
+      scrollToHeading(
+        href.slice(1),
+        link.closest('.footnote-ref') !== null || link.classList.contains('footnote-backref'),
+      );
     } else vscode.postMessage({ type: 'link', href });
   }
 });

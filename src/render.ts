@@ -12,6 +12,7 @@ import { installReferences, type FileReference } from './references';
 
 export interface OutlineItem {
   id: string;
+  fragment: string;
   text: string;
   level: number;
 }
@@ -26,6 +27,14 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
     .use(mark)
     .use(subscript)
     .use(superscript);
+  // Keep plugin-generated footnote links and IDs in a separate namespace.
+  for (const rule of ['footnote_ref', 'footnote_open', 'footnote_anchor']) {
+    const render = md.renderer.rules[rule]!;
+    md.renderer.rules[rule] = (tokens, index, options, env, renderer) =>
+      render(tokens, index, options, env, renderer)
+        .replace(/id="(fn[^"]+)"/g, 'id="rmp-footnote-$1" data-md-anchor="$1"')
+        .replace(/href="#(fn[^"]+)"/g, 'href="#rmp-footnote-$1"');
+  }
   md.renderer.rules.emoji = (tokens, index) =>
     `<span class="emoji" role="img" aria-label="${md.utils.escapeHtml(tokens[index].markup.replace(/_/g, ' '))}">${md.utils.escapeHtml(tokens[index].content)}</span>`;
   md.renderer.rules.table_open = (tokens, index, options, env, renderer) =>
@@ -94,8 +103,9 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
     }
     ids.set(base, count + 1);
     usedIds.add(id);
-    tokens[index].attrSet('id', id);
-    outline.push({ id, text, level: Number(tokens[index].tag.slice(1)) });
+    tokens[index].attrSet('id', 'rmp-heading-' + id);
+    tokens[index].attrSet('data-md-anchor', id);
+    outline.push({ id: 'rmp-heading-' + id, fragment: id, text, level: Number(tokens[index].tag.slice(1)) });
     return renderer.renderToken(tokens, index, options);
   };
   const image = md.renderer.rules.image!;

@@ -217,17 +217,19 @@ test('advisories fail high/critical, allow reviewed exceptions only until UTC ex
   assert.throws(() => evaluateAudit(dangling, { exceptions: [] }), /Missing propagated/);
 });
 
-test('dependency update PRs use ordinary quality and dependency gates with SHA-pinned Actions', async () => {
+test('dependency update PRs use the required gate; maintenance keeps SHA-pinned Actions', async () => {
   const workflows = await Promise.all(
     ['quality.yml', 'dependencies.yml'].map((file) =>
       fs.readFile(path.join(__dirname, '../.github/workflows', file), 'utf8'),
     ),
   );
-  for (const workflow of workflows) {
-    assert.match(workflow, /pull_request:/);
-    assert.doesNotMatch(workflow, /dependabot\[bot\]|pull_request_target/);
-  }
+  assert.match(workflows[0], /pull_request:/);
+  assert.match(workflows[1], /workflow_dispatch:/);
+  assert.match(workflows[1], /schedule:/);
+  for (const workflow of workflows) assert.doesNotMatch(workflow, /dependabot\[bot\]|pull_request_target/);
   assert.match(workflows[0], /npm run check:quality/);
+  assert.match(workflows[0], /npm run check:dependencies/);
+  assert.match(workflows[0], /npm run package/);
   assert.match(workflows[1], /npm run check:dependencies/);
   assert.match(workflows[1], /npm run package/);
   for (const action of workflows.join('\n').matchAll(/uses:\s*([^\s]+)/g)) assert.match(action[1], /@[0-9a-f]{40}$/);

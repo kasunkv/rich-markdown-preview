@@ -1,6 +1,5 @@
 name: VS Code host compatibility
 on:
-  pull_request:
   push:
     tags: ['v*']
   workflow_dispatch:
