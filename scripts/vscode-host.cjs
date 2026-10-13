@@ -9,11 +9,12 @@ function parseArgs(args) {
   while (args.length) {
     const key = args.shift();
     if (key === '--force-failure') options.forceFailure = true;
-    else if (['--version', '--mode', '--vsix'].includes(key) && args.length) options[key.slice(2)] = args.shift();
+    else if (['--version', '--mode', '--vsix', '--trust'].includes(key) && args.length) options[key.slice(2)] = args.shift();
     else throw new Error(`Unknown or incomplete argument: ${key}`);
   }
   if (!['development', 'package'].includes(options.mode)) throw new Error('Mode must be development or package');
   if (!/^(stable|insiders|\d+\.\d+\.\d+)$/.test(options.version)) throw new Error('Version must be minimum/exact version, stable or insiders');
+  if (options.trust && !['trusted', 'restricted', 'transition'].includes(options.trust)) throw new Error('Trust must be trusted, restricted or transition');
   return options;
 }
 
@@ -33,14 +34,14 @@ async function run(options, electron = require('@vscode/test-electron')) {
   await fs.mkdir(base, { recursive: true });
   const directory = await fs.mkdtemp(path.join(base, `${options.version}-${options.mode}-`));
   const resultPath = path.join(directory, 'result.json');
-  const report = { requestedVersion: options.version, mode: options.mode, os: os.platform(), arch: os.arch(), commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), sourceDirty: Boolean(execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()), startedAt: new Date().toISOString(), passed: false };
+  const report = { requestedVersion: options.version, mode: options.mode, trust: options.trust || 'disabled', os: os.platform(), arch: os.arch(), commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), sourceDirty: Boolean(execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()), startedAt: new Date().toISOString(), passed: false };
   try {
     const workspace = path.join(directory, 'workspace');
     await fs.cp(path.join(root, 'tests', 'fixtures', 'workspace'), workspace, { recursive: true, filter: source => path.basename(source) !== '.vscode' });
     await fs.mkdir(path.join(workspace, 'node_modules'), { recursive: true });
     await fs.writeFile(path.join(workspace, 'node_modules', 'excluded.md'), '# Must not be indexed\n');
     await fs.mkdir(path.join(directory, 'user', 'User'), { recursive: true });
-    await fs.writeFile(path.join(directory, 'user', 'User', 'settings.json'), JSON.stringify({ 'telemetry.telemetryLevel': 'off', 'update.mode': 'none', 'extensions.autoCheckUpdates': false, 'extensions.autoUpdate': false, 'workbench.enableExperiments': false, 'workbench.startupEditor': 'none' }));
+    await fs.writeFile(path.join(directory, 'user', 'User', 'settings.json'), JSON.stringify({ 'telemetry.telemetryLevel': 'off', 'update.mode': 'none', 'extensions.autoCheckUpdates': false, 'extensions.autoUpdate': false, 'workbench.enableExperiments': false, 'workbench.startupEditor': 'none', 'security.workspace.trust.startupPrompt': 'never' }));
     const profiles = [`--user-data-dir=${path.join(directory, 'user')}`, `--extensions-dir=${path.join(directory, 'extensions')}`];
     const executable = await electron.downloadAndUnzipVSCode({ version: options.version, cachePath: path.join(root, '.test-results', 'host-downloads') });
     let developmentPath = root;
@@ -64,7 +65,7 @@ async function run(options, electron = require('@vscode/test-electron')) {
     await new Promise(resolve => debugServer.listen(0, '127.0.0.1', resolve));
     const debugPort = debugServer.address().port;
     await new Promise(resolve => debugServer.close(resolve));
-    const exitCode = await electron.runTests({ vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', 'vscode-settings.cjs'), launchArgs: [workspace, ...profiles, `--remote-debugging-port=${debugPort}`, '--remote-debugging-address=127.0.0.1', '--skip-welcome', '--skip-release-notes', '--disable-workspace-trust', '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { RICH_MARKDOWN_PREVIEW_DEBUG_PORT: String(debugPort), RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
+    const exitCode = await electron.runTests({ vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs'), launchArgs: [workspace, ...profiles, `--remote-debugging-port=${debugPort}`, '--remote-debugging-address=127.0.0.1', '--skip-welcome', '--skip-release-notes', ...(options.trust ? [] : ['--disable-workspace-trust']), '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { RICH_MARKDOWN_PREVIEW_DEBUG_PORT: String(debugPort), RICH_MARKDOWN_PREVIEW_TEST_TRUST: options.trust || 'disabled', RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
     report.suite = JSON.parse(await fs.readFile(path.join(directory, 'suite.json'), 'utf8'));
     report.hostVersion = report.suite.hostVersion;
     if (exitCode !== 0 || !report.suite.passed) throw new Error(`Host smoke failed (exit ${exitCode})`);

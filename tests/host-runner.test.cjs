@@ -71,3 +71,27 @@ test('Windows CLI discovery supports old and version-directory archive layouts',
     }
   } finally { await fs.rm(directory, { recursive: true, force: true }); }
 });
+
+test('explicit trust modes retain Workspace Trust in isolated profiles', async () => {
+  for (const trust of ['restricted', 'trusted', 'transition']) {
+    assert.equal(parseArgs(['--trust', trust]).trust, trust);
+    let directory;
+    try {
+      await run(parseArgs(['--trust', trust]), {
+        downloadAndUnzipVSCode: async () => '/downloaded/host',
+        runTests: async options => {
+          const env = options.extensionTestsEnv;
+          directory = path.dirname(env.RICH_MARKDOWN_PREVIEW_TEST_RESULT);
+          assert.equal(env.RICH_MARKDOWN_PREVIEW_TEST_TRUST, trust);
+          assert.ok(!options.launchArgs.includes('--disable-workspace-trust'));
+          assert.equal(path.basename(options.extensionTestsPath), 'vscode-trust.cjs');
+          const settings = JSON.parse(await fs.readFile(path.join(directory, 'user', 'User', 'settings.json')));
+          assert.equal(settings['security.workspace.trust.startupPrompt'], 'never');
+          await fs.writeFile(env.RICH_MARKDOWN_PREVIEW_TEST_RESULT, JSON.stringify({hostVersion: '1.95.0', passed: true}));
+          return 0;
+        }
+      });
+    } finally { if (directory) await fs.rm(directory, { recursive: true, force: true }); }
+  }
+  assert.throws(() => parseArgs(['--trust', 'unknown']), /Trust must/);
+});

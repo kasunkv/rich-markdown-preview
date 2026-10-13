@@ -66,6 +66,7 @@ function loadUrl() {
   return module.exports;
 }
 const moduleObject = { exports: {} };
+const canonicalAccess = [];
 let workspaceRoot;
 const vscode = {
   Uri: { joinPath: Utils.joinPath, parse: URI.parse },
@@ -93,8 +94,8 @@ vm.runInNewContext(
           : name === 'node:fs'
             ? {
                 ...fs,
-                realpathSync: (value) => (value.endsWith('literal?.svg') ? value : fs.realpathSync(value)),
-                statSync: (value) => (value.endsWith('literal?.svg') ? { isFile: () => true } : fs.statSync(value)),
+                realpathSync: (value) => { canonicalAccess.push({type:'realpath',value}); return value.endsWith('literal?.svg') ? value : fs.realpathSync(value); },
+                statSync: (value) => { canonicalAccess.push({type:'stat',value}); return value.endsWith('literal?.svg') ? { isFile: () => true } : fs.statSync(value); },
               }
             : require(name),
     __coverage__: (globalThis.__coverage__ ??= {}),
@@ -194,4 +195,56 @@ process.on('exit', () => {
   assert.ok(path.resolve(temporary).startsWith(path.resolve(os.tmpdir()) + path.sep));
   assert.ok(path.basename(temporary).startsWith('rmp-resources-'));
   fs.rmSync(temporary, { recursive: true, force: true });
+});
+
+test('Restricted Mode navigation requires a canonical local workspace file', () => {
+  workspaceRoot = URI.file(root);
+  const safe = URI.file(path.join(root, 'assets', 'diagram.svg'));
+  assert.equal(policy.restrictedNavigationAllowed(safe), true);
+  assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(root, 'alias', 'diagram.svg'))), true);
+  for (const candidate of [
+    URI.file(path.join(temporary, 'secret.svg')),
+    URI.file(path.join(root, 'escape', 'secret.svg')),
+    URI.file(path.join(root, 'missing.md')),
+    URI.file(path.join(root, 'assets')),
+    URI.parse('command://open/private.md'),
+    URI.parse('file://other-host' + safe.path),
+  ]) assert.equal(policy.restrictedNavigationAllowed(candidate), false, candidate.toString());
+  workspaceRoot = undefined;
+  assert.equal(policy.restrictedNavigationAllowed(safe), false);
+  workspaceRoot = URI.parse('vscode-remote://host/work');
+  assert.equal(policy.restrictedNavigationAllowed(URI.parse('vscode-remote://host/work/guide.md')), false);
+});
+
+test('Restricted Mode rejects lexical outside targets before filesystem discovery', () => {
+  workspaceRoot = URI.file(root);
+  canonicalAccess.length = 0;
+  assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(temporary, 'secret.svg'))), false);
+  assert.deepEqual(canonicalAccess, []);
+  assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(root, 'escape', 'secret.svg'))), false);
+  assert.ok(canonicalAccess.some(entry => entry.type === 'realpath'));
+  assert.ok(!canonicalAccess.some(entry => entry.type === 'stat'), 'Canonical escape is denied before stat');
+});
+
+test('Restricted Mode also rejects inconsistent workspace provider roots lexically', () => {
+  const resolveFolder = vscode.workspace.getWorkspaceFolder;
+  try {
+    // Defend even if provider discovery reports a folder for a target outside it.
+    vscode.workspace.getWorkspaceFolder = () => ({ uri: URI.file(root) });
+    for (const target of [URI.file(temporary), URI.file(path.join(temporary, 'secret.svg'))]) {
+      canonicalAccess.length = 0;
+      assert.equal(policy.restrictedNavigationAllowed(target), false);
+      assert.deepEqual(canonicalAccess, []);
+    }
+    // Different drives produce an absolute relative path on Windows.
+    if (process.platform === 'win32') {
+      canonicalAccess.length = 0;
+      assert.equal(policy.restrictedNavigationAllowed(URI.file('Z:\\outside.md')), false);
+      assert.deepEqual(canonicalAccess, []);
+    }
+    vscode.workspace.getWorkspaceFolder = () => ({ uri: URI.parse('vscode-remote://host/work') });
+    assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(root, 'assets', 'diagram.svg'))), false);
+    vscode.workspace.getWorkspaceFolder = () => ({ uri: URI.file(root).with({authority:'other-host'}) });
+    assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(root, 'assets', 'diagram.svg'))), false);
+  } finally { vscode.workspace.getWorkspaceFolder = resolveFolder; }
 });

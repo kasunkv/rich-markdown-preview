@@ -46,3 +46,22 @@ export function resolveImageResource(src: string, document: vscode.Uri, webview:
     return '';
   }
 }
+
+/** Restricted Mode only reads canonical local files contained by a workspace folder. */
+export function restrictedNavigationAllowed(target: vscode.Uri): boolean {
+  try {
+    const root = vscode.workspace.getWorkspaceFolder(target)?.uri;
+    if (!root || target.scheme !== 'file' || root.scheme !== 'file' || target.authority !== root.authority)
+      return false;
+    const logical = relative(root.fsPath, target.fsPath);
+    if (logical === '..' || logical.startsWith(`..${sep}`) || isAbsolute(logical)) return false;
+    const canonicalRoot = realpathSync(root.fsPath);
+    const canonicalTarget = realpathSync(target.fsPath);
+    const within = relative(canonicalRoot, canonicalTarget);
+    return (
+      within !== '..' && !within.startsWith(`..${sep}`) && !isAbsolute(within) && statSync(canonicalTarget).isFile()
+    );
+  } catch {
+    return false;
+  }
+}
