@@ -1,22 +1,15 @@
 // End-to-end checks of the shipped webview bundle in Chromium.
-const { chromium } = require('playwright');
-const { spawn } = require('node:child_process');
+const { test } = require('./browser-fixtures.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { renderMarkdown } = require('../dist/render.cjs');
 const manifest = require('../package.json');
 
-(async () => {
-  const server = spawn(process.execPath, ['tests/preview-server.cjs'], { cwd: path.resolve(__dirname, '..'), stdio: ['ignore', 'pipe', 'inherit'] });
-  let browser;
+test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
   const checks = [], errors = [];
-  try {
-    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('error', reject); server.once('exit', code => reject(new Error(`Preview server exited: ${code}`))); });
-    browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? {executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE} : {}) });
-    const context = await browser.newContext({ viewport:{width:1440,height:1000}, permissions:['clipboard-read','clipboard-write'] });
-    const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
-    await page.goto('http://127.0.0.1:4173');
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(previewServer.url);
     await page.locator('.mermaid-result').first().waitFor();
     assert.equal(await page.locator('.brand').innerText(), 'Rich Markdown\nPREVIEW');
     assert.equal(await page.locator('#style option').count(), 18);
@@ -72,11 +65,6 @@ const manifest = require('../package.json');
       }
     }
     checks.push('All 36 style/appearance combinations');
-    await page.selectOption('#style','editorial'); await page.selectOption('#appearance','light');
-    fs.mkdirSync('docs',{recursive:true}); await page.screenshot({path:'docs/rich-markdown-preview-light.png'});
-    await page.selectOption('#style','ocean'); await page.selectOption('#appearance','dark');
-    await page.screenshot({path:'docs/rich-markdown-preview-dark.png'});
-
     await render('| Name | Value |\n| --- | ---: |\n| Item 10 | 10 |\n| Item 2 | 2 |\n| Item 1 | |\n\n| Other |\n| --- |\n| Separate |');
     const table = page.locator('.table-panel').first();
     await table.locator('.table-sort').nth(1).click();
@@ -121,7 +109,6 @@ const manifest = require('../package.json');
     assert.equal(await page.locator('#toggle-outline').isVisible(),true);
     checks.push('Invalid diagram recovery, empty preview, and narrow viewport controls');
     assert.deepEqual(errors, []);
-    fs.mkdirSync('.test-results',{recursive:true}); fs.writeFileSync('.test-results/browser.json',JSON.stringify({passed:true,checks},null,2));
+    await testInfo.attach('checks', {body: JSON.stringify(checks), contentType: 'application/json'});
     console.log(checks.map(check => `PASS ${check}`).join('\n'));
-  } finally { await browser?.close(); server.kill(); }
-})().catch(error => { console.error(error); process.exitCode=1; });
+});

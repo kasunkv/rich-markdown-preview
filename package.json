@@ -213,7 +213,7 @@
     "build:production": "node build.mjs --production",
     "test:only": "node --test tests/*.test.cjs",
     "test:coverage:only": "node --test --experimental-test-coverage tests/*.test.cjs",
-    "test:browser:only": "node tests/browser.cjs && node tests/documentation-browser.cjs",
+    "test:browser:only": "npm run test:browser:harness && node scripts/browser-runner.cjs",
     "test:package:only": "node --test tests/package.test.cjs",
     "lint": "eslint src --max-warnings 0",
     "lint:fix": "npm run lint -- --fix",
@@ -222,7 +222,12 @@
     "check:quality": "npm run check && npm run lint && npm run format:check",
     "test:host": "npm run build:production && npm run test:host:only",
     "test:host:only": "node scripts/vscode-host.cjs",
-    "test:host:package": "node scripts/vscode-host.cjs --mode package"
+    "test:host:package": "node scripts/vscode-host.cjs --mode package",
+    "browser:install": "playwright install chromium",
+    "browser:install:ci": "playwright install --with-deps chromium",
+    "screenshots:marketing": "npm run build:production && node scripts/browser-runner.cjs --marketing",
+    "validate": "npm run check:quality && npm run build:production && npm run test:coverage:only && npm run test:browser:only && npm run test:host:only",
+    "test:browser:harness": "node --test tests/browser-harness/*.test.cjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -238,6 +243,7 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.0.0",
     "@types/vscode": "1.95.0",
@@ -245,7 +251,7 @@
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.25.0",
     "eslint": "^10.12.0",
-    "playwright": "^1.62.1",
+    "playwright": "1.62.1",
     "prettier": "^3.9.10",
     "typescript": "^5.9.0",
     "typescript-eslint": "^8.71.2",
