@@ -9,7 +9,8 @@ import { resolveSourceFragment, fragmentWarning } from './fragment-navigation';
 import { parseResourceUrl } from './resource-url';
 import { previewStyles } from './styles';
 import { referencePaths, type FileReference } from './references';
-import { homedir } from 'node:os';
+import { homedir, platform } from 'node:os';
+import { resolveReference } from './provider-paths';
 import { DocumentationIndex } from './documentation';
 import { numericPreferenceRanges } from './preference-ranges';
 import { previewResourceRoots, resolveImageResource } from './resources';
@@ -476,33 +477,21 @@ export function activate(context: vscode.ExtensionContext) {
             const rootSetting = vscode.workspace
               .getConfiguration('richMarkdownPreview', preferenceUri())
               .get<string>('referenceRoot', '');
-            const root = rootSetting
-              ? /^[a-z]:[\\/]/i.test(rootSetting)
-                ? vscode.Uri.file(rootSetting)
-                : vscode.Uri.joinPath(workspaceRoot, rootSetting)
-              : workspaceRoot;
             for (const candidate of referencePaths(reference)) {
-              let path: string;
-              try {
-                path = decodeURIComponent(candidate).replace(/\\/g, '/');
-              } catch {
+              const resolution = resolveReference(candidate, directory, workspaceRoot, rootSetting, {
+                joinPath: vscode.Uri.joinPath,
+                file: vscode.Uri.file,
+                platform: platform(),
+                home: homedir(),
+              });
+              if (resolution.kind !== 'target') {
+                if (resolution.kind === 'unsupported') {
+                  reportAsync(vscode.window.showWarningMessage(resolution.message));
+                  return;
+                }
                 continue;
               }
-              if (
-                !path ||
-                path.length > messageLimits.uri ||
-                /[\u0000-\u001f\u007f]/.test(path) ||
-                path.startsWith('//') ||
-                (/^[a-z][a-z\d+.-]*:/i.test(path) && !/^[a-z]:\//i.test(path))
-              )
-                continue;
-              const target = /^[a-z]:\//i.test(path)
-                ? vscode.Uri.file(path)
-                : path.startsWith('~/')
-                  ? vscode.Uri.file(`${homedir()}/${path.slice(2)}`)
-                  : path.startsWith('/')
-                    ? vscode.Uri.joinPath(root, path.slice(1))
-                    : vscode.Uri.joinPath(directory, path);
+              const target = resolution.uri;
               const stat = await navigationAdapter.resolve(
                 'resolve referenced file',
                 () => vscode.workspace.fs.stat(target),
@@ -570,6 +559,15 @@ export function activate(context: vscode.ExtensionContext) {
                 await vscode.env.clipboard.writeText(csv);
                 if (!currentModel()) return;
               } else {
+                if (directory.scheme && directory.scheme !== 'file') {
+                  const detail =
+                    'CSV export is unavailable for this provider workspace. Use Copy CSV and save it in a writable host folder.';
+                  reportAsync(vscode.window.showWarningMessage(detail));
+                  reportAsync(
+                    post({ type: 'tableActionResult', requestId, action: message.type, success: false, error: detail }),
+                  );
+                  return;
+                }
                 const filename = message.filename;
                 const destination = await vscode.window.showSaveDialog({
                   defaultUri: vscode.Uri.joinPath(directory, filename),
