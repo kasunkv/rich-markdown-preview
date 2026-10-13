@@ -66,6 +66,6 @@ test('detached work observes native promises and rejecting VS Code Thenables', a
   exports.reportAsync(Promise.resolve(true));
   await new Promise(setImmediate);
   assert.equal(failures.length, 2);
-  assert.ok(failures.some((args) => args[1] === native));
-  assert.ok(failures.some((args) => args[1] === thenable));
+  assert.ok(failures.every((args) => args.length === 1 && /Retry the action/.test(args[0])));
+  assert.ok(!JSON.stringify(failures).includes('fixture'));
 });

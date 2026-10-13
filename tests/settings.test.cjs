@@ -1,68 +1,7 @@
-const { test } = require('node:test');
+const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
-const fs = require('node:fs');
+const {previewHost} = require('./preview-host.cjs');
 const manifest = require('../package.json');
-
-function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', fileName = '/fixture/test.md', failOpen = false, missingReference = false, initial = {}, previous = {}, legacy = {} } = {}) {
-  const saved = {...initial};
-  const messages = [];
-  const warnings = [];
-  const errors = [];
-  const writes = [];
-  const clipboard = [], files = [], dialogs = [], opened = [], external = [], info = [];
-  let created = 0, revealed = 0, disposed = 0;
-  const columns = [];
-  const handlers = {};
-  const disposable = {dispose() {disposed++;}};
-  const uri = {path: fileName, toString: () => `file://${fileName}`};
-  const document = {uri, fileName, languageId, getText: () => '# Test'};
-  const configuration = {
-    inspect: key => ({globalValue: saved[key]}),
-    get: (key, fallback) => saved[key] ?? fallback,
-    update: async (key, value, target) => {
-      writes.push({key, value, target});
-      if (target === 3 && manifest.contributes.configuration.properties[`richMarkdownPreview.${key}`].scope !== 'resource') throw new Error('Setting does not support folder scope');
-      if (failWrites) throw new Error('Settings file is read-only');
-      saved[key] = value;
-      handlers.configuration?.({affectsConfiguration: () => true});
-    }
-  };
-  const panel = {
-    visible: true, reveal(column) {revealed++; columns.push(column);},
-    onDidChangeViewState: handler => {handlers.view = handler; return disposable;},
-    onDidDispose: handler => {handlers.dispose = handler; return disposable;},
-    webview: {
-      cspSource: 'https://safe-resource', asWebviewUri: () => 'safe-resource',
-      postMessage: message => { messages.push(message); return Promise.resolve(true); },
-      onDidReceiveMessage: handler => { handlers.message = handler; return disposable; }
-    }
-  };
-  const vscode = {
-    StatusBarAlignment: {Left: 1},
-    Uri: {joinPath: (base, ...segments) => ({toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, FileType: {File:1, Directory:2}, ViewColumn: {Beside: -2, Active: -1}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
-    window: {createStatusBarItem: () => ({show() {}, hide() {}, dispose() {}}), activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column) => {created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: message => warnings.push(message), showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
-    env: {openExternal: async uri => external.push(uri.toString()), clipboard: {writeText: async text => {if(failCopy) throw new Error('Clipboard unavailable'); clipboard.push(text);}}},
-    workspace: {
-      onDidChangeWorkspaceFolders: () => disposable,
-      fs: {stat:async () => {if(missingReference) throw new Error('Missing'); return {type:1};}, writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
-      openTextDocument: async () => {if(failOpen) throw new Error('File unavailable');return document;},
-      getConfiguration: section => section === 'richMarkdownPreview' ? configuration : {get:(key, fallback) => (section === 'markdownLens' ? previous : legacy)[key] ?? fallback},
-      getWorkspaceFolder: () => inWorkspace ? {uri} : undefined,
-      onDidChangeTextDocument: handler => {handlers.text = handler;return disposable;},
-      onDidChangeConfiguration: handler => {handlers.configuration = handler; return disposable;}
-    },
-    commands: {executeCommand: async (command, uri) => opened.push({command,uri:uri.toString()}), registerCommand: (id, handler) => {handlers[id] = handler; if (id === 'richMarkdownPreview.openPreview') handlers.command = handler; return disposable;}}
-  };
-  const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {
-    module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
-    require: name => name === 'vscode' ? vscode : require(name)
-  });
-  module.exports.activate({subscriptions: [], extensionUri: uri});
-  const drain = async () => {await new Promise(setImmediate);};
-  return {columns, handlers, saved, messages, warnings, errors, writes, clipboard, files, dialogs, drain, document, panel, opened, external, info, counts: () => ({created, revealed, disposed})};
-}
 
 test('rejected webview notifications are observed without an unhandled rejection', async () => {
   const host = previewHost();
@@ -70,7 +9,9 @@ test('rejected webview notifications are observed without an unhandled rejection
   host.panel.webview.postMessage = () => Promise.reject(new Error('Disposed webview fixture'));
   await host.handlers.message({type: 'ready'});
   await host.drain();
-  assert.ok(host.errors.some(args => args[0].includes('asynchronous operation failed') && args[1].message === 'Disposed webview fixture'));
+  assert.ok(host.diagnostics.some(line => line.includes('deliver webview message')));
+  assert.equal(host.errors.length,0);
+  assert.ok(!host.diagnostics.join('\n').includes('Disposed webview fixture'));
 });
 
 test('async message callback catches unexpected errors when VS Code ignores its result', async () => {
@@ -78,9 +19,9 @@ test('async message callback catches unexpected errors when VS Code ignores its 
   await host.handlers.command();
   host.document.getText = () => {throw new Error('Closed document fixture');};
   await host.handlers.message({type: 'ready'});
-  assert.equal(host.errors.length, 1);
-  assert.match(host.errors[0][0], /message failed/);
-  assert.equal(host.errors[0][1].message, 'Closed document fixture');
+  assert.equal(host.errors.length, 0);
+  assert.ok(host.diagnostics.some(line => line.includes('render Markdown')));
+  assert.ok(!host.diagnostics.join('\n').includes('Closed document fixture'));
 });
 
 test('preview toolbar settings persist with resource scope', async () => {
@@ -142,7 +83,7 @@ test('failed saves retain live preferences through subsequent refreshes', async 
   assert.equal(host.messages.at(-1).type, 'render');
   assert.equal(host.messages.at(-1).preferences.style, 'reading');
   assert.equal(host.messages.at(-1).preferences.appearance, 'dark');
-  assert.match(host.warnings[0], /Settings file is read-only/);
+  assert.match(host.warnings[0], /configuration permissions/);
   assert.ok(host.messages.every(message => message.type !== 'preferenceError'));
 });
 test('standalone Markdown files save preferences globally', async () => {
@@ -215,7 +156,7 @@ test('cancelled and failed table exports report accurately and do not silently s
   const failed = previewHost({failExport:true}); await failed.handlers.command();
   await failed.handlers.message({type:'tableExport',text:'"Test"\r\n'});
   assert.equal(failed.messages.at(-1).success, false);
-  assert.match(failed.messages.at(-1).error, /Disk is read-only/);
+  assert.match(failed.messages.at(-1).error, /destination file access/);
   assert.equal(failed.warnings.length, 1);
 });
 
@@ -256,7 +197,7 @@ test('failed numeric preference writes retain exact session values and report th
   assert.equal(host.saved.lineHeight,undefined);
   assert.equal(host.saved.contentWidth,undefined);
   assert.equal(host.warnings.length,3);
-  assert.ok(host.warnings.every(warning => /Settings file is read-only/.test(warning)));
+  assert.ok(host.warnings.every(warning => /configuration permissions/.test(warning)));
 });
 
 test('rapid continuous numeric commits serialize and leave the newest exact value active', async () => {
@@ -329,7 +270,7 @@ test('Explorer selection arguments do not change a single-file preview into Docu
 test('panels are reused, disposed listeners are released, and reopening creates a panel', async () => {
   const host = previewHost(); await host.handlers.command(host.document.uri);
   await host.handlers.command(); assert.deepEqual(host.counts(), {created:1,revealed:1,disposed:0});
-  host.handlers.dispose(); assert.equal(host.counts().disposed, 4);
+  host.handlers.dispose(); assert.equal(host.counts().disposed, 5);
   await host.handlers.command(); assert.equal(host.counts().created, 2);
 });
 

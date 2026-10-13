@@ -1,4 +1,6 @@
-import { reportAsync } from './async';
+import { reportAsync as observeAsync } from './async';
+import { PreviewSession, PreviewHostBridge, PreviewNavigationAdapter, sessionDiagnostic } from './preview-session';
+import { PreviewPreferenceStore } from './preview-preferences';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import { renderMarkdown } from './render';
@@ -59,6 +61,11 @@ function preferences(uri: vscode.Uri): Preferences {
   ) as Preferences;
 }
 export function activate(context: vscode.ExtensionContext) {
+  const output = vscode.window.createOutputChannel('Rich Markdown Preview');
+  const lifecycle = new PreviewSession(sessionDiagnostic(output));
+  const reportAsync = (operation: PromiseLike<unknown> | unknown) =>
+    observeAsync(operation, () => lifecycle.fail('host operation'));
+  context.subscriptions.push(output, lifecycle);
   const panels = new Map<string, vscode.WebviewPanel>();
   const status = vscode.window.createStatusBarItem(
     'richMarkdownPreview.documentationHome',
@@ -69,14 +76,15 @@ export function activate(context: vscode.ExtensionContext) {
   status.text = '$(markdown) Rich Markdown Documentation';
   status.tooltip = 'Open Documentation Home — Rich Markdown Preview';
   status.command = 'richMarkdownPreview.openDocumentationHome';
-  const updateStatus = () => {
-    if (
-      vscode.workspace.workspaceFolders?.length &&
-      vscode.workspace.getConfiguration('richMarkdownPreview').get('documentation.showStatusBar', true)
-    )
-      status.show();
-    else status.hide();
-  };
+  const updateStatus = () =>
+    lifecycle.boundary('update documentation status', () => {
+      if (
+        vscode.workspace.workspaceFolders?.length &&
+        vscode.workspace.getConfiguration('richMarkdownPreview').get('documentation.showStatusBar', true)
+      )
+        status.show();
+      else status.hide();
+    });
   updateStatus();
   context.subscriptions.push(
     status,
@@ -84,6 +92,8 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeConfiguration(updateStatus),
   );
   const openPreview = async (uri?: vscode.Uri, documentationHome = false) => {
+    const opening = lifecycle.capture();
+    if (!lifecycle.current(opening)) return;
     const homeKey = 'richMarkdownPreview.documentationHome';
     if (documentationHome) {
       const existing = panels.get(homeKey);
@@ -104,9 +114,12 @@ export function activate(context: vscode.ExtensionContext) {
           ? await vscode.workspace.openTextDocument(uri)
           : vscode.window.activeTextEditor?.document;
     } catch {
+      if (!lifecycle.current(opening)) return;
+      lifecycle.fail('open selected Markdown file');
       reportAsync(vscode.window.showWarningMessage('Could not open the selected Markdown file.'));
       return;
     }
+    if (!lifecycle.current(opening)) return;
     if (
       !documentationHome &&
       (!document || (document.languageId !== 'markdown' && !/\.md$/i.test(document.uri.path)))
@@ -140,79 +153,103 @@ export function activate(context: vscode.ExtensionContext) {
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png');
     panels.set(key, panel);
     const webview = panel.webview;
-    const sessionPreferences: Partial<Preferences> = {};
-    const effectivePreferences = () => ({ ...preferences(preferenceUri()), ...sessionPreferences });
+    const session = new PreviewSession(sessionDiagnostic(output));
+    const bridge = new PreviewHostBridge(session, (message) => webview.postMessage(message));
+    const navigationAdapter = new PreviewNavigationAdapter(session);
+    const preferenceStore = new PreviewPreferenceStore(session, () => preferences(preferenceUri()), defaults);
+    const effectivePreferences = () => preferenceStore.effective();
     const nonce = randomBytes(16).toString('hex');
     let fileReferences: FileReference[] = [];
     const resource = (file: string) => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', file));
     webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Rich Markdown Preview</title></head><body><div id="rmp-ui-app" data-logo="${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png'))}"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
     let index: DocumentationIndex | undefined;
     let indexStatus: { loading: boolean; error?: string } = { loading: true };
-    let disposed = false;
-    let navigation = 0;
     const history: { id?: string; fragment?: string }[] = [{}];
     let historyPosition = 0;
     let fragment: string | undefined;
     let sentFiles: DocumentationIndex['files'] | undefined;
     let sentNavigation = '';
     const sendNavigation = (force = false) => {
-      if (!index) return;
+      if (!session.current() || !index) return;
       const snapshot = JSON.stringify([document?.uri.toString(), historyPosition, history.length, indexStatus]);
       if (!force && index.files === sentFiles && snapshot === sentNavigation) return;
-      sentFiles = index.files;
-      sentNavigation = snapshot;
+      const files = index.files;
+      const request = session.capture();
+      const message = {
+        type: 'documentation',
+        files,
+        ...indexStatus,
+        active: document?.uri.toString(),
+        canBack: historyPosition > 0,
+        canForward: historyPosition < history.length - 1,
+      };
       reportAsync(
-        webview.postMessage({
-          type: 'documentation',
-          files: index.files,
-          ...indexStatus,
-          active: document?.uri.toString(),
-          canBack: historyPosition > 0,
-          canForward: historyPosition < history.length - 1,
-        }),
+        session.run(
+          'send documentation navigation',
+          async () => {
+            const delivered = await bridge.post(message, request);
+            if (!session.current(request) || !delivered) return;
+            sentFiles = files;
+            sentNavigation = snapshot;
+          },
+          request,
+        ),
       );
     };
-    const update = () => {
-      if (!document) {
-        fileReferences = [];
+    const update = () =>
+      session.boundary('render Markdown', () => {
+        if (!document) {
+          fileReferences = [];
+          reportAsync(
+            bridge.post({
+              type: 'render',
+              html: '',
+              outline: [],
+              preferences: effectivePreferences(),
+              documentationHome: true,
+              documentId: 'home',
+            }),
+          );
+          sendNavigation(true);
+          return;
+        }
+        const result = renderMarkdown(document.getText(), (src) => resolveImageResource(src, document!.uri, webview));
+        fileReferences = result.references;
         reportAsync(
-          webview.postMessage({
+          bridge.post({
             type: 'render',
-            html: '',
-            outline: [],
+            ...result,
             preferences: effectivePreferences(),
-            documentationHome: true,
-            documentId: 'home',
+            documentId: document.uri.toString(),
+            fragment,
+            ...(documentationHome ? { documentationHome: true, documentId: document.uri.toString(), fragment } : {}),
           }),
         );
-        sendNavigation(true);
-        return;
-      }
-      const result = renderMarkdown(document.getText(), (src) => resolveImageResource(src, document!.uri, webview));
-      fileReferences = result.references;
-      reportAsync(
-        webview.postMessage({
-          type: 'render',
-          ...result,
-          preferences: effectivePreferences(),
-          documentId: document.uri.toString(),
-          fragment,
-          ...(documentationHome ? { documentationHome: true, documentId: document.uri.toString(), fragment } : {}),
-        }),
-      );
-      fragment = undefined;
-      sendNavigation();
-    };
+        fragment = undefined;
+        sendNavigation();
+      });
     const navigate = async (target?: vscode.Uri, anchor?: string, position?: number) => {
-      const request = ++navigation;
+      const request = session.supersede();
       try {
-        const next = target ? await vscode.workspace.openTextDocument(target) : undefined;
-        if (disposed || request !== navigation) return;
-        document = next;
+        const next = target
+          ? await navigationAdapter.resolve('open document', () => vscode.workspace.openTextDocument(target), request)
+          : undefined;
+        if (!session.current(request)) return;
+        if (target && !next) {
+          reportAsync(
+            vscode.window.showWarningMessage('Could not open this document. It may have moved or been deleted.'),
+          );
+          return;
+        }
         if (next && anchor) {
-          const warning = fragmentWarning(resolveSourceFragment(next.getText(), anchor));
+          const resolved = session.boundary('parse source heading', () =>
+            resolveSourceFragment(next.getText(), anchor),
+          );
+          if (!resolved) return;
+          const warning = fragmentWarning(resolved);
           if (warning) reportAsync(vscode.window.showWarningMessage(warning));
         }
+        document = next;
         fragment = anchor;
         directory = document ? vscode.Uri.joinPath(document.uri, '..') : preferenceUri();
         webview.options = {
@@ -231,74 +268,122 @@ export function activate(context: vscode.ExtensionContext) {
         panel.title = document ? `Documentation: ${document.fileName.split(/[\\/]/).pop()}` : 'Documentation Home';
         update();
       } catch {
+        if (!session.current(request)) return;
+        session.fail('navigate document');
         reportAsync(
           vscode.window.showWarningMessage('Could not open this document. It may have moved or been deleted.'),
         );
       }
     };
     const openTarget = async (target: vscode.Uri, anchor = '') => {
-      if (document && target.toString() === document.uri.toString()) {
-        const warning = fragmentWarning(resolveSourceFragment(document.getText(), anchor));
-        if (warning) reportAsync(vscode.window.showWarningMessage(warning));
-        fragment = anchor;
-        update();
-      } else if (
-        documentationHome &&
-        /\.(md|markdown)$/i.test(target.path) &&
-        vscode.workspace.getWorkspaceFolder(target)
-      ) {
-        await navigate(target, anchor);
-      } else if (anchor && /\.(md|markdown)$/i.test(target.path)) {
-        const source = await vscode.workspace.openTextDocument(target);
-        const resolved = resolveSourceFragment(source.getText(), anchor);
-        const warning = fragmentWarning(resolved);
-        if (warning) reportAsync(vscode.window.showWarningMessage(warning));
-        if (resolved.kind === 'heading') {
-          const selection = new vscode.Range(resolved.line, 0, resolved.line, 0);
-          const editor = await vscode.window.showTextDocument(source, { selection });
-          editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-        } else await vscode.window.showTextDocument(source);
-      } else {
-        if (anchor) {
-          const resolved = resolveSourceFragment('', anchor);
-          reportAsync(
-            vscode.window.showWarningMessage(
-              resolved.kind === 'unsupported-line' || resolved.kind === 'malformed'
-                ? fragmentWarning(resolved)!
-                : 'Heading navigation is supported only for Markdown files. Open the source to locate this section.',
-            ),
+      if (!session.current()) return;
+      const request = session.supersede();
+      try {
+        if (document && target.toString() === document.uri.toString()) {
+          const resolved = session.boundary('parse source heading', () =>
+            resolveSourceFragment(document!.getText(), anchor),
           );
-        }
-        await vscode.commands.executeCommand('vscode.open', target);
-      }
-    };
-    if (documentationHome)
-      index = new DocumentationIndex((status) => {
-        indexStatus = status;
-        sendNavigation();
-        if (!status.loading && !status.error && document && !index?.resolve(document.uri.toString())) {
-          const selected = document;
-          if (!vscode.workspace.getWorkspaceFolder(selected.uri)) reportAsync(navigate());
-          else
+          if (!resolved) return;
+          const warning = fragmentWarning(resolved);
+          if (warning) reportAsync(vscode.window.showWarningMessage(warning));
+          fragment = anchor;
+          update();
+        } else if (
+          documentationHome &&
+          /\.(md|markdown)$/i.test(target.path) &&
+          vscode.workspace.getWorkspaceFolder(target)
+        ) {
+          await navigate(target, anchor);
+          // navigate owns the new generation; this operation has no follow-up effects.
+          return;
+        } else if (anchor && /\.(md|markdown)$/i.test(target.path)) {
+          const source = await navigationAdapter.resolve(
+            'open source document',
+            () => vscode.workspace.openTextDocument(target),
+            request,
+          );
+          if (!session.current(request)) return;
+          if (!source) {
+            reportAsync(vscode.window.showWarningMessage('Could not open this link. Check the target file access.'));
+            return;
+          }
+          const resolved = session.boundary('parse source heading', () =>
+            resolveSourceFragment(source.getText(), anchor),
+          );
+          const warning = resolved
+            ? fragmentWarning(resolved)
+            : 'Could not locate this heading. Open the source to locate this section.';
+          if (warning) reportAsync(vscode.window.showWarningMessage(warning));
+          if (resolved?.kind === 'heading') {
+            const selection = new vscode.Range(resolved.line, 0, resolved.line, 0);
+            const editor = await vscode.window.showTextDocument(source, { selection });
+            if (!session.current(request)) return;
+            editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+          } else {
+            await vscode.window.showTextDocument(source);
+            if (!session.current(request)) return;
+          }
+        } else {
+          if (anchor) {
+            const resolved = resolveSourceFragment('', anchor);
             reportAsync(
-              vscode.workspace.fs.stat(selected.uri).then(
-                () => {},
-                () => {
-                  if (!disposed && document === selected) reportAsync(navigate());
-                },
+              vscode.window.showWarningMessage(
+                resolved.kind === 'unsupported-line' || resolved.kind === 'malformed'
+                  ? fragmentWarning(resolved)!
+                  : 'Heading navigation is supported only for Markdown files. Open the source to locate this section.',
               ),
             );
+          }
+          await vscode.commands.executeCommand('vscode.open', target);
+          if (!session.current(request)) return;
         }
-      });
-    let timer: ReturnType<typeof setTimeout> | undefined;
+      } catch {
+        if (!session.current(request)) return;
+        session.fail('open source target');
+        reportAsync(vscode.window.showWarningMessage('Could not open this link. Check the target file access.'));
+      }
+    };
+    if (documentationHome) {
+      index = new DocumentationIndex(
+        (status) => {
+          if (!session.current()) return;
+          indexStatus = status;
+          sendNavigation();
+          if (!status.loading && !status.error && document && !index?.resolve(document.uri.toString())) {
+            const selected = document;
+            const request = session.capture();
+            if (!vscode.workspace.getWorkspaceFolder(selected.uri)) reportAsync(navigate());
+            else
+              reportAsync(
+                session.run(
+                  'check selected document',
+                  async () => {
+                    const stat = await navigationAdapter.resolve(
+                      'check selected document',
+                      () => vscode.workspace.fs.stat(selected.uri),
+                      request,
+                    );
+                    if (!session.current(request)) return;
+                    if (!stat && document === selected) await navigate();
+                  },
+                  request,
+                ),
+              );
+          }
+        },
+        () => session.fail('refresh documentation'),
+      );
+      session.own(index);
+    }
     const updatePreferences = () =>
-      reportAsync(webview.postMessage({ type: 'preferences', preferences: effectivePreferences() }));
-    let preferenceWrites = Promise.resolve();
+      session.boundary('update preview preferences', () =>
+        reportAsync(bridge.post({ type: 'preferences', preferences: effectivePreferences() })),
+      );
     const disposables = [
       vscode.workspace.onDidChangeTextDocument((event) => {
-        if (event.document.uri.toString() === document?.uri.toString()) {
-          clearTimeout(timer);
-          timer = setTimeout(update, 180);
+        if (session.current() && event.document.uri.toString() === document?.uri.toString()) {
+          fileReferences = [];
+          session.debounce(update, 180);
         }
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
@@ -312,13 +397,14 @@ export function activate(context: vscode.ExtensionContext) {
       panel.onDidChangeViewState(() => {
         if (panel.visible) update();
       }),
-      webview.onDidReceiveMessage(async (message) => {
-        try {
-          if (!message || typeof message !== 'object') return;
+      webview.onDidReceiveMessage((message) =>
+        bridge.receive(message, async (_raw, request) => {
+          if (!session.current(request) || !message || typeof message !== 'object') return;
           if (message.type === 'ready') {
             sentFiles = undefined;
             update();
             if (index) await index.refresh();
+            if (!session.current(request)) return;
           }
           if (message.type === 'documentationAction' && index) {
             if (message.action === 'open' && typeof message.id === 'string') {
@@ -326,9 +412,14 @@ export function activate(context: vscode.ExtensionContext) {
               if (target) await navigate(target);
             }
             if (message.action === 'home') await navigate();
-            if (message.action === 'refresh') await index.refresh();
-            if (message.action === 'source' && document)
+            if (message.action === 'refresh') {
+              await index.refresh();
+              if (!session.current(request)) return;
+            }
+            if (message.action === 'source' && document) {
               await vscode.window.showTextDocument(document, vscode.ViewColumn.Beside);
+              if (!session.current(request)) return;
+            }
             if (message.action === 'back' || message.action === 'forward') {
               const position = historyPosition + (message.action === 'back' ? -1 : 1);
               if (position >= 0 && position < history.length) {
@@ -344,7 +435,10 @@ export function activate(context: vscode.ExtensionContext) {
             if (/^https?:\/\//i.test(reference.path)) {
               try {
                 await vscode.env.openExternal(vscode.Uri.parse(reference.path));
+                if (!session.current(request)) return;
               } catch {
+                if (!session.current(request)) return;
+                session.fail('open external reference');
                 reportAsync(vscode.window.showWarningMessage('Could not open this reference.'));
               }
               return;
@@ -379,14 +473,16 @@ export function activate(context: vscode.ExtensionContext) {
                   : path.startsWith('/')
                     ? vscode.Uri.joinPath(root, path.slice(1))
                     : vscode.Uri.joinPath(directory, path);
-              try {
-                const stat = await vscode.workspace.fs.stat(target);
-                if (stat.type & vscode.FileType.Directory) continue;
-                await openTarget(target, parseResourceUrl(reference.path).fragment);
-                return;
-              } catch {
-                /* Try the dialect's next candidate. */
-              }
+              const stat = await navigationAdapter.resolve(
+                'resolve referenced file',
+                () => vscode.workspace.fs.stat(target),
+                request,
+              );
+              if (!session.current(request) || !fileReferences.includes(reference)) return;
+              if (!stat) continue;
+              if (stat.type & vscode.FileType.Directory) continue;
+              await openTarget(target, parseResourceUrl(reference.path).fragment);
+              return;
             }
             reportAsync(
               vscode.window.showWarningMessage(
@@ -400,42 +496,48 @@ export function activate(context: vscode.ExtensionContext) {
             if (validPreference(setting, value)) {
               const preferenceKey = setting as keyof Preferences;
               const settingUri = preferenceUri();
-              Object.assign(sessionPreferences, { [preferenceKey]: value });
-              preferenceWrites = preferenceWrites
-                .then(async () => {
-                  await vscode.workspace
-                    .getConfiguration('richMarkdownPreview', settingUri)
-                    .update(
-                      setting,
-                      value,
-                      vscode.workspace.getWorkspaceFolder(settingUri)
-                        ? vscode.ConfigurationTarget.WorkspaceFolder
-                        : vscode.ConfigurationTarget.Global,
-                    );
-                  if (sessionPreferences[preferenceKey] === value) delete sessionPreferences[preferenceKey];
-                  updatePreferences();
-                })
-                .catch((error) => {
-                  updatePreferences();
-                  const detail = error instanceof Error ? error.message : String(error);
-                  reportAsync(
-                    vscode.window.showWarningMessage(`Preview updated, but the setting could not be saved: ${detail}`),
-                  );
-                });
+              reportAsync(
+                preferenceStore.set(
+                  preferenceKey,
+                  value,
+                  () =>
+                    vscode.workspace
+                      .getConfiguration('richMarkdownPreview', settingUri)
+                      .update(
+                        setting,
+                        value,
+                        vscode.workspace.getWorkspaceFolder(settingUri)
+                          ? vscode.ConfigurationTarget.WorkspaceFolder
+                          : vscode.ConfigurationTarget.Global,
+                      ),
+                  updatePreferences,
+                  () =>
+                    reportAsync(
+                      vscode.window.showWarningMessage(
+                        'Preview updated, but the setting could not be saved. Check configuration permissions.',
+                      ),
+                    ),
+                ),
+              );
             }
           }
           if (message.type === 'copy' && typeof message.text === 'string') {
             try {
               await vscode.env.clipboard.writeText(message.text);
-              reportAsync(webview.postMessage({ type: 'copyResult', success: true }));
+              if (!session.current(request)) return;
+              reportAsync(bridge.post({ type: 'copyResult', success: true }));
             } catch {
-              reportAsync(webview.postMessage({ type: 'copyResult', success: false }));
+              if (!session.current(request)) return;
+              session.fail('copy code');
+              reportAsync(bridge.post({ type: 'copyResult', success: false }, request));
             }
           }
           if (['tableCopy', 'tableExport'].includes(message.type) && typeof message.text === 'string') {
             try {
-              if (message.type === 'tableCopy') await vscode.env.clipboard.writeText(message.text);
-              else {
+              if (message.type === 'tableCopy') {
+                await vscode.env.clipboard.writeText(message.text);
+                if (!session.current(request)) return;
+              } else {
                 const filename =
                   typeof message.filename === 'string' && /^table-\d+\.csv$/.test(message.filename)
                     ? message.filename
@@ -445,20 +547,22 @@ export function activate(context: vscode.ExtensionContext) {
                   filters: { 'CSV files': ['csv'] },
                   saveLabel: 'Export CSV',
                 });
+                if (!session.current(request)) return;
                 if (!destination) {
-                  reportAsync(
-                    webview.postMessage({ type: 'tableActionResult', action: message.type, cancelled: true }),
-                  );
+                  reportAsync(bridge.post({ type: 'tableActionResult', action: message.type, cancelled: true }));
                   return;
                 }
                 await vscode.workspace.fs.writeFile(destination, Buffer.from('\uFEFF' + message.text, 'utf8'));
+                if (!session.current(request)) return;
               }
-              reportAsync(webview.postMessage({ type: 'tableActionResult', action: message.type, success: true }));
-            } catch (error) {
-              const detail = error instanceof Error ? error.message : String(error);
-              reportAsync(vscode.window.showWarningMessage(`Table action failed: ${detail}`));
+              reportAsync(bridge.post({ type: 'tableActionResult', action: message.type, success: true }));
+            } catch {
+              if (!session.current(request)) return;
+              session.fail('table action');
+              const detail = 'Table action failed. Check clipboard or destination file access and retry.';
+              reportAsync(vscode.window.showWarningMessage(detail));
               reportAsync(
-                webview.postMessage({ type: 'tableActionResult', action: message.type, success: false, error: detail }),
+                bridge.post({ type: 'tableActionResult', action: message.type, success: false, error: detail }),
               );
             }
           }
@@ -467,7 +571,10 @@ export function activate(context: vscode.ExtensionContext) {
             if (/^(https?:|mailto:)/i.test(href)) {
               try {
                 await vscode.env.openExternal(vscode.Uri.parse(href));
+                if (!session.current(request)) return;
               } catch {
+                if (!session.current(request)) return;
+                session.fail('open link');
                 reportAsync(vscode.window.showWarningMessage('Could not open this link.'));
               }
             } else if (!/^[a-z][a-z\d+.-]*:/i.test(href) && !href.startsWith('//')) {
@@ -477,29 +584,36 @@ export function activate(context: vscode.ExtensionContext) {
                 if (/[\u0000-\u001f]/.test(path) || path.startsWith('//') || /^[a-z][a-z\d+.-]*:/i.test(path)) return;
                 await openTarget(parts.path ? vscode.Uri.joinPath(directory, path) : document!.uri, parts.fragment);
               } catch {
+                if (!session.current(request)) return;
+                session.fail('open link');
                 reportAsync(vscode.window.showWarningMessage('Could not open this link.'));
               }
             }
           }
-        } catch (error) {
-          console.error('Rich Markdown Preview message failed:', error);
-        }
-      }),
+        }),
+      ),
     ];
-    panel.onDidDispose(() => {
-      disposed = true;
-      ++navigation;
-      index?.dispose();
-      clearTimeout(timer);
-      panels.delete(key);
-      disposables.forEach((d) => d.dispose());
-    });
+    disposables.forEach((disposable) => session.own(disposable));
+    session.own(
+      panel.onDidDispose(() => {
+        session.dispose();
+        panels.delete(key);
+      }),
+    );
     context.subscriptions.push(panel);
   };
   context.subscriptions.push(
-    vscode.commands.registerCommand('richMarkdownPreview.openDocumentationHome', () => openPreview(undefined, true)),
-    vscode.commands.registerCommand('richMarkdownPreview.openPreview', (uri?: vscode.Uri) => openPreview(uri)),
-    vscode.commands.registerCommand('markdownLens.openPreview', (uri?: vscode.Uri) => openPreview(uri)),
-    vscode.commands.registerCommand('styledMarkdown.openPreview', (uri?: vscode.Uri) => openPreview(uri)),
+    vscode.commands.registerCommand('richMarkdownPreview.openDocumentationHome', () =>
+      lifecycle.run('open documentation preview', () => openPreview(undefined, true)),
+    ),
+    vscode.commands.registerCommand('richMarkdownPreview.openPreview', (uri?: vscode.Uri) =>
+      lifecycle.run('open Markdown preview', () => openPreview(uri)),
+    ),
+    vscode.commands.registerCommand('markdownLens.openPreview', (uri?: vscode.Uri) =>
+      lifecycle.run('open Markdown preview', () => openPreview(uri)),
+    ),
+    vscode.commands.registerCommand('styledMarkdown.openPreview', (uri?: vscode.Uri) =>
+      lifecycle.run('open Markdown preview', () => openPreview(uri)),
+    ),
   );
 }

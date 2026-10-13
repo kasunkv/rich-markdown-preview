@@ -22,7 +22,10 @@ export class DocumentationIndex implements vscode.Disposable {
   private disposed = false;
   private generation = 0;
 
-  constructor(private changed: (status: { loading: boolean; error?: string }) => void) {
+  constructor(
+    private changed: (status: { loading: boolean; error?: string }) => void,
+    private readonly diagnostic?: () => void,
+  ) {
     this.watch();
     this.subscriptions.push(
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -89,11 +92,16 @@ export class DocumentationIndex implements vscode.Disposable {
         .map((entry) => entry.file)
         .sort((a, b) => a.root.localeCompare(b.root) || a.path.localeCompare(b.path, undefined, { numeric: true }));
       this.changed({ loading: false });
-    } catch (error) {
+    } catch {
       if (this.disposed || generation !== this.generation) return;
+      try {
+        this.diagnostic?.();
+      } catch {
+        // A closed diagnostic sink cannot interrupt the user-facing error result.
+      }
       this.changed({
         loading: false,
-        error: `Could not refresh documentation: ${error instanceof Error ? error.message : String(error)}`,
+        error: 'Could not refresh documentation. Retry and check workspace access.',
       });
     }
   }
