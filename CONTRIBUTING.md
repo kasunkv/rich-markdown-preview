@@ -28,7 +28,9 @@ strict compiler configuration. Add new workflow files to the formatter scope.
 
 For browser or webview changes, install the isolated test browser with
 `npx playwright install chromium` and run `npm run test:browser`. For host changes,
-follow the isolated VS Code smoke test and F5 instructions in
+run `npm run test:host` for the downloaded minimum host and
+`npm run test:host:only -- --version stable` for current stable, then follow the
+installed-VSIX smoke test and F5 instructions in
 [DEVELOPMENT.md](DEVELOPMENT.md). Use fixtures, mocked services and isolated user
 profiles. Never publish a test build or modify a developer's real settings.
 

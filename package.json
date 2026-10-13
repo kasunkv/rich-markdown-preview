@@ -219,7 +219,10 @@
     "lint:fix": "npm run lint -- --fix",
     "format:check": "prettier --check \"src/**/*.ts\" eslint.config.mjs .prettierrc.json CONTRIBUTING.md SECURITY.md \".github/**/*.{md,yml}\" tests/quality.test.cjs",
     "format": "prettier --write \"src/**/*.ts\" eslint.config.mjs .prettierrc.json CONTRIBUTING.md SECURITY.md \".github/**/*.{md,yml}\" tests/quality.test.cjs",
-    "check:quality": "npm run check && npm run lint && npm run format:check"
+    "check:quality": "npm run check && npm run lint && npm run format:check",
+    "test:host": "npm run build:production && npm run test:host:only",
+    "test:host:only": "node scripts/vscode-host.cjs",
+    "test:host:package": "node scripts/vscode-host.cjs --mode package"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -237,7 +240,8 @@
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.0.0",
-    "@types/vscode": "^1.95.0",
+    "@types/vscode": "1.95.0",
+    "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.25.0",
     "eslint": "^10.12.0",

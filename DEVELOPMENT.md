@@ -75,13 +75,57 @@ first. VSCE's prepublish hook runs type/lint/format checks, one production build
 
 `examples/master-test.md` covers Markdown constructs. Other examples focus on typography, code, tables, diagrams, links/images, edge cases, and styles. See [the manual checklist](examples/README.md).
 
-Run the real VS Code extension-host smoke test in an isolated profile:
+Run the real VS Code extension-host smoke test with the official
+[`@vscode/test-electron` runner](https://code.visualstudio.com/api/working-with-extensions/testing-extension).
+API types are pinned to `1.95.0`, matching the supported floor. The runner
+downloads its own host; no locally installed VS Code is used.
 
 ```powershell
-code --extensionDevelopmentPath="$PWD" --extensionTestsPath="$PWD/tests/vscode-settings.cjs" --user-data-dir="$PWD/.test-results/vscode-profile" --extensions-dir="$PWD/.test-results/vscode-extensions" "$PWD/tests/fixtures/workspace"
+npm run test:host
+npm run test:host:only -- --version stable
+npm run package
+npm run test:host:package -- --version 1.95.0
+npm run test:host:package -- --version stable
+# Optional exact version for replay, or insiders for compatibility checks:
+npm run test:host:only -- --version 1.141.0
 ```
 
-This checks registration, folder-scoped settings, all eighteen style values, command invocation, `.md` files with plaintext language, and current-group preview placement. Results go to `.test-results/vscode-settings.json`. In a Development Host, also confirm editor and Explorer context menus, Command Palette label, extension icon, multiple documents, local images/links, theme changes, and disposing/reopening panels. Browser screenshots show the preview; they do not show native VS Code menus.
+Each invocation copies deterministic fixtures into a new directory under
+`.test-results/host/` and creates fresh user/extensions profiles there. Host
+downloads are cached separately under `.test-results/host-downloads/`.
+`result.json` records requested/actual version, OS, architecture, source commit,
+dirty-checkout flag, timestamps and outcome. `suite.json` records individual
+checks. Package results also record the candidate path and SHA-256. A failed
+assertion, startup, install, download or missing suite report exits nonzero.
+Use an exact recorded version to replay a stable run.
+
+The same suite checks identity, command aliases, folder settings, eighteen styles,
+plaintext `.md` support, native panel placement/reuse, hidden/nested discovery,
+runtime resource readability through VS Code URIs, encoded filenames, two
+documents, edit/save and panel disposal/reopening. Package mode verifies the
+candidate release (use `--vsix path/to/candidate.vsix` to select it), installs it
+into an empty profile and develops only an inert test harness. The suite proves
+the target comes from the installation directory, so checkout code cannot mask
+packaging problems. `test:host:only` requires built outputs; package mode requires
+a previously built candidate and does not rebuild it.
+
+To prove failure propagation, run `npm run test:host:package -- --force-failure`.
+It must exit nonzero; `node scripts/verify-host-failure.cjs` then verifies that
+the latest run reached the deliberately failing assertion rather than failing
+during setup. Profiles and logs are retained for diagnosis. Never run the suite
+directly against a personal workspace or profile.
+
+The host workflow tests minimum/stable on Linux/Windows PRs, minimum/stable on
+Linux/Windows/macOS release tags and manual runs, and Insiders weekly on all
+three platforms. Linux uses Xvfb; hosted desktop runners supply Windows/macOS
+displays. Network access is needed for npm and official VS Code downloads;
+tests do not invoke external links/services. Uploaded artifacts retain current
+host evidence, including the expected negative control. GitHub Actions must be
+enabled and these jobs can be selected as required PR checks by an administrator.
+
+In a Development Host, also confirm native menus, Command Palette label, visual
+icon/image loading and webview appearance. Resource smoke checks establish
+host filesystem readability; the browser suite checks rendering and interactions.
 
 ## Architecture
 
