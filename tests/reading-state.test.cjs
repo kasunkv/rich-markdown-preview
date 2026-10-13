@@ -21,6 +21,7 @@ function load(name) {
 }
 const { boundReadingState, restoreReadingState, readingStateLimits } = load('reading-state');
 const size = state => Buffer.byteLength(JSON.stringify(state), 'utf8');
+const saved = state => JSON.parse(JSON.stringify(state));
 
 test('a long visit sequence retains the current and most recent useful positions within the budget', () => {
   const documents = Object.fromEntries(Array.from({ length: 1200 }, (_, index) => [`file:///${index}.md`, { scroll: index * 10 }]));
@@ -74,4 +75,26 @@ test('legacy state migrates while malformed and unknown versions fall back safel
   assert.deepEqual(restoreReadingState({ ...legacy, readingStateVersion: 2 }), { readingStateVersion: 1, documents: {}, documentOrder: [] });
   assert.deepEqual(restoreReadingState({ ...legacy, documents: { bad: { scroll: -1 } } }), { readingStateVersion: 1, documents: {}, documentOrder: [] });
   assert.deepEqual(restoreReadingState({ ...migrated, documentOrder: [42] }), { readingStateVersion: 1, documents: {}, documentOrder: [] });
+});
+
+test('valid legacy states without a documents map restore safely', () => {
+  const empty = { readingStateVersion: 1, documents: {}, documentOrder: [] };
+  assert.deepEqual(saved(restoreReadingState({})), empty);
+  assert.deepEqual(saved(restoreReadingState({ scroll: 18 })), { ...empty, scroll: 18 });
+  assert.deepEqual(saved(restoreReadingState({ readingStateVersion: 1, documentOrder: [] })), empty);
+});
+
+test('accessors, inherited data and malformed nested records fall back without invoking getters', () => {
+  let reads = 0;
+  const accessor = Object.defineProperty({}, 'readingStateVersion', { enumerable: true, get() { reads++; throw Error('secret'); } });
+  const inherited = Object.create({ scroll: 18 });
+  const order = Object.defineProperty([], '0', { enumerable: true, get() { reads++; throw Error('secret'); } });
+  const nested = { readingStateVersion: 1, documentOrder: [], documents: Object.defineProperty({}, 'file:///a.md', {
+    enumerable: true, get() { reads++; throw Error('secret'); } }) };
+  const empty = { readingStateVersion: 1, documents: {}, documentOrder: [] };
+  assert.deepEqual(restoreReadingState(accessor), empty);
+  assert.deepEqual(restoreReadingState(inherited), empty);
+  assert.deepEqual(restoreReadingState({ readingStateVersion: 1, documentOrder: order }), empty);
+  assert.deepEqual(restoreReadingState(nested), empty);
+  assert.equal(reads, 0);
 });

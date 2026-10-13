@@ -1,5 +1,5 @@
 import type { TableState } from './tables';
-import { validateRestoredState } from './messages';
+import { plainRecord, validateRestoredState } from './messages';
 
 export interface ReadingState {
   scroll?: number;
@@ -109,26 +109,36 @@ export function boundReadingState(
 /** Migrate validated legacy VS Code webview state; malformed and future formats start empty. */
 export function restoreReadingState(raw: unknown): PersistedReadingState {
   const empty: PersistedReadingState = { readingStateVersion: 1, documents: {}, documentOrder: [] };
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return empty;
-  const value = raw as Record<string, unknown>;
-  if (value.readingStateVersion !== undefined && value.readingStateVersion !== 1) return empty;
-  let order: string[];
-  if (value.readingStateVersion === 1) {
-    if (
-      !Array.isArray(value.documentOrder) ||
-      value.documentOrder.length > 10000 ||
-      !value.documentOrder.every((id) => typeof id === 'string' && safeKey(id))
-    )
-      return empty;
-    order = value.documentOrder;
-  } else {
-    order = Object.keys((value.documents as object | undefined) ?? {});
+  try {
+    // Inspect own data descriptors before reading metadata or spreading the saved record.
+    if (!plainRecord(raw)) return empty;
+    const value = raw;
+    if (value.readingStateVersion !== undefined && value.readingStateVersion !== 1) return empty;
+    let order: string[];
+    if (value.readingStateVersion === 1) {
+      const savedOrder = value.documentOrder;
+      if (
+        !Array.isArray(savedOrder) ||
+        Object.getPrototypeOf(savedOrder) !== Array.prototype ||
+        !Object.values(Object.getOwnPropertyDescriptors(savedOrder)).every((descriptor) => 'value' in descriptor) ||
+        savedOrder.length > 10000 ||
+        !savedOrder.every((id) => typeof id === 'string' && safeKey(id))
+      )
+        return empty;
+      order = savedOrder;
+    } else {
+      order = Object.keys((value.documents as object | undefined) ?? {});
+    }
+    const { readingStateVersion: _version, documentOrder: _order, ...legacy } = value;
+    if (!validateRestoredState(legacy)) return empty;
+    return boundReadingState({
+      ...(legacy as unknown as PersistedReadingState),
+      documents: (legacy.documents as Record<string, ReadingState> | undefined) ?? {},
+      readingStateVersion: 1,
+      documentOrder: order,
+    });
+  } catch {
+    // Malformed proxies, cyclic values or hostile nested records cannot break preview startup.
+    return empty;
   }
-  const { readingStateVersion: _version, documentOrder: _order, ...legacy } = value;
-  if (!validateRestoredState(legacy)) return empty;
-  return boundReadingState({
-    ...(legacy as unknown as PersistedReadingState),
-    readingStateVersion: 1,
-    documentOrder: order,
-  });
 }
