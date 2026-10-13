@@ -27,7 +27,7 @@ are outside this initial formatting scope. TypeScript linting uses the project's
 strict compiler configuration. Add new workflow files to the formatter scope.
 
 For browser or webview changes, install the isolated test browser with
-`npx playwright install chromium` and run `npm run test:browser`. For host changes,
+`npm run browser:install` and run `npm run test:browser`. For host changes,
 run `npm run test:host` for the downloaded minimum host and
 `npm run test:host:only -- --version stable` for current stable, then follow the
 installed-VSIX smoke test and F5 instructions in
@@ -72,3 +72,13 @@ administrator should inspect Settings > Security and branch rules, record the
 enabled protections and confirm the private reporting mailbox is monitored.
 Dependency and GitHub Actions update automation is intentionally assigned to
 spec 008; this change does not configure it.
+
+## Reproducible browser validation
+
+`npm run test:browser` builds production assets and runs the browser harness regressions and both Playwright suites. After an existing production build, use `npm run test:browser:only`. Chromium comes from the exact Playwright version in the lockfile; executable overrides are not supported. On Linux CI, `npm run browser:install:ci` explicitly installs Chromium and system dependencies.
+
+Each Playwright invocation writes `.test-results/browser/<timestamp-UUID>/run.json` with its commit, version, timestamps and final status, plus a JSON report and runner log. Treat `running`, `interrupted` or `failed` as incomplete or failed validation. Failed browser assertions retain a trace, screenshot and browser console attachment. Use `npx playwright show-trace <trace.zip>` to inspect a trace. A browser launch or setup failure may have no screenshot or trace; its current runner log and report remain available.
+
+Workers bind loopback port 0 and own their HTTP server in-process, so simultaneous runs use separate ports and process termination cannot orphan a server. Startup fixtures have a 10-second limit, navigation 15 seconds, actions 10 seconds and the suite 3 minutes. External network requests are blocked. These are mocked webview behavior tests; production CSP and real VS Code host compatibility have separate suites.
+
+Ordinary browser runs never regenerate README images. `npm run screenshots:marketing` explicitly rebuilds and writes the two tracked marketing images. Review those image changes separately. `npm run validate` runs quality checks, one production build, fresh unit coverage, browser validation and the minimum VS Code host checks. Browser installation and host download require network access on first setup; stable and installed-VSIX host checks remain documented separately.

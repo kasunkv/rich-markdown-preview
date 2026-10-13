@@ -4,9 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { renderMarkdown } = require('../dist/render.cjs');
 const root = path.join(__dirname, '..');
-const fixturePath = path.resolve(root, process.argv[2] ?? 'samples/showcase.md');
-const result = renderMarkdown(fs.readFileSync(fixturePath, 'utf8'));
-const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/preview.css"><title>Rich Markdown Preview — browser QA</title></head><body><div id="app"></div><script>
+async function startPreviewServer({ fixture = 'samples/showcase.md', port = 0 } = {}) {
+  const fixturePath = path.resolve(root, fixture);
+  const result = renderMarkdown(fs.readFileSync(fixturePath, 'utf8'));
+  const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/preview.css"><title>Rich Markdown Preview — browser QA</title></head><body><div id="app"></div><script>
 let preferences={style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
 let state=JSON.parse(sessionStorage.getItem('preview-state')??'null');
 function acquireVsCodeApi(){return {getState:()=>state,setState:s=>{state=s;sessionStorage.setItem('preview-state',JSON.stringify(s));},postMessage:async m=>{
@@ -23,11 +24,55 @@ window.dispatchEvent(new MessageEvent('message',{data:{type:'tableActionResult',
 }
 }}}
 </script><script src="/preview.js"></script></body></html>`;
-http.createServer((req, res) => {
-  if (req.url === '/') { res.setHeader('Content-Type','text/html; charset=utf-8'); res.end(page); }
-  else if (req.url === '/rich-markdown-preview.png') { res.setHeader('Content-Type','image/png'); res.end(fs.readFileSync(path.join(root,'assets/rich-markdown-preview.png'))); }
-  else if (req.url === '/document') { res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(result)); }
-  else if (req.url === '/preview.js' || req.url === '/preview.css') { res.setHeader('Content-Type',req.url.endsWith('.js') ? 'text/javascript' : 'text/css'); res.end(fs.readFileSync(path.join(root,'dist',req.url.slice(1)))); }
-  else if (req.url === '/assets/preview-test.svg' && fs.existsSync(path.join(path.dirname(fixturePath), 'assets/preview-test.svg'))) { res.setHeader('Content-Type','image/svg+xml'); res.end(fs.readFileSync(path.join(path.dirname(fixturePath), 'assets/preview-test.svg'))); }
-  else { res.writeHead(404); res.end(); }
-}).listen(4173, '127.0.0.1', () => console.log('Browser QA: http://127.0.0.1:4173'));
+  const server = http.createServer((req, res) => {
+    if (req.url === '/') {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.end(page);
+    } else if (req.url === '/rich-markdown-preview.png') {
+      res.setHeader('Content-Type', 'image/png');
+      res.end(fs.readFileSync(path.join(root, 'assets/rich-markdown-preview.png')));
+    } else if (req.url === '/document') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(result));
+    } else if (req.url === '/preview.js' || req.url === '/preview.css') {
+      res.setHeader('Content-Type', req.url.endsWith('.js') ? 'text/javascript' : 'text/css');
+      res.end(fs.readFileSync(path.join(root, 'dist', req.url.slice(1))));
+    } else if (
+      req.url === '/assets/preview-test.svg' &&
+      fs.existsSync(path.join(path.dirname(fixturePath), 'assets/preview-test.svg'))
+    ) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.end(fs.readFileSync(path.join(path.dirname(fixturePath), 'assets/preview-test.svg')));
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', resolve);
+  });
+  return {
+    url: 'http://127.0.0.1:' + server.address().port,
+    close: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      }),
+  };
+}
+module.exports = { startPreviewServer };
+if (require.main === module) {
+  startPreviewServer({ fixture: process.argv[2], port: Number(process.env.PORT ?? 0) })
+    .then((server) => {
+      console.log('Browser QA: ' + server.url);
+      for (const signal of ['SIGINT', 'SIGTERM'])
+        process.once(signal, () => {
+          server.close().catch(console.error);
+        });
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+}
