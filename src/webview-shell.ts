@@ -1,3 +1,5 @@
+import { isExternalImageOrigin } from './external-images';
+
 export interface WebviewShellOptions {
   nonce: string;
   cspSource: string;
@@ -18,9 +20,7 @@ export function buildWebviewShell(options: WebviewShellOptions): string {
   if (!options.cspSource || /[;\s"'<>]/.test(options.cspSource)) throw new Error('Invalid webview resource source');
   const origins = [...new Set(options.imageOrigins ?? [])];
   for (const origin of origins) {
-    const url = new URL(origin);
-    if (url.protocol !== 'https:' || url.origin !== origin || url.username || url.password)
-      throw new Error('Invalid image origin');
+    if (!isExternalImageOrigin(origin)) throw new Error('Invalid image origin');
   }
   // Inline CSS is required by Mermaid SVG style elements and preference CSS properties.
   // It never permits scripts, event handlers, connections, frames, forms or objects.
