@@ -380,3 +380,48 @@ test('permission HTML reset preserves bounded reading focus and respects intenti
   } finally { await server.close(); fs.rmSync(fixture); fs.rmdirSync(directory); }
 });
 
+
+test('failed permission persistence leaves grant blocked and immediately stops revoked requests', async ({page, previewServer}) => {
+  const {ExternalImagePermissions} = require('./load-external-images.cjs');
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  const requests = [];
+  await page.route('https://privacy.example/**', async route => {
+    requests.push(route.request().url());
+    await route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>'});
+  });
+  const preferences = {style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const render = async (grants, name) => {
+    const result = renderMarkdown(`![Private](https://privacy.example/${name}.svg)`, undefined, {grants});
+    await page.evaluate(data => window.dispatchEvent(new MessageEvent('message',{data})), {type:'render',...result,preferences});
+  };
+  let stored = [];
+  let fail = false;
+  const renders = [];
+  const policy = new ExternalImagePermissions({get: () => stored, update: async (_, origins) => {
+    if (fail) throw Error('read-only user state'); stored = origins;
+  }}, () => renders.push(render(policy.grants, 'granted')));
+  await render(policy.grants, 'default');
+  await page.locator('[data-external-image-action="grant"]').click();
+  const grant = await page.evaluate(() => window.externalImageActions.at(-1));
+  await policy.change('grant', grant.origin, () => true, async () => true);
+  await Promise.all(renders);
+  await page.waitForFunction(() => document.querySelector('#rmp-ui-content img')?.naturalWidth === 2);
+  assert.deepEqual(requests, ['https://privacy.example/granted.svg']);
+  fail = true;
+  await page.locator('[data-external-image-action="revoke"]').click();
+  const revoke = await page.evaluate(() => window.externalImageActions.at(-1));
+  await assert.rejects(policy.change('revoke', revoke.origin, () => true, async () => true), /read-only/);
+  await Promise.all(renders);
+  assert.equal(stored.includes('https://privacy.example'), true);
+  await render(policy.grants, 'revoked-new-request');
+  await page.locator('[data-external-image-action="grant"]').waitFor();
+  assert.equal(await page.locator('#rmp-ui-content img').count(), 0);
+  const failedGrant = new ExternalImagePermissions({get: () => [], update: async () => {throw Error('read-only user state');}});
+  await assert.rejects(failedGrant.change('grant', grant.origin, () => true, async () => true), /read-only/);
+  await render(failedGrant.grants, 'failed-grant-new-request');
+  await page.locator('[data-external-image-action="grant"]').waitFor();
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator('#rmp-ui-content img').count(), 0);
+  assert.deepEqual(requests, ['https://privacy.example/granted.svg']);
+});

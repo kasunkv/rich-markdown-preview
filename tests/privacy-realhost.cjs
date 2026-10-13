@@ -18,6 +18,8 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
   }));
   const target = vscode.Uri.file(path.join(workspace, 'privacy-proof.md'));
   await fs.writeFile(target.fsPath, `# Image privacy proof\n\n![Private](${origin}/image.svg)`);
+  const second = vscode.Uri.file(path.join(workspace, 'privacy-second.md'));
+  await fs.writeFile(second.fsPath, `# Second image privacy proof\n\n![Private second](${origin}/second.svg)`);
   const confirm = async () => {
     const deadline = Date.now() + 15000;
     while (Date.now() < deadline) {
@@ -62,13 +64,24 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
     });
     await new Promise(resolve => setTimeout(resolve, 150));
     assert.equal(requests.some(request => request.url.includes('ungranted-')), false);
+    await vscode.commands.executeCommand('richMarkdownPreview.openPreview', second);
+    frame = await findFrame('img[alt="Private second"]');
+    await frame.waitForFunction(() => document.querySelector('img[alt="Private second"]')?.naturalWidth === 23);
+    assert.ok(requests.some(request => request.url === origin + '/second.svg'));
     const afterGrant = requests.length;
     await frame.locator('[data-external-image-action="revoke"]').first().click();
     frame = await findFrame('[data-external-image-action="grant"]');
     assert.equal(await frame.locator('#rmp-ui-content img').count(), 0);
     await new Promise(resolve => setTimeout(resolve, 150));
     assert.equal(requests.length, afterGrant);
-    checks.push({mode, remoteImagePrivacy: { blockedRequests: 0, grantedOrigin: origin, noReferrer: true, forgedOriginDenied: true, exactCsp: true, revoked: true, workspaceSettingBypassDenied: true }});
+    if (mode === 'single-file') await vscode.commands.executeCommand('richMarkdownPreview.openPreview', target);
+    else await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
+    frame = await findFrame('#rmp-heading-image-privacy-proof');
+    await frame.locator('[data-external-image-action="grant"]').waitFor();
+    assert.equal(await frame.locator('#rmp-ui-content img').count(), 0);
+    assert.equal(requests.length, afterGrant);
+    checks.push({mode, multipleDocuments: true, remoteImagePrivacy: { blockedRequests: 0, grantedOrigin: origin, noReferrer: true, forgedOriginDenied: true, exactCsp: true, revoked: true, workspaceSettingBypassDenied: true }});
   }
 };
+
 

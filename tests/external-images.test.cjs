@@ -1,17 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
-const ts = require('typescript');
-const filename = path.resolve('src/external-images.ts');
-const source = process.env.SOURCE_COVERAGE_ROOT
-  ? require('../scripts/coverage-instrument.cjs').instrument(filename).code
-  : fs.readFileSync(filename, 'utf8');
-const moduleObject = { exports: {} };
-vm.runInNewContext(ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText, { module: moduleObject, exports: moduleObject.exports, URL, __coverage__: (globalThis.__coverage__ ??= {}) });
+const moduleObject = { exports: require('./load-external-images.cjs') };
 const { externalImageGrantsKey, externalImageOrigin, isExternalImageOrigin, readExternalImageGrants,
   externalImageDecision, externalImageCspOrigins } = moduleObject.exports;
 
@@ -189,4 +178,10 @@ test('empty userinfo markers are rejected while at-signs in paths remain legal',
   for (const value of ['https://@example.com/a', 'https://:@example.com/a', 'https://%40example.com/a'])
     assert.equal(externalImageOrigin(value), undefined);
   assert.equal(externalImageOrigin('https://example.com/a@b.png'), 'https://example.com');
+});
+
+
+test('hostnames over the DNS length limit cannot authorize a CSP source', () => {
+  const hostname = Array(4).fill('a'.repeat(63)).join('.');
+  assert.equal(externalImageOrigin(`https://${hostname}/image.svg`), undefined);
 });

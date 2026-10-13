@@ -94,7 +94,7 @@ export class ExternalImagePermissions {
       if (action === 'grant') {
         if (!isCurrentRenderedOrigin() || !(await confirm(origin)) || !isCurrentRenderedOrigin()) return false;
       }
-      const next = new Set([...this.grants].filter((grant) => !this.revoked.has(grant)));
+      const next = new Set(this.grants);
       if (action === 'grant') next.add(origin);
       await this.store.update(externalImageGrantsKey, [...next].sort());
       if (action === 'grant') {
