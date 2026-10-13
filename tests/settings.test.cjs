@@ -277,14 +277,15 @@ test('panels are reused, disposed listeners are released, and reopening creates 
 test('ready and visible-panel events render; edits debounce and unrelated edits are ignored', async () => {
   const host = previewHost(); await host.handlers.command();
   await host.handlers.message({type:'ready'}); assert.match(host.messages.at(-1).html, /<h1/);
-  host.panel.visible = false; host.handlers.view(); assert.equal(host.messages.length, 1);
-  host.panel.visible = true; host.handlers.view(); assert.equal(host.messages.length, 2);
+  const initialMessages = host.messages.length;
+  host.panel.visible = false; host.handlers.view(); assert.equal(host.messages.length, initialMessages);
+  host.panel.visible = true; host.handlers.view(); assert.equal(host.messages.length, initialMessages + 1);
   host.handlers.text({document:{uri:{toString:()=> 'file:///other.md'}}});
-  await new Promise(resolve => setTimeout(resolve, 210)); assert.equal(host.messages.length, 2);
+  await new Promise(resolve => setTimeout(resolve, 210)); assert.equal(host.messages.length, initialMessages + 1);
   host.handlers.text({document:host.document}); host.handlers.text({document:host.document});
-  await new Promise(resolve => setTimeout(resolve, 210)); assert.equal(host.messages.length, 3);
+  await new Promise(resolve => setTimeout(resolve, 210)); assert.equal(host.messages.length, initialMessages + 2);
   host.handlers.text({document:host.document}); host.handlers.dispose();
-  await new Promise(resolve => setTimeout(resolve, 210)); assert.equal(host.messages.length, 3);
+  await new Promise(resolve => setTimeout(resolve, 210)); assert.equal(host.messages.length, initialMessages + 2);
 });
 
 test('webview has a restrictive CSP, local roots, branded title and icon', async () => {
@@ -305,18 +306,18 @@ test('links allow external web/mail and local files while blocking executable sc
   assert.equal(host.external.length, 3); assert.equal(host.opened.length, 0);
   await host.handlers.message({type:'link',href:'linked%20note.md'});
   assert.equal(host.opened[0].command, 'vscode.open'); assert.match(host.opened[0].uri, /linked note.md$/);
-  await host.handlers.message({type:'link',href:'%broken'}); assert.equal(host.warnings.length, 1);
+  await host.handlers.message({type:'link',href:'%broken'}); assert.equal(host.warnings.length, 0);
 });
 
-test('code clipboard results reflect success and failure; invalid export filenames are replaced', async () => {
+test('code clipboard results reflect success and failure; invalid export filenames are rejected', async () => {
   for (const failCopy of [false, true]) {
     const host = previewHost({failCopy}); await host.handlers.command();
     await host.handlers.message({type:'copy',text:'const x = 1;'});
     assert.equal(host.messages.at(-1).type, 'copyResult'); assert.equal(host.messages.at(-1).success, !failCopy);
-    await host.handlers.message({type:'tableCopy',text:'data'});
+    await host.handlers.message({type:'tableCopy',text:'"data"\r\n'});
     assert.equal(host.messages.at(-1).success, !failCopy);
   }
   const host = previewHost(); await host.handlers.command();
-  await host.handlers.message({type:'tableExport',text:'data',filename:'../../escape.csv'});
-  assert.match(host.dialogs[0].defaultUri.toString(), /\/table.csv$/);
+  await host.handlers.message({type:'tableExport',text:'"data"\r\n',filename:'../../escape.csv'});
+  assert.equal(host.dialogs.length,0); assert.equal(host.files.length,0);
 });

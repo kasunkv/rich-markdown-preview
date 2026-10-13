@@ -1,3 +1,4 @@
+import type { WebviewCommand, DocumentationAction, HostMessage } from './messages';
 import type { DocumentationFile } from './documentation';
 
 export interface DocumentationViewState {
@@ -6,18 +7,11 @@ export interface DocumentationViewState {
   outline?: boolean;
 }
 interface Bridge {
-  postMessage(message: unknown): void;
+  postMessage(message: WebviewCommand): void;
   getState(): { documentation?: DocumentationViewState } | undefined;
   setState(state: unknown): void;
 }
-interface IndexMessage {
-  files: DocumentationFile[];
-  loading: boolean;
-  error?: string;
-  active?: string;
-  canBack: boolean;
-  canForward: boolean;
-}
+type IndexMessage = Omit<Extract<HostMessage, { type: 'documentation' }>, 'type'>;
 interface Folder {
   name: string;
   key: string;
@@ -36,7 +30,8 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
   let sidebar: HTMLElement, tree: HTMLElement, search: HTMLInputElement, notice: HTMLElement;
   let back: HTMLButtonElement, forward: HTMLButtonElement, source: HTMLButtonElement, path: HTMLElement;
   let documentsButton: HTMLButtonElement, outlineButton: HTMLButtonElement;
-  const send = (action: string, id?: string) => vscode.postMessage({ type: 'documentationAction', action, id });
+  const send = (action: DocumentationAction, id?: string) =>
+    vscode.postMessage({ type: 'documentationAction', action, id });
   const save = () =>
     vscode.setState({ ...vscode.getState(), documentation: { expanded: [...expanded], filter, outline: showOutline } });
   const button = (label: string, action: () => void) => {

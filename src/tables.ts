@@ -1,3 +1,4 @@
+import type { WebviewCommand } from './messages';
 export interface TablePreferences {
   query: string;
   column: number;
@@ -5,11 +6,7 @@ export interface TablePreferences {
   density: 'comfortable' | 'compact';
 }
 export type TableState = Record<string, TablePreferences>;
-export interface TableAction {
-  type: 'tableCopy' | 'tableExport';
-  text: string;
-  filename: string;
-}
+export type TableAction = Extract<WebviewCommand, { type: 'tableCopy' | 'tableExport' }>;
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 function numeric(value: string): number | undefined {

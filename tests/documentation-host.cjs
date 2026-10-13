@@ -10,6 +10,7 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
   };
   const uri = value => ({ scheme:'file', fsPath:value, path: value, with: changes => ({...uri(value),...changes}), toString: () => `file://${value}` });
   const root = value => ({ name: value.split('/').pop(), uri: uri(value) });
+  let requestSequence = 0;
   const commands = {}, messages = [], panels = [], warnings = [], opened = [], queries = [], watchers = [], reads = [], selections = [], reveals = [];
   const files = new Map([
     ['/repo/README.md', '# Welcome\n\n[Guide](docs/guide.md#details)\n\n[Code](src/app.ts)'],
@@ -45,7 +46,16 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
           onDidChangeViewState: view.listen, onDidDispose: dispose.listen,
           dispose() {dispose.fire();},
           webview: { options, cspSource: 'safe:', asWebviewUri: target => target,
-            onDidReceiveMessage: fn => {panel.message = fn; return receive.listen(fn);},
+            onDidReceiveMessage: fn => {
+              panel.rawMessage = fn;
+              panel.message = message => {
+                if (!message || typeof message !== 'object' || Array.isArray(message) || Object.getPrototypeOf(message) !== Object.prototype || !Object.values(Object.getOwnPropertyDescriptors(message)).every(descriptor => 'value' in descriptor) || message.type === 'ready') return fn(message);
+                const complete = {requestId:'fixture_' + ++requestSequence,renderId:messages.filter(value => value.type === 'render').at(-1)?.renderId,...message};
+                if ((message.type === 'tableCopy' || message.type === 'tableExport') && !Object.hasOwn(message,'filename')) complete.filename='table-1.csv';
+                return fn(complete);
+              };
+              return receive.listen(fn);
+            },
             postMessage: async message => { messages.push(message); return true; }
           }
         };
@@ -72,7 +82,7 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
     }
   };
   const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg'})} : require(name)});
+  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, Object, URL, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg'})} : require(name)});
   module.exports.activate({subscriptions: [], extensionUri: uri('/extension')});
   const open = async () => {await commands['richMarkdownPreview.openDocumentationHome'](); if (panels.length) await panels.at(-1).message({type: 'ready'});};
   const openSingle = async (file = '/repo/README.md') => { await commands['richMarkdownPreview.openPreview'](uri(file)); await panels.at(-1).message({type: 'ready'}); };
