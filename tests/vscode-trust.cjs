@@ -72,13 +72,7 @@ exports.run = async () => {
         assert.ok(extension.packageJSON.capabilities.untrustedWorkspaces.restrictedConfigurations.includes(key));
       await extension.activate();
       checks.push('Limited capability declaration activates safe preview in Restricted Mode');
-      // The full resource, command, navigation and transition proof is appended after reviewed prerequisites land.
-      const uri = vscode.Uri.file(path.join(workspace, 'test.md'));
-      await vscode.commands.executeCommand('richMarkdownPreview.openPreview', uri);
-      const frame = await findFrame('#rmp-ui-content h1');
-      assert.ok(await frame.locator('#rmp-ui-content h1').textContent());
-      checks.push('Actual webview renders local Markdown in Restricted Mode');
-      if (mode === 'transition') await grantFixtureTrust();
+      await require('./vscode-trust-proof.cjs').prove({vscode, workspace, browser, findFrame, wait, checks, mode, grantFixtureTrust});
     }
     await fs.writeFile(output, JSON.stringify({passed:true,hostVersion:vscode.version,trustMode:mode,isTrusted:vscode.workspace.isTrusted,checks},null,2));
   } catch (error) {
