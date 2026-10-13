@@ -71,7 +71,7 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
     }
   };
   const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, Buffer, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : require(name)});
+  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : require(name)});
   module.exports.activate({subscriptions: [], extensionUri: uri('/extension')});
   const open = async () => {await commands['richMarkdownPreview.openDocumentationHome'](); if (panels.length) await panels.at(-1).message({type: 'ready'});};
   const action = (action, id) => panels.at(-1).message({type: 'documentationAction', action, id: id && uri(id).toString()});

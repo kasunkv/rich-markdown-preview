@@ -204,7 +204,7 @@
     "dev:preview": "npm run build:development && node tests/preview-server.cjs",
     "vscode:prepublish": "npm run check:quality && npm run build:production && npm run test:only",
     "package": "vsce package --no-dependencies --githubBranch master && npm run verify:release",
-    "test:coverage": "npm run build:production && npm run test:coverage:only",
+    "test:coverage": "node scripts/source-coverage.cjs",
     "test:browser": "npm run build:production && npm run test:browser:only",
     "verify:vsix": "node scripts/verify-vsix.cjs",
     "verify:release": "node scripts/verify-release.cjs",
@@ -212,7 +212,7 @@
     "build:development": "node build.mjs",
     "build:production": "node build.mjs --production",
     "test:only": "node --test tests/*.test.cjs",
-    "test:coverage:only": "node --test --experimental-test-coverage tests/*.test.cjs",
+    "test:coverage:only": "node scripts/source-coverage.cjs",
     "test:browser:only": "npm run test:browser:harness && node scripts/browser-runner.cjs",
     "test:package:only": "node --test tests/package.test.cjs",
     "lint": "eslint src --max-warnings 0",
@@ -227,7 +227,8 @@
     "browser:install:ci": "playwright install --with-deps chromium",
     "screenshots:marketing": "npm run build:production && node scripts/browser-runner.cjs --marketing",
     "validate": "npm run check:quality && npm run build:production && npm run test:coverage:only && npm run test:browser:only && npm run test:host:only",
-    "test:browser:harness": "node --test tests/browser-harness/*.test.cjs"
+    "test:browser:harness": "node --test tests/browser-harness/*.test.cjs",
+    "test:coverage:baseline": "node scripts/source-coverage.cjs --update-baseline"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -251,6 +252,10 @@
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.25.0",
     "eslint": "^10.12.0",
+    "istanbul-lib-coverage": "3.2.2",
+    "istanbul-lib-instrument": "6.0.3",
+    "istanbul-lib-report": "3.0.1",
+    "istanbul-reports": "3.2.0",
     "playwright": "1.62.1",
     "prettier": "^3.9.10",
     "typescript": "^5.9.0",
