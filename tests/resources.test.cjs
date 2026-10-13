@@ -71,6 +71,7 @@ let workspaceRoot;
 const vscode = {
   Uri: { joinPath: Utils.joinPath, parse: URI.parse },
   workspace: {
+    isTrusted: true,
     getWorkspaceFolder: (uri) =>
       workspaceRoot &&
       uri.scheme === workspaceRoot.scheme &&
@@ -106,6 +107,7 @@ const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'rmp-resources-'));
 const root = path.join(temporary, 'workspace');
 fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
 fs.mkdirSync(path.join(root, 'assets'));
+fs.writeFileSync(path.join(root,'docs','guide.md'),'# Fixture');
 for (const name of ['diagram.svg', 'space image.svg', 'literal#.svg'])
   fs.writeFileSync(path.join(root, 'assets', name), '<svg/>');
 fs.writeFileSync(path.join(temporary, 'secret.svg'), '<svg/>');
@@ -247,4 +249,18 @@ test('Restricted Mode also rejects inconsistent workspace provider roots lexical
     vscode.workspace.getWorkspaceFolder = () => ({ uri: URI.file(root).with({authority:'other-host'}) });
     assert.equal(policy.restrictedNavigationAllowed(URI.file(path.join(root, 'assets', 'diagram.svg'))), false);
   } finally { vscode.workspace.getWorkspaceFolder = resolveFolder; }
+});
+
+test('Restricted local resource roots never fall back to an outside standalone directory', () => {
+  const extension = URI.file(path.join(temporary,'extension'));
+  vscode.workspace.isTrusted = false;
+  try {
+    workspaceRoot = URI.file(root);
+    assert.ok(policy.resolveImageResource('../assets/diagram.svg',document,webview));
+    workspaceRoot = undefined;
+    assert.equal(policy.previewResourceRoots(extension,document).length,2,'Only immutable extension resources remain allowed');
+    assert.equal(policy.resolveImageResource('inline.svg',document,webview),'','Standalone image access stays disabled');
+    workspaceRoot = URI.file(root);
+    assert.ok(policy.resolveImageResource('../assets/diagram.svg',document,webview));
+  } finally { vscode.workspace.isTrusted=true; workspaceRoot=undefined; }
 });

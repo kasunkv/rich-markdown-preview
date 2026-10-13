@@ -87,3 +87,27 @@ test('Trusted command behavior retains intentional outside-workspace navigation'
   assert.equal(h.counts().created,1);
   assert.deepEqual(h.reads,[h.outside]);
 });
+
+test('Restricted Mode rejects an already-open outside editor before reading its Markdown',async t=>{
+  const h=trustHost(t);
+  let sourceReads=0;
+  h.vscode.window.activeTextEditor.document={uri:h.file(h.outside),fileName:h.outside,languageId:'markdown',getText:()=>{sourceReads++;return '# Outside';}};
+  await h.handlers.command();
+  assert.equal(sourceReads,0);
+  assert.equal(h.counts().created,0);
+  assert.deepEqual(h.reads,[]);
+});
+
+test('Restricted Mode rechecks containment after a pending document read before creating a panel',async t=>{
+  const h=trustHost(t);
+  let resolve;
+  const pending=new Promise(yes=>{resolve=yes;});
+  const document=h.vscode.window.activeTextEditor.document;
+  h.vscode.workspace.openTextDocument=target=>{h.reads.push(target.fsPath);return pending;};
+  const opening=h.handlers.command(h.file(h.inside));
+  h.vscode.workspace.getWorkspaceFolder=()=>undefined;
+  resolve(document);
+  await opening;
+  assert.equal(h.counts().created,0);
+  assert.deepEqual(h.reads,[h.inside],'The initial safe read was issued before the workspace changed');
+});

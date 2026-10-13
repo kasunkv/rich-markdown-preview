@@ -64,6 +64,7 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
     },
     commands: {registerCommand: (name, fn) => {commands[name] = fn; return {dispose() {}};}, executeCommand: async (_, target) => opened.push(target.path)},
     workspace: {
+      isTrusted:true, onDidGrantWorkspaceTrust:()=>({dispose(){}}),
       workspaceFolders: folders.map(root), onDidChangeWorkspaceFolders: workspaceFolders.listen,
       onDidChangeConfiguration: configuration.listen, onDidChangeTextDocument: text.listen,
       getWorkspaceFolder: target => vscode.workspace.workspaceFolders.find(folder => target.path === folder.uri.path || target.path.startsWith(folder.uri.path + '/')),

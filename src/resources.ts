@@ -13,7 +13,9 @@ export function previewResourceRoots(extension: vscode.Uri, document?: vscode.Ur
   return [
     vscode.Uri.joinPath(extension, 'dist'),
     vscode.Uri.joinPath(extension, 'assets'),
-    ...(document ? [documentResourceRoot(document)] : []),
+    ...(document && (vscode.workspace.isTrusted || restrictedNavigationAllowed(document))
+      ? [documentResourceRoot(document)]
+      : []),
   ];
 }
 
@@ -32,6 +34,7 @@ export function resolveImageResource(src: string, document: vscode.Uri, webview:
     }
     const root = documentResourceRoot(document);
     if (target.scheme !== 'file' || root.scheme !== 'file' || target.authority !== root.authority) return '';
+    if (!vscode.workspace.isTrusted && !restrictedNavigationAllowed(target)) return '';
     const logical = relative(root.fsPath, target.fsPath);
     if (logical === '..' || logical.startsWith(`..${sep}`) || isAbsolute(logical)) return '';
     const canonicalRoot = realpathSync(root.fsPath);
