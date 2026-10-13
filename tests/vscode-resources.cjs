@@ -87,14 +87,15 @@ exports.proveResources = async function ({ workspace, checks }) {
     raw.pathname=raw.pathname.replace('/assets/diagram.svg','/assets/raw-alias/outside.svg');raw.search='';raw.hash='';
     const aliasRequests=[];for(const context of browser.contexts())for(const page of context.pages())page.on('request',request=>{if(request.url().includes('/assets/raw-alias/outside.svg'))aliasRequests.push(request.url());});
     const aliasDoc = vscode.Uri.file(path.join(workspace,'raw-alias-proof.md'));
-    const rawValues=[raw.href,raw.href.replace('vscode-resource','%76scode-resource'),raw.href.replace('vscode-resource',String.fromCharCode(92)+'u0076scode-resource'),raw.href.replace('vscode-resource',String.fromCharCode(92)+'U00000076scode-resource')];
+    const wide=Array.from('vscode',character=>String.fromCharCode(character.charCodeAt(0)+0xfee0)).join('');
+    const rawValues=[raw.href.replace('https://','https:/').replace('vscode-resource',wide+'-resource'),raw.href.replace('https://','https:').replace('vscode-resource',wide+'-resource'),raw.href.replace('vscode-resource',wide+'-resource'),raw.href.replace('vscode-resource.vscode-cdn','vscode-resource'+String.fromCharCode(0x3002)+'vscode-cdn'),raw.href.replace('vscode-resource','vs'+String.fromCharCode(0xad)+'code-resource'),raw.href,raw.href.replace('vscode-resource','%76scode-resource'),raw.href.replace('vscode-resource',String.fromCharCode(92)+'u0076scode-resource'),raw.href.replace('vscode-resource',String.fromCharCode(92)+'U00000076scode-resource')];
     await fs.writeFile(aliasDoc.fsPath,'# Raw alias boundary\n\n![Resolver denied](assets/raw-alias/outside.svg)\n\n'+rawValues.map(value=>'```mermaid\nflowchart TD\nA@{img: "'+value+'",label: "Raw alias boundary",h: 20} --> B[Valid image graph]\n```').join('\n\n'));
     await vscode.commands.executeCommand('richMarkdownPreview.openPreview',aliasDoc);
     aliasFrame=await findFrame('#rmp-heading-raw-alias-boundary');
-    await aliasFrame.waitForFunction(()=>document.querySelectorAll('.mermaid-result,.diagram-error').length===4);
+    await aliasFrame.waitForFunction(()=>document.querySelectorAll('.mermaid-result,.diagram-error').length===9);
     const aliasEvidence=await aliasFrame.evaluate(()=>({resolverSource:document.querySelector('img[alt="Resolver denied"]').getAttribute('src'),renderedRawImage:document.querySelectorAll('.mermaid-result .image-shape').length,blockedForms:document.querySelectorAll('.diagram-error').length,diagramError:document.querySelector('.diagram-error')?.textContent}));
     await fs.writeFile(path.join(workspace,'raw-alias-boundary.json'),JSON.stringify(aliasEvidence,null,2));
-    assert.equal(aliasEvidence.resolverSource,'');assert.equal(aliasEvidence.blockedForms,4);
+    assert.equal(aliasEvidence.resolverSource,'');assert.equal(aliasEvidence.blockedForms,9);
     assert.equal(aliasEvidence.renderedRawImage,0,'Raw Mermaid resource URL must not read the harmless outside-root alias image');
     assert.deepEqual(aliasRequests,[],'No raw alias request occurs before the internal URL rejection');
     checks.push({rawAliasBoundary:{...aliasEvidence,rawRequests:aliasRequests.length}});

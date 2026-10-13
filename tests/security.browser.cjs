@@ -130,7 +130,7 @@ test('expanded model fallback is actually received and clears stale outline befo
 test('valid Mermaid image metadata interprets encoded hosts while exact approved origin remains required', async ({ page }) => {
   const server=await boot(page,['https://approved.test']);
   try {
-    for(const escape of ['%61','%41',String.fromCharCode(92)+'u0061',String.fromCharCode(92)+'U00000061']) {
+    for(const escape of ['%61','%41',String.fromCharCode(92)+'u0061',String.fromCharCode(92)+'U00000061',String.fromCharCode(0xff41),'a'+String.fromCharCode(0xad)]) {
       const source='```mermaid\nflowchart TD\nA@{img: "https://'+escape+'pproved.test/diagram.png",label: "Valid escaped image",h: 20} --> B[Safe]\n```';
       await render(page,source);await expect(page.locator('.mermaid-result .image-shape')).toHaveCount(1);
       expect(page.securityRequests.every(url=>url==='https://approved.test/diagram.png')).toBe(true);
