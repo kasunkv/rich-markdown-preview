@@ -1,13 +1,13 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const path=require('node:path');const {host}=require('./documentation-host.cjs');
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};};
-function providerHost(){
+function providerHost(scheme='readonly',authority='fixture'){
  const h=host({folders:['/repo']});
- const uri=value=>({scheme:'readonly',authority:'fixture',path:value,with(changes){return {...this,...changes};},toString(){return `readonly://fixture${this.path}`;}});
- h.vscode.Uri.joinPath=(base,...parts)=>base.scheme==='readonly'?uri(path.posix.join(base.path,...parts)):h.uri(path.posix.join(base.path,...parts));
+ const uri=value=>({scheme,authority,path:value,with(changes){return {...this,...changes};},toString(){return `${scheme}://${authority}${this.path}`;}});
+ h.vscode.Uri.joinPath=(base,...parts)=>base.scheme===scheme?uri(path.posix.join(base.path,...parts)):h.uri(path.posix.join(base.path,...parts));
  h.vscode.workspace.workspaceFolders[0].uri=uri('/repo');h.vscode.workspace.isTrusted=true;
  h.vscode.workspace.openTextDocument=async target=>h.getDocument(uri(target.path));
  h.vscode.FileType.SymbolicLink=64;
- h.vscode.workspace.fs.stat=async target=>({type:target.path.endsWith('.svg')?1:2});
+ h.vscode.workspace.fs.stat=async target=>({type:/\.(svg|md|markdown)$/i.test(target.path)?1:2});
  h.files.set('/repo/README.md','# Provider\n\n![Provider](assets/test.svg)\n\n{{include: ~/private.md}}');
  return h;
 }
@@ -24,3 +24,8 @@ test('provider image completion cannot post after disposal, source edits',async(
  }
 });
 
+
+test('remote-style provider fixtures preserve scheme and authority through image resolution and source references',async()=>{
+ const h=providerHost('vscode-remote','ssh-remote+fixture');h.files.set('/repo/README.md','# Remote fixture\n\n![Remote](assets/test.svg)\n\n[Target](docs/guide.md#details)');await h.openSingle();await new Promise(setImmediate);const render=h.latest('render');assert.equal(render.documentId,'vscode-remote://ssh-remote+fixture/repo/README.md');assert.match(render.html,/vscode-remote:\/\/ssh-remote\+fixture\/repo\/assets\/test.svg/);
+ const targets=[];const open=h.vscode.workspace.openTextDocument;h.vscode.workspace.openTextDocument=async uri=>{targets.push(uri);return open(uri);};await h.panels[0].message({type:'reference',id:'reference-0'});assert.equal(targets.at(-1).scheme,'vscode-remote');assert.equal(targets.at(-1).authority,'ssh-remote+fixture');assert.equal(h.selections.at(-1).start.line,2);h.panels[0].dispose();
+});

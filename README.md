@@ -113,7 +113,7 @@ References show an icon before the link: **↳ include**, **⇥ import**, **▣ 
 | Docsify | `[Guide](snippets/guide.md ":include")` |
 | Markdown link | `[Guide](references/guide.md)` |
 
-Relative targets use the current document directory. Targets starting with `/` use the document's workspace folder, or its directory for standalone files. Set **Rich Markdown Preview: Reference Root** to point at a skill package or another base directory. For a `SKILL.md` in `.claude/skills/my-skill`, set it to `.claude/skills/my-skill` when `/snippets/...` refers to that skill's snippets folder. Claude home-relative `~/...` and absolute Windows paths are also supported.
+Relative targets use the current document directory. Targets starting with `/` use the document's workspace folder, or its directory for standalone files. Set **Rich Markdown Preview: Reference Root** to point at a skill package or another base directory. For a `SKILL.md` in `.claude/skills/my-skill`, set it to `.claude/skills/my-skill` when `/snippets/...` refers to that skill's snippets folder. For trusted file documents, `~/...` uses the extension host home directory; absolute Windows paths require a Windows extension host. Provider documents reject host absolute/home paths with instructions to use relative paths. A leading `/` remains Reference Root-relative on every host, including POSIX.
 
 Jekyll includes use `_includes` under the reference root; `include_relative` uses the document directory. Retype checks the document directory, its `_includes`, and the root's `_includes`, with optional `.md`. Obsidian targets try the document directory and reference root, with optional `.md`.
 
@@ -170,7 +170,7 @@ Supported callouts: **Note**, **Tip**, **Important**, **Warning**, and **Caution
 
 ## Current limits
 
-The preview scrolls independently of the source editor. Full-document PDF/HTML export, math typesetting, custom CSS, and editable task checkboxes are not available in this release. CSV table export is supported. Images outside the document's directory are not supported. Preview panels must be reopened after restarting VS Code. Very large files or many diagrams may take longer to render.
+The preview scrolls independently of the source editor. Full-document PDF/HTML export, math typesetting, custom CSS, and editable task checkboxes are not available in this release. CSV table export is supported for file workspaces. Local images stay within the document workspace folder, or its directory for standalone documents. Preview panels must be reopened after restarting VS Code. Very large files or many diagrams may take longer to render.
 
 ## License
 
@@ -195,3 +195,11 @@ This replaces the previous automatic HTTPS image loading default. Existing docum
 Local workspace Markdown, local images, and Documentation Home remain available in Restricted Mode. Navigation stays inside the workspace; absolute filesystem/home references, outside files, and symlink escapes are blocked. The referenceRoot setting is ignored until the workspace is trusted.
 
 Remote images are disabled even for previously approved origins. Granting workspace trust enables navigation and image controls; saved image origins remain suspended until you explicitly allow each origin again. Trust alone does not load remote images.
+
+### Remote and provider workspaces
+
+The extension runs in the workspace Node extension host on desktop VS Code and Node-based remote hosts. It has no browser/vscode.dev entrypoint. Trusted provider documents retain their URI scheme and authority for relative references and images. Images use VS Code webview resource authorization, logical workspace containment, and rejection of provider-reported symlink ancestry; opaque providers define their namespace and do not expose a generic canonical disk path. Provider access is blocked in Restricted Mode.
+
+Documentation Home uses bounded provider directory traversal with case-sensitive include/exclude globs, including hidden Markdown. Excluded folders and reported symlinks are skipped. Each provider root permits at most 20,000 entries, 5,000 Markdown results and 64 directory levels; narrow the documentation include/exclude settings if discovery reaches a limit. File and remote search providers retain VS Code search.
+
+CSV export is unavailable from provider documents; use Copy CSV and save in a writable host folder. On a Node remote host, file export uses that host's native Save dialog and filesystem; it is not an automatic download to the desktop. Actual SSH/WSL infrastructure validation remains pending a supplied development workspace; the tested custom read-only provider does not establish that infrastructure smoke.

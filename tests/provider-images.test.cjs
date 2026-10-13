@@ -21,3 +21,8 @@ test('Restricted Mode, file documents and trust changes cannot authorize provide
  const stat=h.vscode.workspace.fs.stat;h.vscode.workspace.fs.stat=async target=>{const result=await stat(target);h.vscode.workspace.isTrusted=false;return result;};assert.equal(await h.resolve('inline.svg',h.document,h.webview),'');assert.equal(h.converted.length,0);
 });
 
+
+test('provider images reject a resource root changing during provider stat before conversion',async()=>{
+ const h=fixture();const stat=h.vscode.workspace.fs.stat;h.vscode.workspace.fs.stat=async target=>{const result=await stat(target);h.root.path='/replacement-root';return result;};assert.equal(await h.resolve('inline.svg',h.document,h.webview),'');assert.equal(h.converted.length,0);assert.equal(h.reads.length,1);
+ const target=fixture();const read=target.vscode.workspace.fs.stat;target.vscode.workspace.fs.stat=async uri=>{const result=await read(uri);if(uri.path.endsWith('.svg'))target.vscode.workspace.isTrusted=false;return result;};assert.equal(await target.resolve('inline.svg',target.document,target.webview),'');assert.equal(target.converted.length,0);
+});

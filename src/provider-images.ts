@@ -25,19 +25,22 @@ export async function resolveProviderImageResource(
     const target = vscode.Uri.joinPath(vscode.Uri.joinPath(document, '..'), decoded);
     const root = documentResourceRoot(document);
     if (!sameProviderWithin(root, target)) return '';
+    const acceptedRoot = root.toString();
+    const allowed = () => vscode.workspace.isTrusted && documentResourceRoot(document).toString() === acceptedRoot;
     const suffix = target.path.slice(root.path.replace(/\/$/, '').length);
     const segments = suffix.split('/').filter(Boolean);
     let current = root;
     const rootStat = await vscode.workspace.fs.stat(root);
-    if (rootStat.type & vscode.FileType.SymbolicLink || !(rootStat.type & vscode.FileType.Directory)) return '';
+    if (!allowed() || rootStat.type & vscode.FileType.SymbolicLink || !(rootStat.type & vscode.FileType.Directory))
+      return '';
     for (let index = 0; index < segments.length; index++) {
       current = vscode.Uri.joinPath(current, segments[index]);
       const stat = await vscode.workspace.fs.stat(current);
-      if (stat.type & vscode.FileType.SymbolicLink) return '';
+      if (!allowed() || stat.type & vscode.FileType.SymbolicLink) return '';
       if (index === segments.length - 1 ? stat.type !== vscode.FileType.File : !(stat.type & vscode.FileType.Directory))
         return '';
     }
-    if (!segments.length || !vscode.workspace.isTrusted) return '';
+    if (!segments.length) return '';
     return (
       webview.asWebviewUri(target).toString() +
       (parts.query ? `?${parts.query}` : '') +
