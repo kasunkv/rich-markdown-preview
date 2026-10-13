@@ -1,3 +1,4 @@
+import { validateWebviewMessage, normalizeCSV, validLink, messageLimits, type HostMessage } from './messages';
 import { reportAsync as observeAsync } from './async';
 import { PreviewSession, PreviewHostBridge, PreviewNavigationAdapter, sessionDiagnostic } from './preview-session';
 import { PreviewPreferenceStore } from './preview-preferences';
@@ -155,6 +156,7 @@ export function activate(context: vscode.ExtensionContext) {
     const webview = panel.webview;
     const session = new PreviewSession(sessionDiagnostic(output));
     const bridge = new PreviewHostBridge(session, (message) => webview.postMessage(message));
+    const post = (message: HostMessage, generation = session.capture()) => bridge.post(message, generation);
     const navigationAdapter = new PreviewNavigationAdapter(session);
     const preferenceStore = new PreviewPreferenceStore(session, () => preferences(preferenceUri()), defaults);
     const effectivePreferences = () => preferenceStore.effective();
@@ -175,7 +177,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (!force && index.files === sentFiles && snapshot === sentNavigation) return;
       const files = index.files;
       const request = session.capture();
-      const message = {
+      const message: HostMessage = {
         type: 'documentation',
         files,
         ...indexStatus,
@@ -187,7 +189,7 @@ export function activate(context: vscode.ExtensionContext) {
         session.run(
           'send documentation navigation',
           async () => {
-            const delivered = await bridge.post(message, request);
+            const delivered = await post(message, request);
             if (!session.current(request) || !delivered) return;
             sentFiles = files;
             sentNavigation = snapshot;
@@ -196,13 +198,28 @@ export function activate(context: vscode.ExtensionContext) {
         ),
       );
     };
+    let renderId = '';
+    let renderRevision = 0;
+    let renderedDocumentId = '';
+    let renderedSource = '';
+    const refreshModelIdentity = (source = document?.getText() ?? '') => {
+      const identity = document?.uri.toString() ?? 'home';
+      if (!renderId || identity !== renderedDocumentId || source !== renderedSource) {
+        renderedDocumentId = identity;
+        renderedSource = source;
+        renderId = nonce + '_' + ++renderRevision;
+      }
+      return source;
+    };
     const update = () =>
       session.boundary('render Markdown', () => {
+        const source = refreshModelIdentity();
         if (!document) {
           fileReferences = [];
           reportAsync(
-            bridge.post({
+            post({
               type: 'render',
+              renderId,
               html: '',
               outline: [],
               preferences: effectivePreferences(),
@@ -213,11 +230,12 @@ export function activate(context: vscode.ExtensionContext) {
           sendNavigation(true);
           return;
         }
-        const result = renderMarkdown(document.getText(), (src) => resolveImageResource(src, document!.uri, webview));
+        const result = renderMarkdown(source, (src) => resolveImageResource(src, document!.uri, webview));
         fileReferences = result.references;
         reportAsync(
-          bridge.post({
+          post({
             type: 'render',
+            renderId,
             ...result,
             preferences: effectivePreferences(),
             documentId: document.uri.toString(),
@@ -230,11 +248,13 @@ export function activate(context: vscode.ExtensionContext) {
       });
     const navigate = async (target?: vscode.Uri, anchor?: string, position?: number) => {
       const request = session.supersede();
+      const acceptedModel = renderId;
+      const currentModel = () => session.current(request) && acceptedModel === renderId;
       try {
         const next = target
           ? await navigationAdapter.resolve('open document', () => vscode.workspace.openTextDocument(target), request)
           : undefined;
-        if (!session.current(request)) return;
+        if (!currentModel()) return;
         if (target && !next) {
           reportAsync(
             vscode.window.showWarningMessage('Could not open this document. It may have moved or been deleted.'),
@@ -268,7 +288,7 @@ export function activate(context: vscode.ExtensionContext) {
         panel.title = document ? `Documentation: ${document.fileName.split(/[\\/]/).pop()}` : 'Documentation Home';
         update();
       } catch {
-        if (!session.current(request)) return;
+        if (!currentModel()) return;
         session.fail('navigate document');
         reportAsync(
           vscode.window.showWarningMessage('Could not open this document. It may have moved or been deleted.'),
@@ -278,6 +298,8 @@ export function activate(context: vscode.ExtensionContext) {
     const openTarget = async (target: vscode.Uri, anchor = '') => {
       if (!session.current()) return;
       const request = session.supersede();
+      const acceptedModel = renderId;
+      const currentModel = () => session.current(request) && acceptedModel === renderId;
       try {
         if (document && target.toString() === document.uri.toString()) {
           const resolved = session.boundary('parse source heading', () =>
@@ -302,7 +324,7 @@ export function activate(context: vscode.ExtensionContext) {
             () => vscode.workspace.openTextDocument(target),
             request,
           );
-          if (!session.current(request)) return;
+          if (!currentModel()) return;
           if (!source) {
             reportAsync(vscode.window.showWarningMessage('Could not open this link. Check the target file access.'));
             return;
@@ -317,11 +339,11 @@ export function activate(context: vscode.ExtensionContext) {
           if (resolved?.kind === 'heading') {
             const selection = new vscode.Range(resolved.line, 0, resolved.line, 0);
             const editor = await vscode.window.showTextDocument(source, { selection });
-            if (!session.current(request)) return;
+            if (!currentModel()) return;
             editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
           } else {
             await vscode.window.showTextDocument(source);
-            if (!session.current(request)) return;
+            if (!currentModel()) return;
           }
         } else {
           if (anchor) {
@@ -335,10 +357,10 @@ export function activate(context: vscode.ExtensionContext) {
             );
           }
           await vscode.commands.executeCommand('vscode.open', target);
-          if (!session.current(request)) return;
+          if (!currentModel()) return;
         }
       } catch {
-        if (!session.current(request)) return;
+        if (!currentModel()) return;
         session.fail('open source target');
         reportAsync(vscode.window.showWarningMessage('Could not open this link. Check the target file access.'));
       }
@@ -377,12 +399,14 @@ export function activate(context: vscode.ExtensionContext) {
     }
     const updatePreferences = () =>
       session.boundary('update preview preferences', () =>
-        reportAsync(bridge.post({ type: 'preferences', preferences: effectivePreferences() })),
+        reportAsync(post({ type: 'preferences', preferences: effectivePreferences() })),
       );
     const disposables = [
       vscode.workspace.onDidChangeTextDocument((event) => {
         if (session.current() && event.document.uri.toString() === document?.uri.toString()) {
           fileReferences = [];
+          renderId = '';
+          session.boundary('render Markdown', () => refreshModelIdentity(event.document.getText()));
           session.debounce(update, 180);
         }
       }),
@@ -397,15 +421,19 @@ export function activate(context: vscode.ExtensionContext) {
       panel.onDidChangeViewState(() => {
         if (panel.visible) update();
       }),
-      webview.onDidReceiveMessage((message) =>
-        bridge.receive(message, async (_raw, request) => {
-          if (!session.current(request) || !message || typeof message !== 'object') return;
+      webview.onDidReceiveMessage((raw) =>
+        bridge.receive(raw, async (message, request) => {
+          if (!session.current(request) || !validateWebviewMessage(message)) return;
           if (message.type === 'ready') {
             sentFiles = undefined;
             update();
             if (index) await index.refresh();
-            if (!session.current(request)) return;
+            return;
           }
+          if (message.renderId !== renderId) return;
+          const acceptedRenderId = message.renderId;
+          const requestId = message.requestId;
+          const currentModel = () => session.current(request) && acceptedRenderId === renderId;
           if (message.type === 'documentationAction' && index) {
             if (message.action === 'open' && typeof message.id === 'string') {
               const target = index.resolve(message.id);
@@ -414,11 +442,11 @@ export function activate(context: vscode.ExtensionContext) {
             if (message.action === 'home') await navigate();
             if (message.action === 'refresh') {
               await index.refresh();
-              if (!session.current(request)) return;
+              if (!currentModel()) return;
             }
             if (message.action === 'source' && document) {
               await vscode.window.showTextDocument(document, vscode.ViewColumn.Beside);
-              if (!session.current(request)) return;
+              if (!currentModel()) return;
             }
             if (message.action === 'back' || message.action === 'forward') {
               const position = historyPosition + (message.action === 'back' ? -1 : 1);
@@ -429,15 +457,16 @@ export function activate(context: vscode.ExtensionContext) {
             }
             return;
           }
-          if (message.type === 'reference' && typeof message.id === 'string') {
+          if (message.type === 'reference') {
             const reference = fileReferences.find((item) => item.id === message.id);
             if (!reference) return;
             if (/^https?:\/\//i.test(reference.path)) {
+              if (!validLink(reference.path)) return;
               try {
                 await vscode.env.openExternal(vscode.Uri.parse(reference.path));
-                if (!session.current(request)) return;
+                if (!currentModel()) return;
               } catch {
-                if (!session.current(request)) return;
+                if (!currentModel()) return;
                 session.fail('open external reference');
                 reportAsync(vscode.window.showWarningMessage('Could not open this reference.'));
               }
@@ -461,7 +490,8 @@ export function activate(context: vscode.ExtensionContext) {
               }
               if (
                 !path ||
-                /[\u0000-\u001f]/.test(path) ||
+                path.length > messageLimits.uri ||
+                /[\u0000-\u001f\u007f]/.test(path) ||
                 path.startsWith('//') ||
                 (/^[a-z][a-z\d+.-]*:/i.test(path) && !/^[a-z]:\//i.test(path))
               )
@@ -478,7 +508,7 @@ export function activate(context: vscode.ExtensionContext) {
                 () => vscode.workspace.fs.stat(target),
                 request,
               );
-              if (!session.current(request) || !fileReferences.includes(reference)) return;
+              if (!currentModel() || !fileReferences.includes(reference)) return;
               if (!stat) continue;
               if (stat.type & vscode.FileType.Directory) continue;
               await openTarget(target, parseResourceUrl(reference.path).fragment);
@@ -521,59 +551,58 @@ export function activate(context: vscode.ExtensionContext) {
               );
             }
           }
-          if (message.type === 'copy' && typeof message.text === 'string') {
+          if (message.type === 'copy') {
             try {
               await vscode.env.clipboard.writeText(message.text);
-              if (!session.current(request)) return;
-              reportAsync(bridge.post({ type: 'copyResult', success: true }));
+              if (!currentModel()) return;
+              reportAsync(post({ type: 'copyResult', requestId, success: true }));
             } catch {
-              if (!session.current(request)) return;
+              if (!currentModel()) return;
               session.fail('copy code');
-              reportAsync(bridge.post({ type: 'copyResult', success: false }, request));
+              reportAsync(post({ type: 'copyResult', requestId, success: false }, request));
             }
           }
-          if (['tableCopy', 'tableExport'].includes(message.type) && typeof message.text === 'string') {
+          if (message.type === 'tableCopy' || message.type === 'tableExport') {
+            const csv = normalizeCSV(message.text);
+            if (csv === undefined) return;
             try {
               if (message.type === 'tableCopy') {
-                await vscode.env.clipboard.writeText(message.text);
-                if (!session.current(request)) return;
+                await vscode.env.clipboard.writeText(csv);
+                if (!currentModel()) return;
               } else {
-                const filename =
-                  typeof message.filename === 'string' && /^table-\d+\.csv$/.test(message.filename)
-                    ? message.filename
-                    : 'table.csv';
+                const filename = message.filename;
                 const destination = await vscode.window.showSaveDialog({
                   defaultUri: vscode.Uri.joinPath(directory, filename),
                   filters: { 'CSV files': ['csv'] },
                   saveLabel: 'Export CSV',
                 });
-                if (!session.current(request)) return;
+                if (!currentModel()) return;
                 if (!destination) {
-                  reportAsync(bridge.post({ type: 'tableActionResult', action: message.type, cancelled: true }));
+                  reportAsync(post({ type: 'tableActionResult', requestId, action: message.type, cancelled: true }));
                   return;
                 }
-                await vscode.workspace.fs.writeFile(destination, Buffer.from('\uFEFF' + message.text, 'utf8'));
-                if (!session.current(request)) return;
+                await vscode.workspace.fs.writeFile(destination, Buffer.from('\uFEFF' + csv, 'utf8'));
+                if (!currentModel()) return;
               }
-              reportAsync(bridge.post({ type: 'tableActionResult', action: message.type, success: true }));
+              reportAsync(post({ type: 'tableActionResult', requestId, action: message.type, success: true }));
             } catch {
-              if (!session.current(request)) return;
+              if (!currentModel()) return;
               session.fail('table action');
               const detail = 'Table action failed. Check clipboard or destination file access and retry.';
               reportAsync(vscode.window.showWarningMessage(detail));
               reportAsync(
-                bridge.post({ type: 'tableActionResult', action: message.type, success: false, error: detail }),
+                post({ type: 'tableActionResult', requestId, action: message.type, success: false, error: detail }),
               );
             }
           }
-          if (message.type === 'link' && typeof message.href === 'string') {
+          if (message.type === 'link') {
             const href = message.href;
             if (/^(https?:|mailto:)/i.test(href)) {
               try {
                 await vscode.env.openExternal(vscode.Uri.parse(href));
-                if (!session.current(request)) return;
+                if (!currentModel()) return;
               } catch {
-                if (!session.current(request)) return;
+                if (!currentModel()) return;
                 session.fail('open link');
                 reportAsync(vscode.window.showWarningMessage('Could not open this link.'));
               }
@@ -584,7 +613,7 @@ export function activate(context: vscode.ExtensionContext) {
                 if (/[\u0000-\u001f]/.test(path) || path.startsWith('//') || /^[a-z][a-z\d+.-]*:/i.test(path)) return;
                 await openTarget(parts.path ? vscode.Uri.joinPath(directory, path) : document!.uri, parts.fragment);
               } catch {
-                if (!session.current(request)) return;
+                if (!currentModel()) return;
                 session.fail('open link');
                 reportAsync(vscode.window.showWarningMessage('Could not open this link.'));
               }

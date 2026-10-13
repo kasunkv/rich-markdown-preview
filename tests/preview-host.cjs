@@ -13,6 +13,7 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
   let created = 0, revealed = 0, disposed = 0;
   const columns = [];
   const handlers = {};
+  let requestSequence = 0;
   const disposable = {dispose() {disposed++;}};
   const uri = {path: fileName, toString: () => `file://${fileName}`};
   const document = {uri, fileName, languageId, getText: () => '# Test'};
@@ -34,7 +35,19 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     webview: {
       cspSource: 'https://safe-resource', asWebviewUri: () => 'safe-resource',
       postMessage: message => { messages.push(message); return Promise.resolve(true); },
-      onDidReceiveMessage: handler => { handlers.message = handler; return disposable; }
+      onDidReceiveMessage: handler => {
+        handlers.rawMessage = handler;
+        handlers.message = async message => {
+          if (!message || typeof message !== 'object' || Array.isArray(message) || Object.getPrototypeOf(message) !== Object.prototype || !Object.values(Object.getOwnPropertyDescriptors(message)).every(descriptor => 'value' in descriptor)) return handler(message);
+          if (message.type === 'ready') return handler(message);
+          if (!messages.some(value => value.type === 'render')) await handler({type:'ready'});
+          const render = messages.filter(value => value.type === 'render').at(-1);
+          const complete = {requestId:'fixture_' + ++requestSequence,renderId:render?.renderId,...message};
+          if ((message.type === 'tableCopy' || message.type === 'tableExport') && !Object.hasOwn(message,'filename')) complete.filename='table-1.csv';
+          return handler(complete);
+        };
+        return disposable;
+      }
     }
   };
   const vscode = {
@@ -51,11 +64,11 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
       onDidChangeTextDocument: handler => {handlers.text = handler;return disposable;},
       onDidChangeConfiguration: handler => {handlers.configuration = handler; return disposable;}
     },
-    commands: {executeCommand: async (command, uri) => opened.push({command,uri:uri.toString()}), registerCommand: (id, handler) => {handlers[id] = handler; if (id === 'richMarkdownPreview.openPreview') handlers.command = handler; return disposable;}}
+    commands: {executeCommand: async (command, uri) => opened.push({command,uri:uri.toString()}), registerCommand: (id, handler) => {handlers[id] = handler; if (id === 'richMarkdownPreview.openPreview') handlers.command = async (...args) => {await handler(...args); if (handlers.rawMessage && !messages.some(message => message.type === 'render')) await handlers.rawMessage({type:'ready'});}; return disposable;}}
   };
   const module = {exports: {}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {
-    module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
+    module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, Object, URL, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
     require: name => name === 'vscode' ? vscode : require(name)
   });
   const subscriptions=[];
