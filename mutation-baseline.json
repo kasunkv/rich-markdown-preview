@@ -1,0 +1,11 @@
+{
+  "minimum": 100,
+  "killed": [
+    "scheme-denial",
+    "canonical-containment",
+    "csv-formula",
+    "numeric-preference",
+    "async-generation",
+    "preference-generation"
+  ]
+}
