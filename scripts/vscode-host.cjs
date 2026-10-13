@@ -9,7 +9,7 @@ function parseArgs(args) {
   while (args.length) {
     const key = args.shift();
     if (key === '--force-failure') options.forceFailure = true;
-    else if (['--version', '--mode', '--vsix', '--trust'].includes(key) && args.length) options[key.slice(2)] = args.shift();
+    else if (['--version', '--mode', '--vsix', '--trust', '--executable'].includes(key) && args.length) options[key.slice(2)] = args.shift();
     else throw new Error(`Unknown or incomplete argument: ${key}`);
   }
   if (!['development', 'package'].includes(options.mode)) throw new Error('Mode must be development or package');
@@ -28,6 +28,24 @@ async function windowsCliScript(executable) {
   throw new Error('Downloaded Windows host has no CLI script');
 }
 
+// @vscode/test-electron appends --disable-workspace-trust internally. Trust acceptance
+// launches the immutable runtime directly so the actual host trust service remains enabled.
+async function runTrustTests(options, spawn = require('node:child_process').spawn) {
+  const args = [...options.launchArgs, '--no-sandbox', '--disable-gpu-sandbox', '--no-cached-data',
+    '--extensionTestsPath=' + options.extensionTestsPath,
+    '--extensionDevelopmentPath=' + options.extensionDevelopmentPath];
+  if (args.includes('--disable-workspace-trust')) throw new Error('Trust test must retain Workspace Trust');
+  return new Promise((resolve, reject) => {
+    const child = spawn(options.vscodeExecutablePath, args, {env:{...process.env,...options.extensionTestsEnv}, windowsHide:true, stdio:['ignore','pipe','pipe']});
+    child.stdout?.on('data', data => process.stdout.write(data));
+    child.stderr?.on('data', data => process.stderr.write(data));
+    const timeout = setTimeout(() => { child.kill(); reject(new Error('Trust host timed out')); }, 180000);
+    const finish = (code, signal) => { clearTimeout(timeout); child.stdout?.destroy(); child.stderr?.destroy(); if(code === 0) resolve(0); else reject(new Error('Trust host failed: ' + (code ?? signal))); };
+    child.once('error', error => { clearTimeout(timeout); reject(error); });
+    child.once('exit', finish);
+  });
+}
+
 async function run(options, electron = require('@vscode/test-electron')) {
   const root = path.resolve(__dirname, '..');
   const base = path.join(root, '.test-results', 'host');
@@ -43,7 +61,9 @@ async function run(options, electron = require('@vscode/test-electron')) {
     await fs.mkdir(path.join(directory, 'user', 'User'), { recursive: true });
     await fs.writeFile(path.join(directory, 'user', 'User', 'settings.json'), JSON.stringify({ 'telemetry.telemetryLevel': 'off', 'update.mode': 'none', 'extensions.autoCheckUpdates': false, 'extensions.autoUpdate': false, 'workbench.enableExperiments': false, 'workbench.startupEditor': 'none', 'security.workspace.trust.startupPrompt': 'never' }));
     const profiles = [`--user-data-dir=${path.join(directory, 'user')}`, `--extensions-dir=${path.join(directory, 'extensions')}`];
-    const executable = await electron.downloadAndUnzipVSCode({ version: options.version, cachePath: path.join(root, '.test-results', 'host-downloads') });
+    const executable = options.executable ? path.resolve(options.executable) : await electron.downloadAndUnzipVSCode({ version: options.version, cachePath: path.join(root, '.test-results', 'host-downloads') });
+    if (options.executable && !(await fs.stat(executable)).isFile()) throw new Error('Existing host executable must be a file');
+    report.executable = executable;
     let developmentPath = root;
     if (options.mode === 'package') {
       const vsix = path.resolve(options.vsix || path.join(root, `${manifest.name}-${manifest.version}.vsix`));
@@ -65,7 +85,8 @@ async function run(options, electron = require('@vscode/test-electron')) {
     await new Promise(resolve => debugServer.listen(0, '127.0.0.1', resolve));
     const debugPort = debugServer.address().port;
     await new Promise(resolve => debugServer.close(resolve));
-    const exitCode = await electron.runTests({ vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs'), launchArgs: [workspace, ...profiles, `--remote-debugging-port=${debugPort}`, '--remote-debugging-address=127.0.0.1', '--skip-welcome', '--skip-release-notes', ...(options.trust ? [] : ['--disable-workspace-trust']), '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { RICH_MARKDOWN_PREVIEW_DEBUG_PORT: String(debugPort), RICH_MARKDOWN_PREVIEW_TEST_TRUST: options.trust || 'disabled', RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
+    const launch = options.trust ? (electron.runTrustTests ?? runTrustTests) : electron.runTests;
+    const exitCode = await launch({ vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs'), launchArgs: [workspace, ...profiles, `--remote-debugging-port=${debugPort}`, '--remote-debugging-address=127.0.0.1', '--skip-welcome', '--skip-release-notes', ...(options.trust ? [] : ['--disable-workspace-trust']), '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { RICH_MARKDOWN_PREVIEW_DEBUG_PORT: String(debugPort), RICH_MARKDOWN_PREVIEW_TEST_TRUST: options.trust || 'disabled', RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
     report.suite = JSON.parse(await fs.readFile(path.join(directory, 'suite.json'), 'utf8'));
     report.hostVersion = report.suite.hostVersion;
     if (exitCode !== 0 || !report.suite.passed) throw new Error(`Host smoke failed (exit ${exitCode})`);
@@ -83,5 +104,5 @@ async function run(options, electron = require('@vscode/test-electron')) {
   return report;
 }
 
-module.exports = { parseArgs, run, windowsCliScript };
+module.exports = { parseArgs, run, windowsCliScript, runTrustTests };
 if (require.main === module) Promise.resolve().then(() => run(parseArgs(process.argv.slice(2)))).catch(error => { console.error(error); process.exitCode = 1; });

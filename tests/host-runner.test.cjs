@@ -79,7 +79,7 @@ test('explicit trust modes retain Workspace Trust in isolated profiles', async (
     try {
       await run(parseArgs(['--trust', trust]), {
         downloadAndUnzipVSCode: async () => '/downloaded/host',
-        runTests: async options => {
+        runTrustTests: async options => {
           const env = options.extensionTestsEnv;
           directory = path.dirname(env.RICH_MARKDOWN_PREVIEW_TEST_RESULT);
           assert.equal(env.RICH_MARKDOWN_PREVIEW_TEST_TRUST, trust);
@@ -94,4 +94,28 @@ test('explicit trust modes retain Workspace Trust in isolated profiles', async (
     } finally { if (directory) await fs.rm(directory, { recursive: true, force: true }); }
   }
   assert.throws(() => parseArgs(['--trust', 'unknown']), /Trust must/);
+});
+
+test('direct trust launcher never inherits the test-electron trust disabling flag', async () => {
+  const { EventEmitter } = require('node:events');
+  const {runTrustTests} = require('../scripts/vscode-host.cjs');
+  const options = {vscodeExecutablePath:'/immutable/Code.exe',launchArgs:['/fixture','--user-data-dir=/isolated/user','--extensions-dir=/isolated/extensions'],extensionTestsPath:'/suite',extensionDevelopmentPath:'/source',extensionTestsEnv:{TRUST_FIXTURE:'1'}};
+  let calls = 0;
+  const spawn = (executable,args,config) => {
+    calls++;
+    assert.equal(executable, options.vscodeExecutablePath);
+    assert.ok(!args.includes('--disable-workspace-trust'));
+    assert.ok(args.includes('--extensionTestsPath=/suite'));
+    assert.ok(args.includes('--extensionDevelopmentPath=/source'));
+    assert.ok(args.includes('--user-data-dir=/isolated/user'));
+    assert.equal(config.env.TRUST_FIXTURE,'1');
+    assert.equal(config.windowsHide,true);
+    const child = new EventEmitter(); child.kill = () => {};
+    setImmediate(() => child.emit('exit', calls === 1 ? 0 : 1));
+    return child;
+  };
+  assert.equal(await runTrustTests(options,spawn),0);
+  await assert.rejects(runTrustTests(options,spawn),/Trust host failed: 1/);
+  await assert.rejects(runTrustTests({...options,launchArgs:['--disable-workspace-trust']},spawn),/retain Workspace Trust/);
+  await assert.rejects(runTrustTests(options,()=>{const child = new EventEmitter(); child.kill=()=>{};setImmediate(()=>child.emit('error',Error('Failed to launch')));return child;}),/Failed to launch/);
 });
