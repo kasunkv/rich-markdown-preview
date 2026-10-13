@@ -61,6 +61,41 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     checks.push('Frontmatter fields, nested YAML, outline, source disclosure, collapse, narrow layout and invalid YAML fallback');
     await render(fs.readFileSync(path.resolve(__dirname, '../samples/showcase.md'), 'utf8'));
     await page.locator('.mermaid-result').first().waitFor();
+    await page.locator('#rmp-ui-outline a').first().click();
+    await render('# Numeric target\n\n[Jump to heading](#numeric-target)');
+    await page.locator('#rmp-ui-content a').click();
+    await render('[External reference](https://example.com)');
+    await page.locator('#rmp-ui-content a').click();
+    await render(fs.readFileSync(path.resolve(__dirname, '../samples/showcase.md'), 'utf8'));
+    const widthValue = page.locator('[data-preference-key="contentWidth"][type="number"]');
+    const widthSlider = page.locator('[data-preference-key="contentWidth"][type="range"]');
+    const widthOutput = page.locator('[data-preference-output="contentWidth"]');
+    for (const [key, min, max] of [['contentWidth',480,1600], ['fontSize',12,24], ['lineHeight',1.3,2.2]]) {
+      const control = page.locator(`[data-preference-key="${key}"][type="number"]`);
+      assert.equal(await control.getAttribute('min'), String(min));
+      assert.equal(await control.getAttribute('max'), String(max));
+    }
+    await widthValue.fill('901');
+    assert.equal(await widthSlider.inputValue(), '901');
+    assert.equal(await widthOutput.textContent(), '901px');
+    await widthValue.fill('901.25');
+    assert.equal(await widthSlider.inputValue(), '901.25');
+    assert.equal(await widthOutput.textContent(), '901.25px');
+    await page.locator('[data-preference-key="fontSize"]').fill('17');
+    await page.locator('[data-preference-key="lineHeight"]').fill('1.8');
+    assert.equal(await page.locator('[data-preference-key="fontSize"]').inputValue(), '17');
+    assert.equal(await page.locator('[data-preference-key="lineHeight"]').inputValue(), '1.8');
+    await page.locator('[data-preference-key="fontSize"]').fill('17.25');
+    await page.locator('[data-preference-key="lineHeight"]').fill('1.83');
+    assert.equal(await page.locator('[data-preference-key="fontSize"]').inputValue(), '17.25');
+    assert.equal(await page.locator('[data-preference-key="lineHeight"]').inputValue(), '1.83');
+    assert.equal(await page.locator('#rmp-ui-content').evaluate(el => getComputedStyle(el).fontSize), '17.25px');
+    assert.equal(await page.locator('#rmp-ui-content').evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--reading-line-height').trim()), '1.83');
+    assert.equal(await page.locator('#rmp-ui-content').evaluate(el => getComputedStyle(el).maxWidth), '901.25px');
+    await page.locator('[data-preference-key="fontSize"]').fill('99');
+    await page.locator('[data-preference-key="fontSize"]').dispatchEvent('change');
+    assert.equal(await page.locator('[data-preference-key="fontSize"]').inputValue(), '17.25');
+    checks.push('Continuous numeric controls preserve integer and fractional values, synchronize the width slider/output, and reject invalid bounds');
     for (const appearance of ['light','dark']) {
       for (const style of manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum) {
         await page.selectOption('#rmp-ui-style', style); await page.selectOption('#rmp-ui-appearance', appearance);
@@ -117,6 +152,79 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     console.log(checks.map(check => `PASS ${check}`).join('\n'));
 });
 
+for (const documentationHome of [false, true]) {
+  test(`reading interactions survive refresh (${documentationHome ? 'documentation' : 'single file'})`, async ({page, previewServer}) => {
+    await page.goto(previewServer.url);
+    await page.locator('.table-search').first().waitFor();
+    const labels = await page.locator('.table-panel').first().locator('.table-sort > span:first-child').allTextContents();
+    await page.evaluate(labels => sessionStorage.setItem('preview-state', JSON.stringify({tables:{[JSON.stringify([0, labels])]:{query:'legacy-migration',column:0,direction:'ascending',density:'compact'}}})), labels);
+    await page.reload();
+    assert.equal(await page.locator('.table-search').first().inputValue(), 'legacy-migration');
+    const preferences = {style:'documentation', appearance:'light', contentWidth:900, fontSize:16, lineHeight:1.7, wrapCode:false};
+    const source = '---\ntitle: Reading\n---\n# Inventory\n\n| Name | Value |\n| --- | --- |\n| Alpha | 2 |\n| Alphabet | 1 |\n| Beta | 3 |';
+    const render = async (text = source, documentId = 'file:///reading.md', fragment) => page.evaluate(message => window.dispatchEvent(new MessageEvent('message', {data:message})), {type:'render', ...renderMarkdown(text), preferences, documentationHome, documentId, fragment});
+    await render();
+    const search = page.locator('.table-search');
+    await page.locator('.table-sort').nth(1).click();
+    await page.locator('.table-density').selectOption('compact');
+    await page.locator('.frontmatter-raw > summary').click();
+    await page.locator('.frontmatter > summary').click();
+    await search.fill('Alpha');
+    await search.evaluate(input => input.setSelectionRange(1, 4, 'backward'));
+    await render(source + '\n\nNew paragraph.');
+    assert.equal(await search.evaluate(input => document.activeElement === input), true);
+    assert.deepEqual(await search.evaluate(input => [input.value, input.selectionStart, input.selectionEnd, input.selectionDirection]), ['Alpha', 1, 4, 'backward']);
+    assert.equal(await page.locator('.frontmatter').evaluate(el => el.open), false);
+    assert.equal(await page.locator('.frontmatter-raw').evaluate(el => el.open), true);
+    assert.equal(await page.locator('.table-panel').getAttribute('data-density'), 'compact');
+    assert.equal(await page.locator('th').nth(1).getAttribute('aria-sort'), 'ascending');
+    await page.keyboard.type('p');
+    assert.equal(await search.inputValue(), 'Apa');
+    // A different table inserted before this section must not move its interaction state.
+    await search.fill('Alpha');
+    await render('| Other |\n| --- |\n| New |\n\n' + source.replace(/^---[\s\S]*?---\n/, ''));
+    assert.equal(await page.locator('.table-search').nth(0).inputValue(), '');
+    assert.equal(await page.locator('.table-search').nth(1).inputValue(), 'Alpha');
+    assert.equal(await page.locator('.table-search').nth(1).evaluate(input => document.activeElement === input), true);
+    // Removed controls leave focus on the reading container, with no stale focus target.
+    await render('# Inventory\n\nTable removed.');
+    assert.equal(await page.locator('main.markdown').evaluate(el => document.activeElement === el), true);
+    await render();
+    await search.fill('Alpha');
+    await page.getByRole('combobox', {name:'Style', exact:true}).focus();
+    await render();
+    assert.equal(await page.getByRole('combobox', {name:'Style', exact:true}).evaluate(el => document.activeElement === el), true);
+    if (documentationHome) await page.getByRole('button', {name:'On this page', exact:true}).click();
+    await page.locator('nav a').last().focus();
+    await render();
+    assert.equal(await page.locator('nav a').last().evaluate(el => document.activeElement === el), true);
+    await page.locator('.frontmatter > summary').focus();
+    await render();
+    assert.equal(await page.locator('.frontmatter > summary').evaluate(el => document.activeElement === el), true);
+    for (const selector of ['.table-density', '.table-sort', '.table-copy']) {
+      await page.locator(selector).first().focus();
+      await render();
+      assert.equal(await page.locator(selector).first().evaluate(el => document.activeElement === el), true);
+    }
+    await search.focus();
+    await render(source + '\n\n```mermaid\ngraph TD; A-->B;\n```');
+    await page.getByRole('combobox', {name:'Style', exact:true}).focus();
+    await page.locator('.mermaid-result').waitFor();
+    assert.equal(await page.getByRole('combobox', {name:'Style', exact:true}).evaluate(el => document.activeElement === el), true);
+    await search.focus();
+    await render(source, 'file:///reading.md', 'inventory');
+    assert.equal(await search.evaluate(input => document.activeElement === input), false);
+    await page.locator('.frontmatter > summary').click();
+    await render(source, 'file:///other.md');
+    assert.equal(await search.inputValue(), '');
+    assert.equal(await page.locator('.frontmatter').evaluate(el => el.open), true);
+    assert.equal(await page.locator('.table-panel').getAttribute('data-density'), 'comfortable');
+    await render(source, 'file:///reading.md');
+    assert.equal(await search.inputValue(), 'Alpha');
+    assert.equal(await page.locator('.frontmatter').evaluate(el => el.open), false);
+    assert.equal(await search.evaluate(input => document.activeElement === input), false);
+  });
+}
 test('content anchors isolate UI, footnotes, duplicates and encoded fragments', async ({page, previewServer}) => {
   await page.goto(previewServer.url);
   await page.locator('.mermaid-result').first().waitFor();

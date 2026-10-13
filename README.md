@@ -69,7 +69,7 @@ Filtering searches file paths, not document contents. Files in excluded folders 
 
 ## Make it yours
 
-Use the toolbar to change **Style**, **Appearance**, **Width**, **Text**, **Spacing**, and **Wrap code**. The **Outline** button toggles section navigation. Width updates as you drag; it saves when you release the slider.
+Use the toolbar to change **Style**, **Appearance**, **Width**, **Text**, **Spacing**, and **Wrap code**. The **Outline** button toggles section navigation. Drag the Width slider or enter an exact value; the slider and pixel readout stay in sync and save when you commit the value. Text size and line spacing accept any value within their displayed ranges.
 
 Reading preferences save for the file's workspace folder, or globally for standalone files. If a settings file cannot be saved, the preview keeps your selection for the current session and shows a warning.
 

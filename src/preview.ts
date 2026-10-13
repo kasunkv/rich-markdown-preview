@@ -4,9 +4,11 @@ import type { OutlineItem } from './render';
 import { previewStyles } from './styles';
 import { enhanceTables, type TableState } from './tables';
 import { documentationView, type DocumentationViewState } from './documentation-view';
+import { numericPreferenceRanges } from './preference-ranges';
 interface ReadingState {
   scroll?: number;
   tables?: TableState;
+  disclosures?: Record<string, boolean>;
 }
 interface PreviewState extends ReadingState {
   documentation?: DocumentationViewState;
@@ -20,7 +22,7 @@ declare function acquireVsCodeApi(): {
 };
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('rmp-ui-app')!;
-app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="rmp-ui-style" aria-label="Style">${previewStyles.map((style) => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="rmp-ui-appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="rmp-ui-width-value"></output><input id="rmp-ui-contentWidth" aria-label="Content width" type="range" min="480" max="1600" step="20"></label><label>Text<select id="rmp-ui-fontSize" aria-label="Text size">${[12, 14, 16, 18, 20, 22, 24].map((n) => `<option value="${n}">${n}px</option>`).join('')}</select></label><label>Spacing<select id="rmp-ui-lineHeight" aria-label="Line spacing">${[1.3, 1.5, 1.7, 1.9, 2.2].map((n) => `<option value="${n}">${n}</option>`).join('')}</select></label><label class="checkbox"><input id="rmp-ui-wrapCode" type="checkbox">Wrap code</label><button id="rmp-ui-toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="rmp-ui-outline"></nav></aside><main id="rmp-ui-content" class="markdown" aria-label="Markdown preview"></main></div><div id="rmp-ui-announcement" class="sr-only" aria-live="polite"></div>`;
+app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="rmp-ui-style" data-preference-key="style" aria-label="Style">${previewStyles.map((style) => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="rmp-ui-appearance" data-preference-key="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="rmp-ui-width-value" data-preference-output="contentWidth"></output><input id="rmp-ui-contentWidth" data-preference-key="contentWidth" aria-label="Content width" type="range" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"><input id="rmp-ui-contentWidth-entry" data-preference-key="contentWidth" aria-label="Content width value" type="number" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"></label><label>Text <input id="rmp-ui-fontSize" data-preference-key="fontSize" aria-label="Text size" type="number" min="${numericPreferenceRanges.fontSize[0]}" max="${numericPreferenceRanges.fontSize[1]}" step="any"></label><label>Spacing <input id="rmp-ui-lineHeight" data-preference-key="lineHeight" aria-label="Line spacing" type="number" min="${numericPreferenceRanges.lineHeight[0]}" max="${numericPreferenceRanges.lineHeight[1]}" step="any"></label><label class="checkbox"><input id="rmp-ui-wrapCode" data-preference-key="wrapCode" type="checkbox">Wrap code</label><button id="rmp-ui-toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="rmp-ui-outline"></nav></aside><main id="rmp-ui-content" class="markdown" aria-label="Markdown preview"></main></div><div id="rmp-ui-announcement" class="sr-only" aria-live="polite"></div>`;
 const content = document.getElementById('rmp-ui-content')!;
 const outline = document.getElementById('rmp-ui-outline')!;
 const documentation = documentationView(vscode, content);
@@ -46,18 +48,72 @@ let currentPreferences: Preferences = {
 const pendingPreferences = new Map<keyof Preferences, Preferences[keyof Preferences]>();
 let diagramSources = new WeakMap<HTMLElement, string>();
 let tableState: TableState = vscode.getState()?.tables ?? {};
+let disclosureState: Record<string, boolean> = vscode.getState()?.disclosures ?? {};
 let documentId = vscode.getState()?.documentId;
 const readingStates = vscode.getState()?.documents ?? {};
 function saveState() {
-  if (documentId) readingStates[documentId] = { scroll: window.scrollY, tables: tableState };
+  if (documentId)
+    readingStates[documentId] = { scroll: window.scrollY, tables: tableState, disclosures: disclosureState };
   vscode.setState({
     ...vscode.getState(),
     scroll: window.scrollY,
     tables: tableState,
+    disclosures: disclosureState,
     documentId,
     documents: readingStates,
   });
 }
+// Keys describe content roles and section labels, so inserting unrelated content does not
+// redirect an ongoing interaction to a different control. Duplicate roles use occurrence.
+function identifyInteractions() {
+  const occurrences = new Map<string, number>();
+  for (const element of content.querySelectorAll<HTMLElement>('details, summary, a[href], button, input, select')) {
+    if (element.dataset.readingKey) continue;
+    const section =
+      Array.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+        .filter((heading) => !!(heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
+        .at(-1)
+        ?.textContent?.trim() ?? '';
+    const details = element.closest('details');
+    const role = details?.className || element.className;
+    const label = element.tagName === 'DETAILS' ? element.querySelector('summary')?.textContent : element.textContent;
+    const identity = JSON.stringify([section, element.tagName, role, label?.trim(), element.getAttribute('href')]);
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    element.dataset.readingKey = JSON.stringify([identity, occurrence]);
+  }
+}
+function captureDisclosures() {
+  disclosureState = Object.fromEntries(
+    Array.from(content.querySelectorAll('details'), (details) => [details.dataset.readingKey!, details.open]),
+  );
+}
+function restoreDisclosures() {
+  for (const details of content.querySelectorAll('details')) {
+    const open = disclosureState[details.dataset.readingKey!];
+    if (typeof open === 'boolean') details.open = open;
+  }
+  captureDisclosures();
+}
+function restoreFocus(key: string, selection?: [number, number, 'forward' | 'backward' | 'none']) {
+  const equivalent = Array.from(app.querySelectorAll<HTMLElement>('[data-reading-key]')).find(
+    (element) => element.dataset.readingKey === key,
+  );
+  const target =
+    equivalent && !equivalent.matches(':disabled') && equivalent.getClientRects().length ? equivalent : content;
+  if (target === content) content.tabIndex = -1;
+  target.focus({ preventScroll: true });
+  if (selection && target instanceof HTMLInputElement) target.setSelectionRange(...selection);
+}
+content.addEventListener(
+  'toggle',
+  (event) => {
+    if (!(event.target instanceof HTMLDetailsElement) || !event.target.isConnected) return;
+    captureDisclosures();
+    saveState();
+  },
+  true,
+);
 function isDark() {
   return (
     document.body.dataset.appearance === 'dark' ||
@@ -76,11 +132,14 @@ function applyPreferences(settings: Preferences, refreshDiagrams = true) {
   document.documentElement.style.setProperty('--reading-size', `${settings.fontSize}px`);
   document.documentElement.style.setProperty('--reading-line-height', `${settings.lineHeight}`);
   for (const [key, value] of Object.entries(settings)) {
-    const control = document.getElementById('rmp-ui-' + key) as HTMLInputElement | HTMLSelectElement;
-    if (key === 'wrapCode') (control as HTMLInputElement).checked = Boolean(value);
-    else control.value = String(value);
+    for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+      `[data-preference-key="${key}"]`,
+    )) {
+      if (key === 'wrapCode') (control as HTMLInputElement).checked = Boolean(value);
+      else control.value = String(value);
+    }
   }
-  document.getElementById('rmp-ui-width-value')!.textContent = `${settings.contentWidth}px`;
+  document.querySelector('[data-preference-output="contentWidth"]')!.textContent = `${settings.contentWidth}px`;
   if (refreshDiagrams && (previousDark !== isDark() || previousStyle !== settings.style))
     reportAsync(diagrams(++revision));
 }
@@ -89,6 +148,19 @@ function receivePreferences(saved: Preferences, refreshDiagrams = true) {
     if (saved[key] === value) pendingPreferences.delete(key);
   }
   applyPreferences({ ...saved, ...Object.fromEntries(pendingPreferences) }, refreshDiagrams);
+}
+function isNumericPreference(key: keyof Preferences) {
+  return key === 'contentWidth' || key === 'fontSize' || key === 'lineHeight';
+}
+function preferenceControlValue(control: HTMLInputElement | HTMLSelectElement, key: keyof Preferences) {
+  return key === 'wrapCode'
+    ? (control as HTMLInputElement).checked
+    : isNumericPreference(key)
+      ? Number(control.value)
+      : control.value;
+}
+function validNumericControl(control: HTMLInputElement | HTMLSelectElement) {
+  return Boolean(control.value) && control.validity.valid && Number.isFinite(Number(control.value));
 }
 // Author fragments use aliases (headings win over footnotes); internal links use
 // exact DOM IDs. Both paths stay inside Markdown, including missing anchors.
@@ -227,11 +299,22 @@ window.addEventListener('message', (event) => {
   }
   if (message.type !== 'render') return;
   if (message.documentationHome) documentation.enable();
-  const changedDocument = message.documentationHome && message.documentId !== documentId;
+  const active = document.activeElement;
+  const focusKey =
+    active instanceof HTMLElement && (content.contains(active) || outline.contains(active))
+      ? active.dataset.readingKey
+      : undefined;
+  const selection: [number, number, 'forward' | 'backward' | 'none'] | undefined =
+    active instanceof HTMLInputElement && active.selectionStart !== null && active.selectionEnd !== null
+      ? [active.selectionStart, active.selectionEnd, active.selectionDirection ?? 'none']
+      : undefined;
+  if (restored) captureDisclosures();
+  const changedDocument = typeof message.documentId === 'string' && message.documentId !== documentId;
   if (changedDocument) {
     if (restored) saveState();
     documentId = message.documentId;
     tableState = readingStates[documentId!]?.tables ?? {};
+    disclosureState = readingStates[documentId!]?.disclosures ?? {};
   }
   const scroll = changedDocument
     ? (readingStates[documentId!]?.scroll ?? 0)
@@ -257,6 +340,8 @@ window.addEventListener('message', (event) => {
       saveState();
     },
   );
+  identifyInteractions();
+  restoreDisclosures();
   diagramSources = new WeakMap();
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) {
     diagramSources.set(figure, figure.querySelector('.mermaid-source')?.textContent ?? '');
@@ -266,6 +351,7 @@ window.addEventListener('message', (event) => {
     const link = document.createElement('a');
     link.textContent = item.text;
     link.href = `#${item.id}`;
+    link.dataset.readingKey = JSON.stringify(['outline', item.id]);
     link.style.paddingLeft = `${Math.min(item.level - 1, 3) * 12 + 10}px`;
     link.addEventListener('click', (event) => {
       event.preventDefault();
@@ -274,6 +360,13 @@ window.addEventListener('message', (event) => {
     outline.append(link);
   }
   if (!message.outline.length) outline.textContent = 'Headings will appear here.';
+  if (focusKey) {
+    if (!changedDocument && !message.fragment) restoreFocus(focusKey, selection);
+    else {
+      content.tabIndex = -1;
+      content.focus({ preventScroll: true });
+    }
+  }
   window.scrollTo(0, scroll);
   // Mermaid may change document height; restore the requested position after it settles.
   reportAsync(
@@ -285,25 +378,27 @@ window.addEventListener('message', (event) => {
     }),
   );
 });
-document
-  .querySelectorAll<HTMLInputElement | HTMLSelectElement>('.controls input, .controls select')
-  .forEach((control) => {
-    const updateLocal = () => {
-      const key = control.id.slice('rmp-ui-'.length) as keyof Preferences;
-      const value =
-        key === 'wrapCode'
-          ? (control as HTMLInputElement).checked
-          : ['contentWidth', 'fontSize', 'lineHeight'].includes(key)
-            ? Number(control.value)
-            : control.value;
-      pendingPreferences.set(key, value);
-      applyPreferences({ ...currentPreferences, [key]: value });
-      return { key, value };
-    };
-    control.addEventListener('input', updateLocal);
-    // Persist on commit; slider input only updates local layout while dragging.
-    control.addEventListener('change', () => vscode.postMessage({ type: 'preference', ...updateLocal() }));
+document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-preference-key]').forEach((control) => {
+  const key = control.dataset.preferenceKey as keyof Preferences;
+  const numeric = isNumericPreference(key);
+  const updateLocal = () => {
+    if (numeric && !validNumericControl(control)) return;
+    const value = preferenceControlValue(control, key);
+    pendingPreferences.set(key, value);
+    applyPreferences({ ...currentPreferences, [key]: value });
+    return { key, value };
+  };
+  control.addEventListener('input', updateLocal);
+  // Persist on commit; the paired width controls and slider drag share one exact value.
+  control.addEventListener('change', () => {
+    if (numeric && !validNumericControl(control)) {
+      applyPreferences(currentPreferences);
+      return;
+    }
+    const preference = updateLocal();
+    if (preference) vscode.postMessage({ type: 'preference', ...preference });
   });
+});
 document.getElementById('rmp-ui-toggle-outline')!.addEventListener('click', (event) => {
   const hidden = document.body.classList.toggle('hide-outline');
   (event.currentTarget as HTMLElement).setAttribute('aria-expanded', String(!hidden));

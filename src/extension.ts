@@ -6,6 +6,7 @@ import { previewStyles } from './styles';
 import { referencePaths, type FileReference } from './references';
 import { homedir } from 'node:os';
 import { DocumentationIndex } from './documentation';
+import { numericPreferenceRanges } from './preference-ranges';
 
 const defaults = {
   style: 'documentation',
@@ -21,9 +22,9 @@ const enums: Record<string, readonly string[]> = {
   appearance: ['auto', 'light', 'dark'],
 };
 const ranges: Record<string, readonly number[]> = {
-  contentWidth: [480, 1600],
-  fontSize: [12, 24],
-  lineHeight: [1.3, 2.2],
+  contentWidth: numericPreferenceRanges.contentWidth,
+  fontSize: numericPreferenceRanges.fontSize,
+  lineHeight: numericPreferenceRanges.lineHeight,
 };
 function validPreference(setting: unknown, value: unknown): boolean {
   return (
@@ -198,6 +199,7 @@ export function activate(context: vscode.ExtensionContext) {
           type: 'render',
           ...result,
           preferences: effectivePreferences(),
+          documentId: document.uri.toString(),
           ...(documentationHome ? { documentationHome: true, documentId: document.uri.toString(), fragment } : {}),
         }),
       );
