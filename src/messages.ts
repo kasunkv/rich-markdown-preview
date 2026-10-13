@@ -243,6 +243,24 @@ export function normalizeCSV(value: string): string | undefined {
   const normalized = tableCSV(rows);
   return normalized.length <= messageLimits.text ? normalized : undefined;
 }
+/** Renderer and receiving webview share the exact content/output budget. */
+export function validateRenderContent(html: unknown, outline: unknown): boolean {
+  return (
+    text(html, messageLimits.html, true) &&
+    Array.isArray(outline) &&
+    outline.length <= messageLimits.items &&
+    outline.every(
+      (item) =>
+        plainRecord(item) &&
+        id(item.id) &&
+        text(item.fragment, messageLimits.uri) &&
+        text(item.text, messageLimits.uri, true) &&
+        Number.isInteger(item.level) &&
+        Number(item.level) >= 1 &&
+        Number(item.level) <= 6,
+    )
+  );
+}
 export function validateHostMessage(value: unknown): value is HostMessage {
   if (!plainRecord(value)) return false;
   switch (value.type) {
@@ -273,24 +291,12 @@ export function validateHostMessage(value: unknown): value is HostMessage {
       );
     case 'render':
       return (
-        text(value.html, messageLimits.html, true) &&
+        validateRenderContent(value.html, value.outline) &&
         preferences(value.preferences) &&
         (value.renderId === undefined || id(value.renderId)) &&
         (value.documentId === undefined || id(value.documentId)) &&
         (value.documentationHome === undefined || typeof value.documentationHome === 'boolean') &&
-        (value.fragment === undefined || text(value.fragment, messageLimits.uri)) &&
-        Array.isArray(value.outline) &&
-        value.outline.length <= messageLimits.items &&
-        value.outline.every(
-          (item) =>
-            plainRecord(item) &&
-            id(item.id) &&
-            text(item.fragment, messageLimits.uri) &&
-            text(item.text, messageLimits.uri, true) &&
-            Number.isInteger(item.level) &&
-            Number(item.level) >= 1 &&
-            Number(item.level) <= 6,
-        )
+        (value.fragment === undefined || text(value.fragment, messageLimits.uri))
       );
     default:
       return false;

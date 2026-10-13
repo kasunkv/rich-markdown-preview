@@ -1,3 +1,4 @@
+import { buildWebviewShell } from './webview-shell';
 import { validateWebviewMessage, normalizeCSV, validLink, messageLimits, type HostMessage } from './messages';
 import { reportAsync as observeAsync } from './async';
 import { PreviewSession, PreviewHostBridge, PreviewNavigationAdapter, sessionDiagnostic } from './preview-session';
@@ -5,7 +6,7 @@ import { PreviewPreferenceStore } from './preview-preferences';
 import { ExternalImagePermissions, externalImageCspOrigins } from './external-images';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
-import { renderMarkdown } from './render';
+import { renderMarkdown, boundRenderedModel } from './render';
 import { resolveSourceFragment, fragmentWarning } from './fragment-navigation';
 import { parseResourceUrl } from './resource-url';
 import { previewStyles } from './styles';
@@ -214,7 +215,17 @@ export function activate(context: vscode.ExtensionContext) {
     const resource = (file: string) => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', file));
     const setWebviewHtml = () => {
       const policy = remoteImagePolicy();
-      webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: ${externalImageCspOrigins(policy.grants, policy.enabled)}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Rich Markdown Preview</title></head><body><div id="rmp-ui-app" data-logo="${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png'))}"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
+      webview.html = buildWebviewShell({
+        nonce,
+        cspSource: webview.cspSource,
+        resourceUris: panel.webview.options.localResourceRoots!.map((root) => webview.asWebviewUri(root).toString()),
+        scriptUri: resource('preview.js').toString(),
+        styleUri: resource('preview.css').toString(),
+        logoUri: webview
+          .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png'))
+          .toString(),
+        imageOrigins: externalImageCspOrigins(policy.grants, policy.enabled).split(/\s+/).filter(Boolean),
+      });
     };
     setWebviewHtml();
     let index: DocumentationIndex | undefined;
@@ -321,6 +332,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         const renderedDocument = document;
         const publish = (result: ReturnType<typeof renderMarkdown>) => {
+          result = boundRenderedModel(result);
           fileReferences = result.references;
           externalImageOrigins = new Set(result.externalImageOrigins);
           reportAsync(
