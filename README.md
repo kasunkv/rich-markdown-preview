@@ -125,7 +125,7 @@ Includes and embeds are shown as references rather than expanded content. Line r
 - Type in **Search** to filter rows across every column. **Reset** clears search and restores source order.
 - Choose **Comfortable** or **Compact** spacing separately for each table.
 - Long tables have sticky headers. Wide tables scroll horizontally; focus the table region to scroll with the keyboard.
-- **Copy CSV** and **Export CSV** include the header and currently visible rows in their current order. Export uses VS Code's Save dialog and UTF-8 with a BOM. Formula-like text is escaped for spreadsheet applications.
+- **Copy CSV** and **Export CSV** include the header and currently visible rows in their current order. Export uses VS Code's Save dialog and UTF-8 with a BOM. Formula-like text is escaped for spreadsheet applications. Copy and CSV operations support up to 4,194,304 UTF-16 code units (about four million characters); filter large tables to fewer rows before exporting. CSV supports up to 100,000 rows, 1,000 columns and 1,000,000 total cells. The host validates the CSV and reapplies formula escaping before writing or copying it.
 
 Table search, sort, and spacing survive live updates when the table's position and column headers stay the same.
 

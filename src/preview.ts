@@ -1,6 +1,13 @@
 import { reportAsync } from './async';
 import mermaid from 'mermaid';
-import type { OutlineItem } from './render';
+import {
+  validateWebviewMessage,
+  validateHostMessage,
+  validateRestoredState,
+  type Preferences,
+  type WebviewMessage,
+  type WebviewCommand,
+} from './messages';
 import { previewStyles } from './styles';
 import { enhanceTables, type TableState } from './tables';
 import { documentationView, type DocumentationViewState } from './documentation-view';
@@ -18,11 +25,44 @@ interface PreviewState extends ReadingState {
   documents?: Record<string, ReadingState>;
 }
 declare function acquireVsCodeApi(): {
-  postMessage(message: unknown): void;
-  getState(): PreviewState | undefined;
+  postMessage(message: WebviewMessage): void;
+  getState(): unknown;
   setState(state: unknown): void;
 };
-const vscode = acquireVsCodeApi();
+const api = acquireVsCodeApi();
+let renderId = 'bootstrap';
+const requestPrefix = Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(16)).join('');
+let requestSequence = 0;
+let latestActionRequestId: string | undefined;
+const pendingActions = new Map<string, { type: string; renderId: string }>();
+const vscode = {
+  postMessage(command: WebviewCommand) {
+    const message =
+      command.type === 'ready' ? command : { ...command, requestId: requestPrefix + '_' + ++requestSequence, renderId };
+    if (!validateWebviewMessage(message)) {
+      if (command.type === 'copy' || command.type === 'tableCopy' || command.type === 'tableExport') {
+        latestActionRequestId = undefined;
+        document.getElementById('rmp-ui-announcement')!.textContent =
+          command.type === 'copy'
+            ? 'This code block cannot be copied. Try selecting a smaller portion in the source.'
+            : 'This table cannot be copied or exported. Try filtering to fewer rows.';
+      }
+      return;
+    }
+    if (message.type !== 'ready' && ['copy', 'tableCopy', 'tableExport'].includes(message.type)) {
+      pendingActions.set(message.requestId, { type: message.type, renderId });
+      latestActionRequestId = message.requestId;
+    }
+    api.postMessage(message);
+  },
+  getState(): PreviewState | undefined {
+    const value = api.getState();
+    return validateRestoredState(value) ? (value as PreviewState) : undefined;
+  },
+  setState(state: PreviewState) {
+    api.setState(state);
+  },
+};
 const app = document.getElementById('rmp-ui-app')!;
 app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="rmp-ui-style" data-preference-key="style" aria-label="Style">${previewStyles.map((style) => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="rmp-ui-appearance" data-preference-key="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="rmp-ui-width-value" data-preference-output="contentWidth"></output><input id="rmp-ui-contentWidth" data-preference-key="contentWidth" aria-label="Content width" type="range" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"><input id="rmp-ui-contentWidth-entry" data-preference-key="contentWidth" aria-label="Content width value" type="number" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"></label><label>Text <input id="rmp-ui-fontSize" data-preference-key="fontSize" aria-label="Text size" type="number" min="${numericPreferenceRanges.fontSize[0]}" max="${numericPreferenceRanges.fontSize[1]}" step="any"></label><label>Spacing <input id="rmp-ui-lineHeight" data-preference-key="lineHeight" aria-label="Line spacing" type="number" min="${numericPreferenceRanges.lineHeight[0]}" max="${numericPreferenceRanges.lineHeight[1]}" step="any"></label><label class="checkbox"><input id="rmp-ui-wrapCode" data-preference-key="wrapCode" type="checkbox">Wrap code</label><button id="rmp-ui-toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="rmp-ui-outline"></nav></aside><main id="rmp-ui-content" class="markdown" aria-label="Markdown preview"></main></div><div id="rmp-ui-announcement" class="sr-only" aria-live="polite"></div>`;
 const content = document.getElementById('rmp-ui-content')!;
@@ -31,14 +71,6 @@ const documentation = documentationView(vscode, content);
 let revision = 0;
 let restored = false;
 let diagramSequence = 0;
-interface Preferences {
-  style: string;
-  appearance: string;
-  contentWidth: number;
-  fontSize: number;
-  lineHeight: number;
-  wrapCode: boolean;
-}
 let currentPreferences: Preferences = {
   style: 'documentation',
   appearance: 'auto',
@@ -299,7 +331,18 @@ async function diagrams(version: number) {
 }
 window.addEventListener('message', (event) => {
   const message = event.data;
-  if (!message || typeof message !== 'object') return;
+  if (!validateHostMessage(message)) return;
+  if (message.type === 'copyResult' || message.type === 'tableActionResult') {
+    const pending = pendingActions.get(message.requestId);
+    if (
+      !pending ||
+      pending.renderId !== renderId ||
+      pending.type !== (message.type === 'copyResult' ? 'copy' : message.action)
+    )
+      return;
+    pendingActions.delete(message.requestId);
+    if (message.requestId !== latestActionRequestId) return;
+  }
   if (message.type === 'documentation') {
     documentation.receive(message);
     return;
@@ -325,6 +368,10 @@ window.addEventListener('message', (event) => {
     return;
   }
   if (message.type !== 'render') return;
+  if (message.renderId && message.renderId !== renderId) {
+    renderId = message.renderId;
+    pendingActions.clear();
+  }
   if (message.documentationHome) documentation.enable();
   const savedFocus = !restored ? vscode.getState()?.permissionFocus : undefined;
   const resumeFocus = savedFocus?.documentId === documentId && document.hasFocus() ? savedFocus : undefined;
@@ -377,7 +424,7 @@ window.addEventListener('message', (event) => {
     diagramSources.set(figure, figure.querySelector('.mermaid-source')?.textContent ?? '');
   }
   outline.replaceChildren();
-  for (const item of message.outline as OutlineItem[]) {
+  for (const item of message.outline) {
     const link = document.createElement('a');
     link.textContent = item.text;
     link.href = `#${item.id}`;
@@ -450,8 +497,8 @@ content.addEventListener('click', (event) => {
   }
   const copy = element.closest<HTMLButtonElement>('.copy-code');
   if (copy) {
-    vscode.postMessage({ type: 'copy', text: copy.closest('.code-block')?.querySelector('code')?.textContent ?? '' });
     document.getElementById('rmp-ui-announcement')!.textContent = 'Copying code…';
+    vscode.postMessage({ type: 'copy', text: copy.closest('.code-block')?.querySelector('code')?.textContent ?? '' });
     return;
   }
   const link = element.closest<HTMLAnchorElement>('a');

@@ -9,12 +9,12 @@ test('clipboard completion cannot notify a disposed session',async()=>{
 test('export dialog cancellation and selection after disposal cannot write or post',async()=>{
   for(const destination of [undefined,{path:'/private/result.csv',toString:()=> 'file:///private/result.csv'}]){
     const host=previewHost();await host.handlers.command();const pending=deferred();host.vscode.window.showSaveDialog=()=>pending.promise;
-    const request=host.handlers.message({type:'tableExport',text:'private CSV'});const count=host.messages.length;host.handlers.dispose();pending.resolve(destination);await request;assert.equal(host.files.length,0);assert.equal(host.messages.length,count);
+    const request=host.handlers.message({type:'tableExport',text:'"private CSV"\r\n'});const count=host.messages.length;host.handlers.dispose();pending.resolve(destination);await request;assert.equal(host.files.length,0);assert.equal(host.messages.length,count);
   }
 });
 test('late failed filesystem export cannot warn or post after disposal',async()=>{
   const host=previewHost();await host.handlers.command();const pending=deferred();host.vscode.workspace.fs.writeFile=()=>pending.promise;
-  const request=host.handlers.message({type:'tableExport',text:'private CSV'});await host.drain();const count=host.messages.length;host.handlers.dispose();pending.reject(Error('secret provider token'));await request;assert.equal(host.messages.length,count);assert.equal(host.warnings.length,0);assert.ok(!host.diagnostics.join('\n').includes('secret'));
+  const request=host.handlers.message({type:'tableExport',text:'"private CSV"\r\n'});await host.drain();const count=host.messages.length;host.handlers.dispose();pending.reject(Error('secret provider token'));await request;assert.equal(host.messages.length,count);assert.equal(host.warnings.length,0);assert.ok(!host.diagnostics.join('\n').includes('secret'));
 });
 test('preference writes and configuration reads have redacted failure boundaries',async()=>{
   const host=previewHost();await host.handlers.command();const pending=deferred();host.configuration.update=()=>pending.promise;
@@ -35,7 +35,7 @@ test('parser failures from view and debounced text refresh preserve the last ren
 test('late clipboard and external-link errors cannot notify a disposed session',async()=>{
   for(const type of ['copy','tableCopy','link','reference']){
     const host=previewHost();host.document.getText=()=> '{{include: https://example.com/private.md}}';await host.handlers.command();await host.handlers.message({type:'ready'});const pending=deferred();host.vscode.env.clipboard.writeText=()=>pending.promise;host.vscode.env.openExternal=()=>pending.promise;
-    const request=host.handlers.message(type==='reference'?{type,id:'reference-0'}:type==='link'?{type,href:'https://example.com/private'}:{type,text:'private contents'});const count=host.messages.length;host.handlers.dispose();pending.reject(Error('secret credentials'));await request;assert.equal(host.messages.length,count);assert.equal(host.warnings.length,0);assert.ok(!host.diagnostics.join('\n').includes('secret'));
+    const request=host.handlers.message(type==='reference'?{type,id:'reference-0'}:type==='link'?{type,href:'https://example.com/private'}:{type,text:type==='copy'?'private contents':'"private contents"\r\n'});const count=host.messages.length;host.handlers.dispose();pending.reject(Error('secret credentials'));await request;assert.equal(host.messages.length,count);assert.equal(host.warnings.length,0);assert.ok(!host.diagnostics.join('\n').includes('secret'));
   }
 });
 test('failed external providers report redacted operation diagnostics and useful warnings',async()=>{
@@ -78,7 +78,7 @@ test('pending initial document opens cannot create a preview after extension shu
 test('successful late clipboard, export and external operations cannot post after disposal',async()=>{
   for(const type of ['tableCopy','tableExport','link','reference']){
     const host=previewHost();host.document.getText=()=> '{{include: https://example.com/private.md}}';await host.handlers.command();await host.handlers.message({type:'ready'});const pending=deferred();host.vscode.env.clipboard.writeText=()=>pending.promise;host.vscode.workspace.fs.writeFile=()=>pending.promise;host.vscode.env.openExternal=()=>pending.promise;
-    const request=host.handlers.message(type==='reference'?{type,id:'reference-0'}:type==='link'?{type,href:'https://example.com/private'}:{type,text:'private contents'});await host.drain();const count=host.messages.length;host.handlers.dispose();pending.resolve();await request;assert.equal(host.messages.length,count);assert.equal(host.warnings.length,0);
+    const request=host.handlers.message(type==='reference'?{type,id:'reference-0'}:type==='link'?{type,href:'https://example.com/private'}:{type,text:type==='copy'?'private contents':'"private contents"\r\n'});await host.drain();const count=host.messages.length;host.handlers.dispose();pending.resolve();await request;assert.equal(host.messages.length,count);assert.equal(host.warnings.length,0);
   }
 });
 test('late source fallback, command and rejected editor operations have no follow-up effects',async()=>{
@@ -104,7 +104,7 @@ test('navigation drops pending clipboard, save-dialog and preference results',as
   for(const operation of ['copy','tableExport','preference']){
     const h=documentationHost();await h.open();await h.action('open','/repo/README.md');const pending=deferred();const writes=[];h.vscode.env={clipboard:{writeText:()=>pending.promise}};h.vscode.window.showSaveDialog=()=>pending.promise;h.vscode.workspace.fs.writeFile=async(...args)=>writes.push(args);
     const config=h.vscode.workspace.getConfiguration;h.vscode.workspace.getConfiguration=(...args)=>({...config(...args),update:()=>pending.promise});
-    const request=h.panels[0].message(operation==='preference'?{type:operation,key:'style',value:'reading'}:{type:operation,text:'private data'});await new Promise(setImmediate);await h.action('open','/repo/docs/guide.md');const count=h.messages.length,warnings=h.warnings.length;
+    const request=h.panels[0].message(operation==='preference'?{type:operation,key:'style',value:'reading'}:{type:operation,text:operation==='copy'?'private data':'"private data"\r\n'});await new Promise(setImmediate);await h.action('open','/repo/docs/guide.md');const count=h.messages.length,warnings=h.warnings.length;
     if(operation==='preference')pending.reject(Error('private setting'));else pending.resolve(h.uri('/repo/result.csv'));await request;await new Promise(setImmediate);assert.equal(h.messages.length,count);assert.equal(h.warnings.length,warnings);assert.equal(writes.length,0);assert.equal(h.latest('render').preferences.style,'documentation');h.panels[0].dispose();
   }
 });
