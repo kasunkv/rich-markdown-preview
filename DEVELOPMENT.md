@@ -15,16 +15,13 @@ npm run test:coverage
 
 `npm test` builds the production profile first and runs renderer, host-bridge, settings, table data, palette, manifest, build/watch, and packaging regressions. Host tests mock VS Code APIs; they do not replace the extension-host smoke test. Coverage output currently measures bundled JavaScript, including vendor code; do not interpret it as a source-only coverage percentage.
 
-Browser checks use Playwright and exercise the shipped preview bundle, actual Mermaid rendering, 36 style/appearance combinations, table DOM controls, state retention, clipboard, CSV download/BOM, automatic theme changes, error recovery, and narrow layouts. Results are saved to `.test-results/browser.json`. The test also regenerates README screenshots from the actual preview using a simulated VS Code bridge.
+Browser checks use lockfile-pinned Playwright and exercise the shipped preview bundle, actual Mermaid rendering, 36 style/appearance combinations, table DOM controls, state retention, clipboard, CSV download/BOM, automatic theme changes, error recovery, and narrow layouts. Install the associated Chromium with `npm run browser:install` (`npm run browser:install:ci` includes Linux system dependencies). Browser executable overrides are not supported.
 
-Install Chromium with `npx playwright install chromium`, or set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to an installed Chromium-compatible browser. On Windows:
+`npm run test:browser` builds production and runs isolated server/failure-evidence regression checks plus both Playwright suites. Results are unique tagged runs under `.test-results/browser/`, with commit/dirty state, lockfile hash, timestamps and status in `run.json`. Failure evidence includes a JSON report, runner log, browser console log, trace and screenshot when a browser page was available. Old success files are not proof of the current run. See [CONTRIBUTING.md](CONTRIBUTING.md) for time limits and trace inspection.
 
-```powershell
-$env:PLAYWRIGHT_CHROMIUM_EXECUTABLE = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
-npm run test:browser
-```
+`npm run screenshots:marketing` is the explicit command that regenerates the two tracked README images. Ordinary tests leave them unchanged. `npm run validate` runs quality checks, builds production once, and then runs fresh unit coverage, browser and minimum-host validation using those outputs. Stable and installed-VSIX checks remain separate.
 
-`npm run dev:preview` builds the development profile and serves browser QA at `http://127.0.0.1:4173`. Do not run that server concurrently with the browser suite.
+`npm run dev:preview` builds the development profile and prints its allocated loopback URL. Set `PORT` explicitly for a preferred manual QA port. Manual QA and automated suites can run concurrently; automated workers always use allocated ports.
 
 ## Build profiles and debugging
 
@@ -144,7 +141,7 @@ Raw HTML is disabled. The webview uses a nonce-based script CSP and Mermaid uses
 
 Documentation Home uses a separate panel type (`richMarkdownPreview.documentationHome`) and command (`richMarkdownPreview.openDocumentationHome`), while sharing the existing rendering and message bridge. Its local resources are restricted to the extension and active document's workspace folder, allowing sibling images. Tree requests resolve only through indexed URI IDs. Directory and file names are inserted as text. Activation creates the status bar entry; indexing starts only when Documentation Home opens. Searches use VS Code URIs and APIs, including for remote workspaces.
 
-`tests/documentation.test.cjs` covers the index and host bridge. `tests/documentation-browser.cjs` covers the shipped UI, filtering, keyboard selection, document state, history, dark theme, and responsive layout; its screenshots and report go into `.test-results`. Both browser suites run through `npm run test:browser`. In the Development Host, also verify the native status bar and Explorer actions, hidden folders, folder rename/delete, relative Markdown links/images, and multiple workspace roots.
+`tests/documentation.test.cjs` covers the index and host bridge. `tests/documentation-browser.cjs` covers the shipped UI, filtering, keyboard selection, document state, history, dark theme, and responsive layout; its current-run report and failure evidence go into `.test-results/browser/`. Both browser suites run through `npm run test:browser`. In the Development Host, also verify the native status bar and Explorer actions, hidden folders, folder rename/delete, relative Markdown links/images, and multiple workspace roots.
 
 ## Logo
 

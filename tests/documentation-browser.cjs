@@ -1,15 +1,12 @@
-const { chromium } = require('playwright');
+const { test } = require('./browser-fixtures.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { renderMarkdown } = require('../dist/render.cjs');
 
-(async () => {
-  const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? {executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE} : {}) });
+test('documentation browser regressions', async ({page}, testInfo) => {
   const checks = [], errors = [];
-  try {
-    const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
-    page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', error => errors.push(error.message));
     const paths = ['README.md', 'docs/guide.md', 'reports/2026/october/summary.MD', '.claude/skills/test/SKILL.md', 'docs/<img onerror=alert(1)>.md'];
     const files = paths.map(name => ({id: `file:///repo/${name}`, root: 'file:///repo', rootName: 'project', path: name}));
     files.push({id: 'file:///other/README.md', root: 'file:///other', rootName: 'other', path: 'README.md'});
@@ -81,18 +78,14 @@ const { renderMarkdown } = require('../dist/render.cjs');
     assert.equal(await page.getByText('No matching documents.', {exact: true}).isVisible(), true);
     await page.getByRole('searchbox', {name: 'Filter documentation'}).fill('');
     await page.selectOption('#appearance', 'dark');
-    fs.mkdirSync('.test-results', {recursive: true});
-    await page.screenshot({path: '.test-results/documentation-home-dark.png'});
     await page.setViewportSize({width: 520, height: 800});
     assert.equal(await page.locator('.documentation-sidebar').isVisible(), true);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.getByRole('button', {name: 'Navigation', exact: true}).click();
     assert.equal(await page.locator('.documentation-sidebar').isVisible(), false);
     await page.getByRole('button', {name: 'Navigation', exact: true}).click();
-    await page.screenshot({path: '.test-results/documentation-home-narrow.png'});
     checks.push('Home return, empty search, dark theme, narrow layout and navigation toggle');
     assert.deepEqual(errors, []);
-    fs.writeFileSync('.test-results/documentation-browser.json', JSON.stringify({passed: true, checks}, null, 2));
+    await testInfo.attach('checks', {body: JSON.stringify(checks), contentType: 'application/json'});
     console.log(checks.map(check => `PASS ${check}`).join('\n'));
-  } finally {await browser.close();}
-})().catch(error => {console.error(error); process.exitCode = 1;});
+});
