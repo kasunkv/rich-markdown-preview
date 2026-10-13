@@ -1,9 +1,23 @@
-name: Code quality
+name: PR validation
+
+# Keep this workflow unfiltered so documentation, manifest, packaging and workflow
+# changes receive the same required status as source changes.
 on:
-  push:
   pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  merge_group:
+    types: [checks_requested]
+    branches: [main, master]
+
 permissions:
   contents: read
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -18,4 +32,96 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:quality
-      - run: npm test
+      - run: npm run check:dependencies
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: dependency-evidence
+          path: .test-results/dependencies/
+          if-no-files-found: warn
+
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm run browser:install:ci
+      # This runner owns the production/instrumented builds, unit/package
+      # regressions, browser suites, source ratchet and production restoration.
+      - run: npm run test:coverage
+      - run: npm run test:browser:harness
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: source-and-browser-evidence
+          path: |
+            .test-results/coverage/
+            .test-results/browser/
+          if-no-files-found: warn
+
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.95.0', stable]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: .test-results/host-downloads
+          key: vscode-host-${{ runner.os }}-${{ matrix.version }}-${{ hashFiles('package-lock.json') }}
+      # package runs vscode:prepublish, builds once, then verifies the real VSIX.
+      - run: npm run package
+      - name: Development and verified package smoke
+        shell: bash
+        env:
+          HOST_VERSION: ${{ matrix.version }}
+        run: |
+          xvfb-run -a node scripts/vscode-host.cjs --version "$HOST_VERSION"
+          xvfb-run -a node scripts/vscode-host.cjs --version "$HOST_VERSION" --mode package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: host-${{ matrix.version }}-evidence
+          path: .test-results/host/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: verified-vsix-${{ matrix.version }}
+          path: '*.vsix'
+          if-no-files-found: error
+
+  pr-gate:
+    needs: [quality, coverage, host]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Require every dependency to succeed
+        env:
+          PR_GATE_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/verify-pr-gate.cjs
