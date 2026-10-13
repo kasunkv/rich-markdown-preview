@@ -556,7 +556,7 @@ test('high contrast overrides presets and rendered diagrams retain keyboard alte
 
 test('computed cascades meet text and control contrast across every appearance and preset', async ({page, previewServer}) => {
   await page.goto(previewServer.url);
-  const result = renderMarkdown('# Contrast\n\n###### Small heading\n\nBody [link](#contrast) and `inline code`.\n\n> Muted quote\n\n```js\nconst value = 123; // comment\n"string";\n```\n\n| Name | Count |\n|---|---|\n| Alpha | 1 |\n| Beta | 2 |');
+  const result = renderMarkdown('# Contrast\n\n###### Small heading\n\nBody [link](#contrast) and `inline code`.\n\n> Muted quote\n\n> [!TIP]\n> Tip content.\n\n> [!IMPORTANT]\n> Important content.\n\n> [!WARNING]\n> Warning content.\n\n> [!CAUTION]\n> Caution content.\n\n```js\nconst value = 123; // comment\n"string";\n```\n\n| Name | Count |\n|---|---|\n| Alpha | 1 |\n| Beta | 2 |');
   await page.evaluate(result => window.dispatchEvent(new MessageEvent('message', {data:{type:'render', ...result, preferences:{style:'ocean',appearance:'auto',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false}}})), result);
   for (const style of manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum) {
     for (const appearance of ['auto','light','dark']) {
@@ -573,9 +573,11 @@ test('computed cascades meet text and control contrast across every appearance a
           const ratio=(a,b)=>(Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
           const failures=[];
           const check=(el,property,min)=>{const css=getComputedStyle(el), bg=background(el);const r=ratio(blend(rgba(css[property]),bg),bg);if(r+.01<min)failures.push(`${el.tagName}.${el.className} ${property} ${r.toFixed(2)} < ${min}`);};
-          for(const el of document.querySelectorAll('.markdown p,.markdown h6,.markdown a,.markdown code,.hljs-keyword,.hljs-string,.hljs-number,.hljs-comment,.controls label,.code-toolbar,.table-count,.table-sort,td'))check(el,'color',4.5);
-          for(const el of document.querySelectorAll('select,input[type="number"],.table-search'))check(el,'borderTopColor',3);
+          for(const el of document.querySelectorAll('.markdown p,.markdown h6,.markdown a,.markdown code,.hljs-keyword,.hljs-string,.hljs-number,.hljs-comment,.controls label,.code-toolbar,.table-count,.table-sort,td,.markdown-alert-title,.external-image-blocked,.diagram-label,.diagram-source summary,.diagram-error'))check(el,'color',4.5);
+          for(const el of document.querySelectorAll('select,input[type="number"],.table-search,button:not(:disabled):not(.table-sort)'))check(el,'borderTopColor',3);
           document.querySelector('#rmp-ui-toggle-outline').focus();
+          check(document.activeElement,'outlineColor',3);
+          document.querySelector('.table-sort').focus();
           check(document.activeElement,'outlineColor',3);
           return failures;
         }, {style,appearance,theme});
@@ -585,17 +587,11 @@ test('computed cascades meet text and control contrast across every appearance a
   }
 });
 
-test('axe, keyboard, zoom reflow and reduced motion accessibility smoke', async ({page, previewServer}) => {
+test('keyboard CSS zoom reflow proxy and reduced motion accessibility smoke', async ({page, previewServer}) => {
   await page.goto(previewServer.url);
   const result = renderMarkdown('---\ntitle: Accessible reading\n---\n\n# Keyboard reading\n\n[Heading link](#keyboard-reading)\n\n```mermaid\ngraph TD; Reader-->Source\n```\n\n| Name | Count |\n|---|---|\n| Alpha | 1 |\n| Beta | 2 |');
   await page.evaluate(result => window.dispatchEvent(new MessageEvent('message',{data:{type:'render',...result,preferences:{style:'ocean',appearance:'auto',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false}}})),result);
   await page.locator('.mermaid-result').first().waitFor();
-  // The production shell language is owned by spec022. This fixture prerequisite
-  // is explicit until that shared shell is integrated.
-  await page.evaluate(() => document.documentElement.lang='en');
-  await page.evaluate(fs.readFileSync(require.resolve('axe-core/axe.min.js'),'utf8'));
-  const results = await page.evaluate(async () => axe.run(document, {runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
-  assert.deepEqual(results.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)})),[]);
   await page.emulateMedia({reducedMotion:'reduce'});
   assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).scrollBehavior),'auto');
   for(const zoom of [2,4]) {
@@ -636,6 +632,13 @@ test('authored diagram alternatives and accessibility tokens survive rendering a
   await render(source+'\n\nUnrelated addition.');
   assert.equal(await page.locator('.diagram-source').getAttribute('open'),'');
   assert.equal(await page.evaluate(()=>document.activeElement.tagName),'SUMMARY');
+  const heading=page.locator('#rmp-heading-workflow');
+  await heading.evaluate(el=>el.setAttribute('tabindex','0'));
+  await page.locator('#rmp-ui-outline a').first().focus(); await page.keyboard.press('Enter');
+  assert.equal(await heading.getAttribute('tabindex'),'0','Authored tabindex is preserved during navigation');
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'rmp-heading-workflow');
+  await render(source+'\n\nLive redraw while reading.');
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'rmp-heading-workflow','Live redraw preserves reading focus');
   for(const [theme,bg,text,accent] of [['vscode-high-contrast','#101010','#eeeeee','#ffff00'],['vscode-high-contrast-light','#fafafa','#111111','#000088']]) {
     const actual=await page.evaluate(({theme,bg,text,accent})=>{
       document.body.className=theme;

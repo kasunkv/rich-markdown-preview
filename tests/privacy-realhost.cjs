@@ -13,7 +13,11 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
     });
   }
   await fs.mkdir(path.join(workspace, '.vscode'), {recursive: true});
-  await fs.writeFile(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({
+  const ownedSettings=path.join(workspace,'.vscode','settings.json');
+  let previousSettings={};
+  try {previousSettings=JSON.parse(await fs.readFile(ownedSettings,'utf8'));} catch(error) {if(error.code!=='ENOENT')throw error;}
+  await fs.writeFile(ownedSettings, JSON.stringify({
+    ...previousSettings,
     'richMarkdownPreview.externalImageOrigins.v1': [origin], 'richMarkdownPreview.allowRemoteImages': true,
   }));
   const target = vscode.Uri.file(path.join(workspace, 'privacy-proof.md'));
@@ -25,7 +29,7 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
     while (Date.now() < deadline) {
       for (const context of browser.contexts()) for (const page of context.pages()) {
         const button = page.getByRole('button', {name: 'Allow images', exact: true});
-        if (await button.count()) { await button.click(); return; }
+        if (await button.count()) { await button.focus(); await page.keyboard.press('Enter'); return; }
       }
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -54,11 +58,11 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
     });
     await new Promise(resolve => setTimeout(resolve, 150));
     assert.equal(requests.length, start);
-    await frame.locator('[data-external-image-action="grant"]').first().evaluate((button, origin) => {
-      button.dataset.externalImageOrigin = origin; button.click();
-    }, origin);
+    await frame.locator('[data-external-image-action="grant"]').first().evaluate((button, origin) => {button.dataset.externalImageOrigin = origin;}, origin);
+    await frame.locator('[data-external-image-action="grant"]').first().focus(); await frame.page().keyboard.press('Enter');
     await confirm();
     frame = await findFrame('img[alt="Private"]');
+    await frame.locator('img[alt="Private"]').scrollIntoViewIfNeeded();
     await frame.waitForFunction(() => document.querySelector('img[alt="Private"]')?.naturalWidth === 23);
     await frame.locator('.mermaid-result .image-shape').waitFor();
     assert.ok(requests.some(request => request.url === origin + '/diagram.svg'));
@@ -73,10 +77,11 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
     assert.equal(requests.some(request => request.url.includes('ungranted-')), false);
     await vscode.commands.executeCommand('richMarkdownPreview.openPreview', second);
     frame = await findFrame('img[alt="Private second"]');
+    await frame.locator('img[alt="Private second"]').scrollIntoViewIfNeeded();
     await frame.waitForFunction(() => document.querySelector('img[alt="Private second"]')?.naturalWidth === 23);
     assert.ok(requests.some(request => request.url === origin + '/second.svg'));
     const afterGrant = requests.length;
-    await frame.locator('[data-external-image-action="revoke"]').first().click();
+    await frame.locator('[data-external-image-action="revoke"]').first().focus(); await frame.page().keyboard.press('Enter');
     frame = await findFrame('[data-external-image-action="grant"]');
     assert.equal(await frame.locator('#rmp-ui-content img').count(), 0);
     await new Promise(resolve => setTimeout(resolve, 150));

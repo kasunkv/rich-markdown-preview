@@ -119,6 +119,10 @@ function saveState() {
 // Keys describe content roles and section labels, so inserting unrelated content does not
 // redirect an ongoing interaction to a different control. Duplicate roles use occurrence.
 function identifyInteractions() {
+  for (const anchor of content.querySelectorAll<HTMLElement>('[data-md-anchor]')) {
+    anchor.dataset.readingKey = JSON.stringify(['anchor', anchor.id]);
+    if (!anchor.hasAttribute('tabindex')) anchor.tabIndex = -1;
+  }
   const occurrences = new Map<string, number>();
   for (const element of content.querySelectorAll<HTMLElement>('details, summary, a[href], button, input, select')) {
     if (element.dataset.readingKey) continue;
@@ -232,6 +236,8 @@ function findContentAnchor(fragment: string, internal = false): HTMLElement | un
 function scrollToHeading(fragment: string, internal = false) {
   const target = findContentAnchor(fragment, internal);
   if (target) {
+    if (!target.hasAttribute('tabindex')) target.tabIndex = -1;
+    target.focus({ preventScroll: true });
     const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
     target.scrollIntoView({ behavior, block: 'start' });
   } else {
