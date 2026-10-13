@@ -55,6 +55,7 @@ export function enhanceTables(
   changed: (state: TableState) => void,
 ): TableState {
   const state: TableState = {};
+  const identities = new Map<string, number>();
   root.querySelectorAll<HTMLElement>('.table-scroll').forEach((scroll, index) => {
     const table = scroll.querySelector('table')!;
     const body = table.tBodies[0];
@@ -63,7 +64,15 @@ export function enhanceTables(
     const labels = headers.map((cell) => cell.textContent?.trim() ?? '');
     const rows = Array.from(body.rows);
     const values = rows.map((row) => Array.from(row.cells, (cell) => cell.textContent?.trim() ?? ''));
-    const key = JSON.stringify([index, labels]);
+    const section =
+      Array.from(root.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+        .filter((heading) => !!(heading.compareDocumentPosition(scroll) & Node.DOCUMENT_POSITION_FOLLOWING))
+        .at(-1)
+        ?.textContent?.trim() ?? '';
+    const identity = JSON.stringify([section, labels]);
+    const occurrence = identities.get(identity) ?? 0;
+    identities.set(identity, occurrence + 1);
+    const key = JSON.stringify([section, labels, occurrence]);
     const previous = saved[key];
     const settings: TablePreferences = {
       query: typeof previous?.query === 'string' ? previous.query : '',
@@ -77,6 +86,7 @@ export function enhanceTables(
     state[key] = settings;
     const panel = document.createElement('section');
     panel.className = 'table-panel';
+    panel.dataset.tableKey = key;
     panel.setAttribute('aria-label', `Table ${index + 1} controls and data`);
     scroll.before(panel);
     panel.append(scroll);
@@ -126,6 +136,12 @@ export function enhanceTables(
         changed(state);
       });
       return button;
+    });
+    toolbar.querySelectorAll<HTMLElement>('input, select, button').forEach((control) => {
+      control.dataset.readingKey = JSON.stringify(['table', key, control.className]);
+    });
+    buttons.forEach((button, column) => {
+      button.dataset.readingKey = JSON.stringify(['table', key, 'sort', labels[column], column]);
     });
     let displayed: number[] = [];
     function apply() {

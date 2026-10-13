@@ -198,6 +198,7 @@ export function activate(context: vscode.ExtensionContext) {
           type: 'render',
           ...result,
           preferences: effectivePreferences(),
+          documentId: document.uri.toString(),
           ...(documentationHome ? { documentationHome: true, documentId: document.uri.toString(), fragment } : {}),
         }),
       );

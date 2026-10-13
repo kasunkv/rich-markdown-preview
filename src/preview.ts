@@ -7,6 +7,7 @@ import { documentationView, type DocumentationViewState } from './documentation-
 interface ReadingState {
   scroll?: number;
   tables?: TableState;
+  disclosures?: Record<string, boolean>;
 }
 interface PreviewState extends ReadingState {
   documentation?: DocumentationViewState;
@@ -46,18 +47,72 @@ let currentPreferences: Preferences = {
 const pendingPreferences = new Map<keyof Preferences, Preferences[keyof Preferences]>();
 let diagramSources = new WeakMap<HTMLElement, string>();
 let tableState: TableState = vscode.getState()?.tables ?? {};
+let disclosureState: Record<string, boolean> = vscode.getState()?.disclosures ?? {};
 let documentId = vscode.getState()?.documentId;
 const readingStates = vscode.getState()?.documents ?? {};
 function saveState() {
-  if (documentId) readingStates[documentId] = { scroll: window.scrollY, tables: tableState };
+  if (documentId)
+    readingStates[documentId] = { scroll: window.scrollY, tables: tableState, disclosures: disclosureState };
   vscode.setState({
     ...vscode.getState(),
     scroll: window.scrollY,
     tables: tableState,
+    disclosures: disclosureState,
     documentId,
     documents: readingStates,
   });
 }
+// Keys describe content roles and section labels, so inserting unrelated content does not
+// redirect an ongoing interaction to a different control. Duplicate roles use occurrence.
+function identifyInteractions() {
+  const occurrences = new Map<string, number>();
+  for (const element of content.querySelectorAll<HTMLElement>('details, summary, a[href], button, input, select')) {
+    if (element.dataset.readingKey) continue;
+    const section =
+      Array.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+        .filter((heading) => !!(heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
+        .at(-1)
+        ?.textContent?.trim() ?? '';
+    const details = element.closest('details');
+    const role = details?.className || element.className;
+    const label = element.tagName === 'DETAILS' ? element.querySelector('summary')?.textContent : element.textContent;
+    const identity = JSON.stringify([section, element.tagName, role, label?.trim(), element.getAttribute('href')]);
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    element.dataset.readingKey = JSON.stringify([identity, occurrence]);
+  }
+}
+function captureDisclosures() {
+  disclosureState = Object.fromEntries(
+    Array.from(content.querySelectorAll('details'), (details) => [details.dataset.readingKey!, details.open]),
+  );
+}
+function restoreDisclosures() {
+  for (const details of content.querySelectorAll('details')) {
+    const open = disclosureState[details.dataset.readingKey!];
+    if (typeof open === 'boolean') details.open = open;
+  }
+  captureDisclosures();
+}
+function restoreFocus(key: string, selection?: [number, number, 'forward' | 'backward' | 'none']) {
+  const equivalent = Array.from(app.querySelectorAll<HTMLElement>('[data-reading-key]')).find(
+    (element) => element.dataset.readingKey === key,
+  );
+  const target =
+    equivalent && !equivalent.matches(':disabled') && equivalent.getClientRects().length ? equivalent : content;
+  if (target === content) content.tabIndex = -1;
+  target.focus({ preventScroll: true });
+  if (selection && target instanceof HTMLInputElement) target.setSelectionRange(...selection);
+}
+content.addEventListener(
+  'toggle',
+  (event) => {
+    if (!(event.target instanceof HTMLDetailsElement) || !event.target.isConnected) return;
+    captureDisclosures();
+    saveState();
+  },
+  true,
+);
 function isDark() {
   return (
     document.body.dataset.appearance === 'dark' ||
@@ -209,11 +264,22 @@ window.addEventListener('message', (event) => {
   }
   if (message.type !== 'render') return;
   if (message.documentationHome) documentation.enable();
-  const changedDocument = message.documentationHome && message.documentId !== documentId;
+  const active = document.activeElement;
+  const focusKey =
+    active instanceof HTMLElement && (content.contains(active) || outline.contains(active))
+      ? active.dataset.readingKey
+      : undefined;
+  const selection: [number, number, 'forward' | 'backward' | 'none'] | undefined =
+    active instanceof HTMLInputElement && active.selectionStart !== null && active.selectionEnd !== null
+      ? [active.selectionStart, active.selectionEnd, active.selectionDirection ?? 'none']
+      : undefined;
+  if (restored) captureDisclosures();
+  const changedDocument = typeof message.documentId === 'string' && message.documentId !== documentId;
   if (changedDocument) {
     if (restored) saveState();
     documentId = message.documentId;
     tableState = readingStates[documentId!]?.tables ?? {};
+    disclosureState = readingStates[documentId!]?.disclosures ?? {};
   }
   const scroll = changedDocument
     ? (readingStates[documentId!]?.scroll ?? 0)
@@ -239,6 +305,8 @@ window.addEventListener('message', (event) => {
       saveState();
     },
   );
+  identifyInteractions();
+  restoreDisclosures();
   diagramSources = new WeakMap();
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) {
     diagramSources.set(figure, figure.querySelector('.mermaid-source')?.textContent ?? '');
@@ -248,6 +316,7 @@ window.addEventListener('message', (event) => {
     const link = document.createElement('a');
     link.textContent = item.text;
     link.href = `#${item.id}`;
+    link.dataset.readingKey = JSON.stringify(['outline', item.id]);
     link.style.paddingLeft = `${Math.min(item.level - 1, 3) * 12 + 10}px`;
     link.addEventListener('click', (event) => {
       event.preventDefault();
@@ -256,6 +325,13 @@ window.addEventListener('message', (event) => {
     outline.append(link);
   }
   if (!message.outline.length) outline.textContent = 'Headings will appear here.';
+  if (focusKey) {
+    if (!changedDocument && !message.fragment) restoreFocus(focusKey, selection);
+    else {
+      content.tabIndex = -1;
+      content.focus({ preventScroll: true });
+    }
+  }
   window.scrollTo(0, scroll);
   // Mermaid may change document height; restore the requested position after it settles.
   reportAsync(
