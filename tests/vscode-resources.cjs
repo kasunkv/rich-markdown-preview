@@ -74,10 +74,12 @@ exports.proveResources = async function ({ workspace, checks }) {
       assert.equal(denied.naturalWidth, 0);
       assert.equal(outOfRootResponses.length, 0, 'No successful outside-root request');
     }
+    await require('./csp-realhost.cjs').proveProductionCsp({ vscode, browser, workspace, findFrame, checks });
     // Background Electron does not reliably advance smooth-scroll animation.
     // Prove actual viewport movement via spec 014's native auto path; browser tests cover smooth options.
     for (const context of browser.contexts())
       for (const page of context.pages()) await page.emulateMedia({ reducedMotion: 'reduce' });
+    if (process.env.RICH_MARKDOWN_PREVIEW_PRIVACY_HOST === '1') await require('./privacy-realhost.cjs').proveExternalImages({ vscode, browser, workspace, findFrame, checks });
     await require('./navigation-host.cjs').proveNavigation({ vscode, workspace, findFrame, checks });
   } finally {
     await browser.close();

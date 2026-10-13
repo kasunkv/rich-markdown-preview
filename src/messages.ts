@@ -1,4 +1,5 @@
 import { numericPreferenceRanges } from './preference-ranges';
+import { isExternalImageOrigin } from './external-images';
 import { previewStyles } from './styles';
 import type { OutlineItem } from './render';
 import type { DocumentationFile } from './documentation';
@@ -30,6 +31,7 @@ export type WebviewCommand =
   | { type: 'preference'; key: keyof Preferences; value: string | number | boolean }
   | { type: 'documentationAction'; action: DocumentationAction; id?: string }
   | { type: 'reference'; id: string }
+  | { type: 'grantExternalImageOrigin' | 'revokeExternalImageOrigin'; origin: string }
   | { type: 'link'; href: string }
   | { type: 'copy'; text: string }
   | { type: 'tableCopy' | 'tableExport'; text: string; filename: string };
@@ -165,6 +167,11 @@ export function validateWebviewMessage(value: unknown): value is WebviewMessage 
         return false;
       fields = ['action', 'id'];
       break;
+    case 'grantExternalImageOrigin':
+    case 'revokeExternalImageOrigin':
+      if (!isExternalImageOrigin(value.origin)) return false;
+      fields = ['origin'];
+      break;
     case 'reference':
       if (!id(value.id)) return false;
       fields = ['id'];
@@ -294,10 +301,32 @@ export function validateRestoredState(value: unknown): boolean {
   if (
     !plainRecord(value) ||
     !Object.keys(value).every((key) =>
-      ['scroll', 'tables', 'disclosures', 'documentation', 'documentId', 'documents'].includes(key),
+      ['scroll', 'tables', 'disclosures', 'documentation', 'documentId', 'documents', 'permissionFocus'].includes(key),
     )
   )
     return false;
+  if (value.permissionFocus !== undefined) {
+    const focus = value.permissionFocus;
+    if (
+      !plainRecord(focus) ||
+      !Object.keys(focus).every((key) => ['key', 'documentId', 'selection'].includes(key)) ||
+      !id(focus.key) ||
+      (focus.documentId !== undefined && !id(focus.documentId))
+    )
+      return false;
+    const selection = focus.selection;
+    if (
+      selection !== undefined &&
+      (!Array.isArray(selection) ||
+        selection.length !== 3 ||
+        !Number.isSafeInteger(selection[0]) ||
+        !Number.isSafeInteger(selection[1]) ||
+        selection[0] < 0 ||
+        selection[1] < selection[0] ||
+        !['forward', 'backward', 'none'].includes(selection[2]))
+    )
+      return false;
+  }
   const record = (entry: unknown, check: (item: unknown) => boolean) =>
     plainRecord(entry) &&
     Object.keys(entry).length <= 10000 &&

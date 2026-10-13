@@ -13,7 +13,9 @@ export function previewResourceRoots(extension: vscode.Uri, document?: vscode.Ur
   return [
     vscode.Uri.joinPath(extension, 'dist'),
     vscode.Uri.joinPath(extension, 'assets'),
-    ...(document ? [documentResourceRoot(document)] : []),
+    ...(document && (vscode.workspace.isTrusted || restrictedNavigationAllowed(document))
+      ? [documentResourceRoot(document)]
+      : []),
   ];
 }
 
@@ -32,6 +34,7 @@ export function resolveImageResource(src: string, document: vscode.Uri, webview:
     }
     const root = documentResourceRoot(document);
     if (target.scheme !== 'file' || root.scheme !== 'file' || target.authority !== root.authority) return '';
+    if (!vscode.workspace.isTrusted && !restrictedNavigationAllowed(target)) return '';
     const logical = relative(root.fsPath, target.fsPath);
     if (logical === '..' || logical.startsWith(`..${sep}`) || isAbsolute(logical)) return '';
     const canonicalRoot = realpathSync(root.fsPath);
@@ -44,5 +47,24 @@ export function resolveImageResource(src: string, document: vscode.Uri, webview:
     return converted + (parts.query ? `?${parts.query}` : '') + (parts.fragment ? `#${parts.fragment}` : '');
   } catch {
     return '';
+  }
+}
+
+/** Restricted Mode only reads canonical local files contained by a workspace folder. */
+export function restrictedNavigationAllowed(target: vscode.Uri): boolean {
+  try {
+    const root = vscode.workspace.getWorkspaceFolder(target)?.uri;
+    if (!root || target.scheme !== 'file' || root.scheme !== 'file' || target.authority !== root.authority)
+      return false;
+    const logical = relative(root.fsPath, target.fsPath);
+    if (logical === '..' || logical.startsWith(`..${sep}`) || isAbsolute(logical)) return false;
+    const canonicalRoot = realpathSync(root.fsPath);
+    const canonicalTarget = realpathSync(target.fsPath);
+    const within = relative(canonicalRoot, canonicalTarget);
+    return (
+      within !== '..' && !within.startsWith(`..${sep}`) && !isAbsolute(within) && statSync(canonicalTarget).isFile()
+    );
+  } catch {
+    return false;
   }
 }

@@ -1,7 +1,9 @@
+import { buildWebviewShell } from './webview-shell';
 import { validateWebviewMessage, normalizeCSV, validLink, messageLimits, type HostMessage } from './messages';
 import { reportAsync as observeAsync } from './async';
 import { PreviewSession, PreviewHostBridge, PreviewNavigationAdapter, sessionDiagnostic } from './preview-session';
 import { PreviewPreferenceStore } from './preview-preferences';
+import { ExternalImagePermissions, externalImageCspOrigins } from './external-images';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import { renderMarkdown } from './render';
@@ -12,7 +14,7 @@ import { referencePaths, type FileReference } from './references';
 import { homedir } from 'node:os';
 import { DocumentationIndex } from './documentation';
 import { numericPreferenceRanges } from './preference-ranges';
-import { previewResourceRoots, resolveImageResource } from './resources';
+import { previewResourceRoots, resolveImageResource, restrictedNavigationAllowed } from './resources';
 
 const defaults = {
   style: 'documentation',
@@ -68,6 +70,40 @@ export function activate(context: vscode.ExtensionContext) {
     observeAsync(operation, () => lifecycle.fail('host operation'));
   context.subscriptions.push(output, lifecycle);
   const panels = new Map<string, vscode.WebviewPanel>();
+  const externalImageRefreshers = new Set<() => void>();
+  const resourceRootRefreshers = new Set<() => void>();
+  const suspendedImageOrigins = new Set<string>();
+  let workspaceTrusted = vscode.workspace.isTrusted;
+  const externalImagePermissions = new ExternalImagePermissions(
+    {
+      get: (key) => lifecycle.boundary('read external image permissions', () => context.globalState.get(key)),
+      update: (key, value) => context.globalState.update(key, value),
+    },
+    (action, origin) => {
+      if (action === 'grant') suspendedImageOrigins.delete(origin);
+      for (const refresh of externalImageRefreshers) refresh();
+    },
+  );
+  const navigationAllowed = (target: vscode.Uri, notify = true) => {
+    if (vscode.workspace.isTrusted || restrictedNavigationAllowed(target)) return true;
+    if (notify)
+      reportAsync(
+        vscode.window.showWarningMessage(
+          'Restricted Mode only opens existing local files inside the current workspace. Trust the workspace to open other targets.',
+        ),
+      );
+    return false;
+  };
+  context.subscriptions.push(
+    vscode.workspace.onDidGrantWorkspaceTrust(() =>
+      lifecycle.boundary('update workspace trust', () => {
+        if (workspaceTrusted || !vscode.workspace.isTrusted) return;
+        workspaceTrusted = true;
+        for (const origin of externalImagePermissions.grants) suspendedImageOrigins.add(origin);
+        for (const refresh of externalImageRefreshers) refresh();
+      }),
+    ),
+  );
   const status = vscode.window.createStatusBarItem(
     'richMarkdownPreview.documentationHome',
     vscode.StatusBarAlignment.Left,
@@ -89,7 +125,10 @@ export function activate(context: vscode.ExtensionContext) {
   updateStatus();
   context.subscriptions.push(
     status,
-    vscode.workspace.onDidChangeWorkspaceFolders(updateStatus),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      updateStatus();
+      for (const refresh of resourceRootRefreshers) refresh();
+    }),
     vscode.workspace.onDidChangeConfiguration(updateStatus),
   );
   const openPreview = async (uri?: vscode.Uri, documentationHome = false) => {
@@ -107,6 +146,8 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
     }
+    const selected = uri ?? vscode.window.activeTextEditor?.document.uri;
+    if (!documentationHome && selected && !navigationAllowed(selected)) return;
     let document: vscode.TextDocument | undefined;
     try {
       document = documentationHome
@@ -121,6 +162,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
     if (!lifecycle.current(opening)) return;
+    if (document && !navigationAllowed(document.uri)) return;
     if (
       !documentationHome &&
       (!document || (document.languageId !== 'markdown' && !/\.md$/i.test(document.uri.path)))
@@ -162,8 +204,26 @@ export function activate(context: vscode.ExtensionContext) {
     const effectivePreferences = () => preferenceStore.effective();
     const nonce = randomBytes(16).toString('hex');
     let fileReferences: FileReference[] = [];
+    let externalImageOrigins = new Set<string>();
+    const remoteImagePolicy = () => ({
+      grants: new Set([...externalImagePermissions.grants].filter((origin) => !suspendedImageOrigins.has(origin))),
+      enabled: vscode.workspace.isTrusted,
+    });
     const resource = (file: string) => webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', file));
-    webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};"><link rel="stylesheet" href="${resource('preview.css')}"><title>Rich Markdown Preview</title></head><body><div id="rmp-ui-app" data-logo="${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png'))}"></div><script nonce="${nonce}" src="${resource('preview.js')}"></script></body></html>`;
+    const setWebviewHtml = () => {
+      const policy = remoteImagePolicy();
+      webview.html = buildWebviewShell({
+        nonce,
+        cspSource: webview.cspSource,
+        scriptUri: resource('preview.js').toString(),
+        styleUri: resource('preview.css').toString(),
+        logoUri: webview
+          .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png'))
+          .toString(),
+        imageOrigins: externalImageCspOrigins(policy.grants, policy.enabled).split(/\s+/).filter(Boolean),
+      });
+    };
+    setWebviewHtml();
     let index: DocumentationIndex | undefined;
     let indexStatus: { loading: boolean; error?: string } = { loading: true };
     const history: { id?: string; fragment?: string }[] = [{}];
@@ -202,17 +262,53 @@ export function activate(context: vscode.ExtensionContext) {
     let renderRevision = 0;
     let renderedDocumentId = '';
     let renderedSource = '';
+    const updateResourceRoots = () =>
+      session.boundary('update preview resource roots', () => {
+        try {
+          webview.options = {
+            enableScripts: true,
+            localResourceRoots: previewResourceRoots(context.extensionUri, document?.uri),
+          };
+          if (document && !navigationAllowed(document.uri, false)) {
+            session.supersede();
+            renderId = '';
+            fileReferences = [];
+            externalImageOrigins.clear();
+          }
+        } catch {
+          session.fail('update preview resource roots');
+          panel.dispose();
+        }
+      });
+    resourceRootRefreshers.add(updateResourceRoots);
+    session.own({ dispose: () => resourceRootRefreshers.delete(updateResourceRoots) });
     const refreshModelIdentity = (source = document?.getText() ?? '') => {
       const identity = document?.uri.toString() ?? 'home';
       if (!renderId || identity !== renderedDocumentId || source !== renderedSource) {
+        externalImageOrigins.clear();
         renderedDocumentId = identity;
         renderedSource = source;
         renderId = nonce + '_' + ++renderRevision;
       }
       return source;
     };
+    const resetExternalImagePolicy = () =>
+      session.boundary('reset external image policy', () => {
+        session.supersede();
+        renderId = '';
+        fileReferences = [];
+        externalImageOrigins.clear();
+        setWebviewHtml();
+      });
+    externalImageRefreshers.add(resetExternalImagePolicy);
+    session.own({
+      dispose: () => {
+        externalImageRefreshers.delete(resetExternalImagePolicy);
+      },
+    });
     const update = () =>
       session.boundary('render Markdown', () => {
+        if (document && !navigationAllowed(document.uri, false)) return;
         const source = refreshModelIdentity();
         if (!document) {
           fileReferences = [];
@@ -230,8 +326,13 @@ export function activate(context: vscode.ExtensionContext) {
           sendNavigation(true);
           return;
         }
-        const result = renderMarkdown(source, (src) => resolveImageResource(src, document!.uri, webview));
+        const result = renderMarkdown(
+          source,
+          (src) => resolveImageResource(src, document!.uri, webview),
+          remoteImagePolicy(),
+        );
         fileReferences = result.references;
+        externalImageOrigins = new Set(result.externalImageOrigins);
         reportAsync(
           post({
             type: 'render',
@@ -247,6 +348,7 @@ export function activate(context: vscode.ExtensionContext) {
         sendNavigation();
       });
     const navigate = async (target?: vscode.Uri, anchor?: string, position?: number) => {
+      if (target && !navigationAllowed(target)) return;
       const request = session.supersede();
       const acceptedModel = renderId;
       const currentModel = () => session.current(request) && acceptedModel === renderId;
@@ -255,6 +357,7 @@ export function activate(context: vscode.ExtensionContext) {
           ? await navigationAdapter.resolve('open document', () => vscode.workspace.openTextDocument(target), request)
           : undefined;
         if (!currentModel()) return;
+        if (next && !navigationAllowed(next.uri)) return;
         if (target && !next) {
           reportAsync(
             vscode.window.showWarningMessage('Could not open this document. It may have moved or been deleted.'),
@@ -296,7 +399,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     };
     const openTarget = async (target: vscode.Uri, anchor = '') => {
-      if (!session.current()) return;
+      if (!session.current() || !navigationAllowed(target)) return;
       const request = session.supersede();
       const acceptedModel = renderId;
       const currentModel = () => session.current(request) && acceptedModel === renderId;
@@ -325,6 +428,7 @@ export function activate(context: vscode.ExtensionContext) {
             request,
           );
           if (!currentModel()) return;
+          if (source && !navigationAllowed(source.uri)) return;
           if (!source) {
             reportAsync(vscode.window.showWarningMessage('Could not open this link. Check the target file access.'));
             return;
@@ -406,6 +510,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (session.current() && event.document.uri.toString() === document?.uri.toString()) {
           fileReferences = [];
           renderId = '';
+          if (!navigationAllowed(event.document.uri, false)) return;
           session.boundary('render Markdown', () => refreshModelIdentity(event.document.getText()));
           session.debounce(update, 180);
         }
@@ -430,10 +535,46 @@ export function activate(context: vscode.ExtensionContext) {
             if (index) await index.refresh();
             return;
           }
+          if (document && !navigationAllowed(document.uri, false)) return;
           if (message.renderId !== renderId) return;
           const acceptedRenderId = message.renderId;
           const requestId = message.requestId;
           const currentModel = () => session.current(request) && acceptedRenderId === renderId;
+          if (message.type === 'grantExternalImageOrigin' || message.type === 'revokeExternalImageOrigin') {
+            const action = message.type === 'grantExternalImageOrigin' ? 'grant' : 'revoke';
+            const canChange = () =>
+              currentModel() &&
+              externalImageOrigins.has(message.origin) &&
+              (action === 'revoke' || remoteImagePolicy().enabled);
+            try {
+              await externalImagePermissions.change(
+                action,
+                message.origin,
+                canChange,
+                async (origin) =>
+                  (await vscode.window.showWarningMessage(
+                    `Allow images from ${origin} in all previews?`,
+                    {
+                      modal: true,
+                      detail:
+                        'Image requests can reveal your IP address to this origin. No document referrer is sent. This origin is remembered in your VS Code user storage.',
+                    },
+                    'Allow images',
+                  )) === 'Allow images',
+              );
+            } catch {
+              if (!session.current()) return;
+              session.fail('save external image permission');
+              reportAsync(
+                vscode.window.showWarningMessage(
+                  action === 'revoke'
+                    ? 'External images are blocked for this session, but the revocation could not be saved. Retry before restarting VS Code.'
+                    : 'The image permission could not be saved. Images remain blocked. Check user storage access and retry.',
+                ),
+              );
+            }
+            return;
+          }
           if (message.type === 'documentationAction' && index) {
             if (message.action === 'open' && typeof message.id === 'string') {
               const target = index.resolve(message.id);
@@ -445,6 +586,7 @@ export function activate(context: vscode.ExtensionContext) {
               if (!currentModel()) return;
             }
             if (message.action === 'source' && document) {
+              if (!navigationAllowed(document.uri)) return;
               await vscode.window.showTextDocument(document, vscode.ViewColumn.Beside);
               if (!currentModel()) return;
             }
@@ -473,9 +615,11 @@ export function activate(context: vscode.ExtensionContext) {
               return;
             }
             const workspaceRoot = vscode.workspace.getWorkspaceFolder(preferenceUri())?.uri ?? directory;
-            const rootSetting = vscode.workspace
-              .getConfiguration('richMarkdownPreview', preferenceUri())
-              .get<string>('referenceRoot', '');
+            const rootSetting = vscode.workspace.isTrusted
+              ? vscode.workspace
+                  .getConfiguration('richMarkdownPreview', preferenceUri())
+                  .get<string>('referenceRoot', '')
+              : '';
             const root = rootSetting
               ? /^[a-z]:[\\/]/i.test(rootSetting)
                 ? vscode.Uri.file(rootSetting)
@@ -496,6 +640,7 @@ export function activate(context: vscode.ExtensionContext) {
                 (/^[a-z][a-z\d+.-]*:/i.test(path) && !/^[a-z]:\//i.test(path))
               )
                 continue;
+              if (!vscode.workspace.isTrusted && (path.startsWith('~/') || /^[a-z]:\//i.test(path))) continue;
               const target = /^[a-z]:\//i.test(path)
                 ? vscode.Uri.file(path)
                 : path.startsWith('~/')
@@ -503,6 +648,7 @@ export function activate(context: vscode.ExtensionContext) {
                   : path.startsWith('/')
                     ? vscode.Uri.joinPath(root, path.slice(1))
                     : vscode.Uri.joinPath(directory, path);
+              if (!navigationAllowed(target)) continue;
               const stat = await navigationAdapter.resolve(
                 'resolve referenced file',
                 () => vscode.workspace.fs.stat(target),

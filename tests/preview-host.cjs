@@ -2,7 +2,13 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const manifest = require('../package.json');
 
-function previewHost({ inWorkspace = true, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', fileName = '/fixture/test.md', failOpen = false, missingReference = false, initial = {}, previous = {}, legacy = {} } = {}) {
+function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVscode, failWrites = false, cancelExport = false, failExport = false, failCopy = false, noEditor = false, languageId = 'markdown', fileName = '/fixture/test.md', failOpen = false, missingReference = false, initial = {}, previous = {}, legacy = {}, imageOrigins = [], allowImages = true, failImageWrites = false, failImageReads = false } = {}) {
+  const imageState = {value:imageOrigins,failWrites:failImageWrites,failRead:failImageReads};
+  const imageWrites = [];
+  const globalState = {
+    get() {if(imageState.failRead) throw Error('secret user state read'); return imageState.value;},
+    async update(key, value) {imageWrites.push({key,value}); if(imageState.failWrites) throw Error('secret user state write'); imageState.value=Array.from(value);},
+  };
   const saved = {...initial};
   const messages = [];
   const warnings = [];
@@ -13,6 +19,8 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
   let created = 0, revealed = 0, disposed = 0;
   const columns = [];
   const handlers = {};
+  const trustListeners = new Set();
+  let trustRegistrations = 0;
   let requestSequence = 0;
   const disposable = {dispose() {disposed++;}};
   const uri = {path: fileName, toString: () => `file://${fileName}`};
@@ -29,6 +37,7 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     }
   };
   const panel = {
+    dispose() {handlers.dispose?.();},
     visible: true, reveal(column) {revealed++; columns.push(column);},
     onDidChangeViewState: handler => {handlers.view = handler; return disposable;},
     onDidDispose: handler => {handlers.dispose = handler; return disposable;},
@@ -53,10 +62,12 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
   const vscode = {
     StatusBarAlignment: {Left: 1},
     Uri: {joinPath: (base, ...segments) => ({toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, FileType: {File:1, Directory:2}, ViewColumn: {Beside: -2, Active: -1}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
-    window: {createOutputChannel: () => ({appendLine:line => diagnostics.push(line),dispose(){}}), createStatusBarItem: () => ({show() {}, hide() {}, dispose() {}}), activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column) => {created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: message => warnings.push(message), showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
+    window: {createOutputChannel: () => ({appendLine:line => diagnostics.push(line),dispose(){}}), createStatusBarItem: () => ({show() {}, hide() {}, dispose() {}}), activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column) => {created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: (message, _options, ...items) => {warnings.push(message); return Promise.resolve(items.includes('Allow images') && allowImages ? 'Allow images' : undefined);}, showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
     env: {openExternal: async uri => external.push(uri.toString()), clipboard: {writeText: async text => {if(failCopy) throw new Error('Clipboard unavailable'); clipboard.push(text);}}},
     workspace: {
-      onDidChangeWorkspaceFolders: () => disposable,
+      isTrusted: workspaceTrusted,
+      onDidGrantWorkspaceTrust: handler => {trustRegistrations++;trustListeners.add(handler);return {dispose:()=>trustListeners.delete(handler)};},
+      onDidChangeWorkspaceFolders: handler => {handlers.folders=handler;return disposable;},
       fs: {stat:async () => {if(missingReference) throw new Error('Missing'); return {type:1};}, writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
       openTextDocument: async () => {if(failOpen) throw new Error('File unavailable');return document;},
       getConfiguration: section => section === 'richMarkdownPreview' ? configuration : {get:(key, fallback) => (section === 'markdownLens' ? previous : legacy)[key] ?? fallback},
@@ -66,15 +77,16 @@ function previewHost({ inWorkspace = true, failWrites = false, cancelExport = fa
     },
     commands: {executeCommand: async (command, uri) => opened.push({command,uri:uri.toString()}), registerCommand: (id, handler) => {handlers[id] = handler; if (id === 'richMarkdownPreview.openPreview') handlers.command = async (...args) => {await handler(...args); if (handlers.rawMessage && !messages.some(message => message.type === 'render')) await handlers.rawMessage({type:'ready'});}; return disposable;}}
   };
+  initializeVscode?.(vscode);
   const module = {exports: {}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {
     module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, Object, URL, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
     require: name => name === 'vscode' ? vscode : require(name)
   });
   const subscriptions=[];
-  module.exports.activate({subscriptions, extensionUri: uri});
+  module.exports.activate({subscriptions, extensionUri: uri, globalState});
   const drain = async () => {await new Promise(setImmediate);};
-  return {subscriptions, vscode, configuration, diagnostics, columns, handlers, saved, messages, warnings, errors, writes, clipboard, files, dialogs, drain, document, panel, opened, external, info, counts: () => ({created, revealed, disposed})};
+  return {trustListeners,trustRegistrations:()=>trustRegistrations,fireTrust:()=>[...trustListeners].forEach(listener=>listener()),globalState, imageState, imageWrites, subscriptions, vscode, configuration, diagnostics, columns, handlers, saved, messages, warnings, errors, writes, clipboard, files, dialogs, drain, document, panel, opened, external, info, counts: () => ({created, revealed, disposed})};
 }
 
 
