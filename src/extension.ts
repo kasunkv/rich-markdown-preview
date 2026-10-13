@@ -7,6 +7,7 @@ import { referencePaths, type FileReference } from './references';
 import { homedir } from 'node:os';
 import { DocumentationIndex } from './documentation';
 import { numericPreferenceRanges } from './preference-ranges';
+import { previewResourceRoots, resolveImageResource } from './resources';
 
 const defaults = {
   style: 'documentation',
@@ -131,7 +132,7 @@ export function activate(context: vscode.ExtensionContext) {
       viewColumn,
       {
         enableScripts: true,
-        localResourceRoots: [context.extensionUri, directory],
+        localResourceRoots: previewResourceRoots(context.extensionUri, document?.uri),
       },
     );
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png');
@@ -185,14 +186,7 @@ export function activate(context: vscode.ExtensionContext) {
         sendNavigation(true);
         return;
       }
-      const result = renderMarkdown(document.getText(), (src) => {
-        if (/^[a-z][a-z\d+.-]*:/i.test(src) || src.startsWith('//')) return src;
-        try {
-          return webview.asWebviewUri(vscode.Uri.joinPath(directory, decodeURIComponent(src))).toString();
-        } catch {
-          return '';
-        }
-      });
+      const result = renderMarkdown(document.getText(), (src) => resolveImageResource(src, document!.uri, webview));
       fileReferences = result.references;
       reportAsync(
         webview.postMessage({
@@ -214,10 +208,9 @@ export function activate(context: vscode.ExtensionContext) {
         document = next;
         fragment = anchor;
         directory = document ? vscode.Uri.joinPath(document.uri, '..') : preferenceUri();
-        const workspaceRoot = document && vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
         webview.options = {
           enableScripts: true,
-          localResourceRoots: [context.extensionUri, workspaceRoot ?? directory],
+          localResourceRoots: previewResourceRoots(context.extensionUri, document?.uri),
         };
         if (position !== undefined) historyPosition = position;
         else {

@@ -10,7 +10,7 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
     const listeners = new Set();
     return { listen: fn => { listeners.add(fn); return { dispose: () => listeners.delete(fn) }; }, fire: value => [...listeners].forEach(fn => fn(value)), listeners };
   };
-  const uri = value => ({ path: value, toString: () => `file://${value}` });
+  const uri = value => ({ scheme:'file', fsPath:value, path: value, with: changes => ({...uri(value),...changes}), toString: () => `file://${value}` });
   const root = value => ({ name: value.split('/').pop(), uri: uri(value) });
   const commands = {}, messages = [], panels = [], warnings = [], opened = [], queries = [], watchers = [], reads = [];
   const files = new Map([
@@ -71,7 +71,7 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
     }
   };
   const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : require(name)});
+  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg'})} : require(name)});
   module.exports.activate({subscriptions: [], extensionUri: uri('/extension')});
   const open = async () => {await commands['richMarkdownPreview.openDocumentationHome'](); if (panels.length) await panels.at(-1).message({type: 'ready'});};
   const action = (action, id) => panels.at(-1).message({type: 'documentationAction', action, id: id && uri(id).toString()});
@@ -101,7 +101,7 @@ test('selection, relative Markdown links with anchors, images, source, history a
   await h.panels[0].message({type: 'reference', id: ref.id});
   assert.equal(h.latest('render').documentId, 'file:///repo/docs/guide.md'); assert.equal(h.latest('render').fragment, 'details');
   assert.match(h.latest('render').html, /file:\/\/\/repo\/assets\/test.svg/);
-  assert.equal(h.panels[0].webview.options.localResourceRoots[1].path, '/repo');
+  assert.equal(h.panels[0].webview.options.localResourceRoots[2].path, '/repo');
   await h.action('source'); assert.equal(h.opened.at(-1), '/repo/docs/guide.md');
   await h.action('back'); assert.equal(h.latest('render').documentId, 'file:///repo/README.md');
   const code = h.latest('render').references[1]; await h.panels[0].message({type: 'reference', id: code.id}); assert.equal(h.opened.at(-1), '/repo/src/app.ts');

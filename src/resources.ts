@@ -1,0 +1,48 @@
+import * as vscode from 'vscode';
+import { realpathSync, statSync } from 'node:fs';
+import { relative, isAbsolute, sep } from 'node:path';
+
+import { parseResourceUrl } from './resource-url';
+export { parseResourceUrl } from './resource-url';
+
+export function documentResourceRoot(document: vscode.Uri): vscode.Uri {
+  return vscode.workspace.getWorkspaceFolder(document)?.uri ?? vscode.Uri.joinPath(document, '..');
+}
+
+export function previewResourceRoots(extension: vscode.Uri, document?: vscode.Uri): vscode.Uri[] {
+  return [
+    vscode.Uri.joinPath(extension, 'dist'),
+    vscode.Uri.joinPath(extension, 'assets'),
+    ...(document ? [documentResourceRoot(document)] : []),
+  ];
+}
+
+/** Only local disk has a canonical-path contract today; providers fail closed until spec 021. */
+export function resolveImageResource(src: string, document: vscode.Uri, webview: vscode.Webview): string {
+  if (/^(https?:|data:)/i.test(src) || src.startsWith('//')) return src;
+  try {
+    const parts = parseResourceUrl(src);
+    const decoded = decodeURIComponent(parts.path);
+    if (!decoded || /[\u0000-\u001f\\]/.test(decoded)) return '';
+    let target: vscode.Uri;
+    if (/^file:/i.test(parts.path)) target = vscode.Uri.parse(parts.path);
+    else {
+      if (/^[a-z][a-z\d+.-]*:/i.test(decoded) || decoded.startsWith('/')) return '';
+      target = vscode.Uri.joinPath(vscode.Uri.joinPath(document, '..'), decoded);
+    }
+    const root = documentResourceRoot(document);
+    if (target.scheme !== 'file' || root.scheme !== 'file' || target.authority !== root.authority) return '';
+    const logical = relative(root.fsPath, target.fsPath);
+    if (logical === '..' || logical.startsWith(`..${sep}`) || isAbsolute(logical)) return '';
+    const canonicalRoot = realpathSync(root.fsPath);
+    const canonicalTarget = realpathSync(target.fsPath);
+    const within = relative(canonicalRoot, canonicalTarget);
+    if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within) || !statSync(canonicalTarget).isFile())
+      return '';
+    // Preserve suffixes as URI metadata, never as filesystem path components.
+    const converted = webview.asWebviewUri(target).toString();
+    return converted + (parts.query ? `?${parts.query}` : '') + (parts.fragment ? `#${parts.fragment}` : '');
+  } catch {
+    return '';
+  }
+}

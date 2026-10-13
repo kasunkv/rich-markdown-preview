@@ -173,3 +173,7 @@ The preview scrolls independently of the source editor. Full-document PDF/HTML e
 Rich Markdown Preview is available under the [MIT License](LICENSE).
 
 [Developer documentation and release instructions](DEVELOPMENT.md)
+
+### Local images
+
+Both single-file previews and Documentation Home can load images inside the document’s active workspace folder, including sibling paths such as `../assets/diagram.svg`. Standalone documents can load images only from their own directory. Spaces and encoded filename characters are supported; URL queries and fragments remain separate from the file path. Missing images, traversal outside the allowed root, and symlinks that escape its canonical directory are blocked. Local images from remote or virtual filesystem providers are currently blocked; provider support is tracked separately.
