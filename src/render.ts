@@ -15,6 +15,7 @@ export interface OutlineItem {
   fragment: string;
   text: string;
   level: number;
+  sourceLine: number;
 }
 
 function extractHeadingText(tokens: NonNullable<MarkdownIt.Token['children']>): string {
@@ -98,6 +99,8 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
       (title ? `<p class="markdown-alert-title"><span aria-hidden="true">${title.icon}</span> ${title.label}</p>` : '')
     );
   };
+  const frontmatter = renderFrontmatter(source, md.utils.escapeHtml);
+  const sourceOffset = source.slice(0, source.length - frontmatter.body.length).split('\n').length - 1;
   const outline: OutlineItem[] = [];
   const ids = new Map<string, number>();
   const usedIds = new Set<string>();
@@ -126,6 +129,7 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
       fragment: id,
       text: label,
       level: Number(tokens[index].tag.slice(1)),
+      sourceLine: sourceOffset + tokens[index].map![0],
     });
     return renderer.renderToken(tokens, index, options);
   };
@@ -147,6 +151,5 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
         : md.utils.escapeHtml(token.content);
     return `<div class="code-block"><div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
-  const frontmatter = renderFrontmatter(source, md.utils.escapeHtml);
   return { html: frontmatter.html + md.render(frontmatter.body), outline, references };
 }

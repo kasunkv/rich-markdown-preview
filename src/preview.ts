@@ -185,6 +185,9 @@ function scrollToHeading(fragment: string, internal = false) {
   if (target) {
     const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
     target.scrollIntoView({ behavior, block: 'start' });
+  } else {
+    document.getElementById('rmp-ui-announcement')!.textContent =
+      'Heading not found. Check the heading and fragment encoding. Line fragments such as #L1-L3 are unsupported; use Go to Line in the source editor.';
   }
 }
 async function diagrams(version: number) {

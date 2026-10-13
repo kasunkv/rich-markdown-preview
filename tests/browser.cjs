@@ -258,12 +258,13 @@ test('content anchors isolate UI, footnotes, duplicates and encoded fragments', 
   await page.locator('.footnote-backref').nth(1).click();
   assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id:'rmp-footnote-fnref1:1', options:{behavior:'auto', block:'start'}});
   const before = await page.evaluate(() => window.anchorCalls.length);
-  for (const fragment of ['missing-anchor','rmp-ui-announcement','%E0%A4%A']) {
+  for (const fragment of ['missing-anchor','rmp-ui-announcement','%E0%A4%A','L1-L3','L%31']) {
     await page.locator('#rmp-ui-content').evaluate((content, fragment) => {
       const link = document.createElement('a');
       link.setAttribute('href', '#' + fragment);
       content.append(link); link.click(); link.remove();
     }, fragment);
+    assert.match(await page.locator('#rmp-ui-announcement').textContent(), /Heading not found.*Line fragments.*Go to Line/);
   }
   assert.equal(await page.evaluate(() => window.anchorCalls.length), before);
   await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences,fragment:encodeURIComponent('café-日本語-1')});

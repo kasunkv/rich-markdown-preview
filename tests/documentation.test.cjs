@@ -12,7 +12,7 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
   };
   const uri = value => ({ scheme:'file', fsPath:value, path: value, with: changes => ({...uri(value),...changes}), toString: () => `file://${value}` });
   const root = value => ({ name: value.split('/').pop(), uri: uri(value) });
-  const commands = {}, messages = [], panels = [], warnings = [], opened = [], queries = [], watchers = [], reads = [];
+  const commands = {}, messages = [], panels = [], warnings = [], opened = [], queries = [], watchers = [], reads = [], selections = [], reveals = [];
   const files = new Map([
     ['/repo/README.md', '# Welcome\n\n[Guide](docs/guide.md#details)\n\n[Code](src/app.ts)'],
     ['/repo/docs/guide.md', '# Guide\n\n## Details\n\n![Image](../assets/test.svg)'],
@@ -31,13 +31,15 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
   };
   const vscode = {
     Uri: { file: uri, parse: value => uri(value.replace(/^file:\/\//, '')), joinPath: (base, ...parts) => uri(path.posix.join(base.path, ...parts)) },
+    Range: class { constructor(startLine, startCharacter, endLine, endCharacter) { this.start = {line: startLine, character: startCharacter}; this.end = {line: endLine, character: endCharacter}; } },
+    TextEditorRevealType: {InCenterIfOutsideViewport: 2},
     StatusBarAlignment: {Left: 1}, ViewColumn: {Active: -1, Beside: -2}, FileType: {File: 1, Directory: 2}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
     RelativePattern: class { constructor(base, pattern) { this.baseUri = base.uri ?? base; this.pattern = pattern; } },
     CancellationTokenSource: class { token = {isCancellationRequested: false}; cancel() {this.token.isCancellationRequested = true;} dispose() {} },
     window: {
       createStatusBarItem: () => status,
       showInformationMessage: message => warnings.push(message), showWarningMessage: message => warnings.push(message),
-      showTextDocument: async doc => opened.push(doc.uri.path),
+      showTextDocument: async (doc, options) => { opened.push(doc.uri.path); selections.push(options?.selection); return {revealRange: (range, type) => reveals.push({range, type})}; },
       createWebviewPanel: (type, title, column, options) => {
         const receive = event(), dispose = event(), view = event();
         const panel = { type, title, column, visible: true, reveals: 0, reveal() {this.reveals++;},
@@ -74,9 +76,10 @@ function host({ folders = ['/repo', '/other'], settings = {} } = {}) {
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg'})} : require(name)});
   module.exports.activate({subscriptions: [], extensionUri: uri('/extension')});
   const open = async () => {await commands['richMarkdownPreview.openDocumentationHome'](); if (panels.length) await panels.at(-1).message({type: 'ready'});};
+  const openSingle = async (file = '/repo/README.md') => { await commands['richMarkdownPreview.openPreview'](uri(file)); await panels.at(-1).message({type: 'ready'}); };
   const action = (action, id) => panels.at(-1).message({type: 'documentationAction', action, id: id && uri(id).toString()});
   const latest = type => messages.filter(message => message.type === type).at(-1);
-  return {vscode, settings, status, open, action, latest, files, reads, queries, messages, panels, warnings, opened, watchers, workspaceFolders, configuration, text, uri, getDocument};
+  return {vscode, settings, status, open, openSingle, selections, reveals, action, latest, files, reads, queries, messages, panels, warnings, opened, watchers, workspaceFolders, configuration, text, uri, getDocument};
 }
 
 test('home entry points appear without opening Markdown, and a workspace is required', async () => {
@@ -166,4 +169,85 @@ test('latest selection and scan win races; late work cannot update disposed pane
   const messages = h.messages.length;
   await Promise.all(scans.slice(0, 2).map(resolve => resolve())); await old; assert.equal(h.messages.length, messages);
   const pending = h.action('open', '/repo/README.md'); h.panels[0].dispose(); finish(); await pending; assert.equal(h.messages.length, messages);
+});
+
+
+test('single-file links open source with Unicode and duplicate heading selection/reveal', async () => {
+  const h = host();
+  h.files.set('/repo/docs/guide.md', ['---', 'label: Example', '---', '', '# Caf\u00e9 \u65e5\u672c\u8a9e', '# Details', '# Details-1', '# Details', '# ![Architecture](a.png)'].join('\n'));
+  await h.openSingle();
+  for (const [anchor, line] of [['caf%C3%A9-%E6%97%A5%E6%9C%AC%E8%AA%9E', 4], ['details-2', 7], ['architecture', 8]]) {
+    await h.panels[0].message({type: 'link', href: `docs/guide.md?view=source#${anchor}`});
+    assert.equal(h.opened.at(-1), '/repo/docs/guide.md');
+    assert.equal(h.selections.at(-1).start.line, line);
+    assert.equal(h.reveals.at(-1).range, h.selections.at(-1));
+    assert.equal(h.reveals.at(-1).type, 2);
+  }
+  await h.panels[0].message({type: 'reference', id: h.latest('render').references[0].id});
+  assert.equal(h.selections.at(-1).start.line, 5);
+  assert.equal(h.panels.length, 1);
+});
+
+test('Home preserves fragments and query-free paths; same-file links stay in their preview', async () => {
+  for (const mode of ['home', 'single']) {
+    const h = host();
+    if (mode === 'home') { await h.open(); await h.action('open', '/repo/README.md'); } else await h.openSingle();
+    await h.panels[0].message({type: 'link', href: 'README.md#Welcome'});
+    assert.equal(h.latest('render').documentId, 'file:///repo/README.md');
+    assert.equal(h.latest('render').fragment, 'Welcome');
+    assert.equal(h.opened.length, 0);
+    assert.match(h.warnings.at(-1), /not found/);
+    await h.panels[0].message({type: 'link', href: '#welcome'});
+    assert.equal(h.latest('render').fragment, 'welcome');
+    if (mode === 'home') {
+      await h.panels[0].message({type: 'link', href: 'docs/guide.md?view=1#details'});
+      assert.equal(h.latest('render').fragment, 'details');
+      assert.equal(h.latest('render').documentId, 'file:///repo/docs/guide.md');
+      assert.equal(h.opened.length, 0);
+    }
+  }
+});
+
+test('missing, malformed, line fragments and executable schemes have explicit safe outcomes', async () => {
+  const h = host(); await h.openSingle();
+  for (const [fragment, warning] of [['absent', /not found/], ['%ZZ', /percent encoding/], ['L2-L4', /Go to Line/]]) {
+    await h.panels[0].message({type: 'link', href: `docs/guide.md#${fragment}`});
+    assert.equal(h.opened.at(-1), '/repo/docs/guide.md');
+    assert.equal(h.selections.at(-1), undefined);
+    assert.match(h.warnings.at(-1), warning);
+  }
+  await h.panels[0].message({type: 'link', href: 'src/app.ts#L1-L3'});
+  assert.match(h.warnings.at(-1), /Go to Line/);
+  assert.equal(h.opened.at(-1), '/repo/src/app.ts');
+  const count = h.opened.length;
+  for (const href of ['command:workbench.action.closeWindow', 'exec:danger', '//evil/file.md', 'command%3Adanger', 'exec%3Adanger', 'bad%00.md'])
+    await h.panels[0].message({type: 'link', href});
+  assert.equal(h.opened.length, count);
+});
+
+
+test('encoded separators in filenames remain path characters in links and references', async () => {
+  const h = host();
+  h.files.set('/repo/docs/hash # query ? percent % caf\u00e9.md', '# Details');
+  await h.openSingle();
+  await h.panels[0].message({type: 'link', href: 'docs/hash%20%23%20query%20%3F%20percent%20%25%20caf%C3%A9.md?view=1#details'});
+  assert.equal(h.opened.at(-1), '/repo/docs/hash # query ? percent % caf\u00e9.md');
+  assert.equal(h.selections.at(-1).start.line, 0);
+  await h.panels[0].message({type: 'link', href: 'src/app.ts#named-section'});
+  assert.match(h.warnings.at(-1), /supported only for Markdown/);
+});
+
+
+test('Home warns about missing and malformed fragments while preserving navigation history', async () => {
+  const h = host(); await h.open(); await h.action('open', '/repo/README.md');
+  for (const [fragment, warning] of [['missing', /not found/], ['%ZZ', /percent encoding/], ['L2', /Go to Line/]]) {
+    await h.panels[0].message({type: 'link', href: `docs/guide.md#${fragment}`});
+    assert.equal(h.latest('render').fragment, fragment);
+    assert.match(h.warnings.at(-1), warning);
+    await h.action('back');
+    assert.equal(h.latest('render').documentId, 'file:///repo/README.md');
+  }
+  await h.panels[0].message({type: 'link', href: 'src/app.ts#%ZZ'});
+  assert.equal(h.opened.at(-1), '/repo/src/app.ts');
+  assert.match(h.warnings.at(-1), /percent encoding/);
 });
