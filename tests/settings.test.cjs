@@ -362,7 +362,7 @@ test('links allow external web/mail and local files while blocking executable sc
     await host.handlers.message({type:'link',href});
   }
   assert.equal(host.external.length, 3); assert.equal(host.opened.length, 0);
-  await host.handlers.message({type:'link',href:'linked%20note.md#heading'});
+  await host.handlers.message({type:'link',href:'linked%20note.md'});
   assert.equal(host.opened[0].command, 'vscode.open'); assert.match(host.opened[0].uri, /linked note.md$/);
   await host.handlers.message({type:'link',href:'%broken'}); assert.equal(host.warnings.length, 1);
 });

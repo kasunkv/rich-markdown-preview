@@ -28,7 +28,7 @@ test('development maps source, watches CSS/TS replacements, disposes and switche
   await fs.copyFile(path.join(__dirname, '../scripts/license-policy.json'), path.join(root, 'scripts/license-policy.json'));
   await fs.writeFile(path.join(root, 'package-lock.json'), JSON.stringify({ packages: {} }));
   const source = 'export function activate() {\n  console.log("breakpoint fixture");\n}\n';
-  for (const file of ['extension.ts', 'preview.ts', 'render.ts', 'tables.ts']) {
+  for (const file of ['extension.ts', 'preview.ts', 'render.ts', 'tables.ts', 'fragment-navigation.ts']) {
     await fs.writeFile(path.join(root, 'src', file), source);
   }
   const css = path.join(root, 'src/preview.css');
@@ -59,7 +59,7 @@ test('development maps source, watches CSS/TS replacements, disposes and switche
   await new Promise(resolve => setTimeout(resolve, 350));
   assert.equal(await fs.readFile(outputCss, 'utf8'), 'body { color: green; }');
   await build({ root, production: true, logLevel: 'silent' });
-  for (const file of ['extension.js', 'preview.js', 'render.cjs', 'tables.cjs']) {
+  for (const file of ['extension.js', 'preview.js', 'render.cjs', 'tables.cjs', 'fragment-navigation.cjs']) {
     await assert.rejects(fs.access(path.join(root, 'dist', `${file}.map`)), { code: 'ENOENT' });
     assert.doesNotMatch(await fs.readFile(path.join(root, 'dist', file), 'utf8'), /sourceMappingURL/);
   }

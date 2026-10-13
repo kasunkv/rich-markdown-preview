@@ -2,6 +2,8 @@ import { reportAsync } from './async';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import { renderMarkdown } from './render';
+import { resolveSourceFragment, fragmentWarning } from './fragment-navigation';
+import { parseResourceUrl } from './resource-url';
 import { previewStyles } from './styles';
 import { referencePaths, type FileReference } from './references';
 import { homedir } from 'node:os';
@@ -194,6 +196,7 @@ export function activate(context: vscode.ExtensionContext) {
           ...result,
           preferences: effectivePreferences(),
           documentId: document.uri.toString(),
+          fragment,
           ...(documentationHome ? { documentationHome: true, documentId: document.uri.toString(), fragment } : {}),
         }),
       );
@@ -206,6 +209,10 @@ export function activate(context: vscode.ExtensionContext) {
         const next = target ? await vscode.workspace.openTextDocument(target) : undefined;
         if (disposed || request !== navigation) return;
         document = next;
+        if (next && anchor) {
+          const warning = fragmentWarning(resolveSourceFragment(next.getText(), anchor));
+          if (warning) reportAsync(vscode.window.showWarningMessage(warning));
+        }
         fragment = anchor;
         directory = document ? vscode.Uri.joinPath(document.uri, '..') : preferenceUri();
         webview.options = {
@@ -229,10 +236,41 @@ export function activate(context: vscode.ExtensionContext) {
         );
       }
     };
-    const openTarget = async (target: vscode.Uri, anchor?: string) => {
-      if (documentationHome && /\.(md|markdown)$/i.test(target.path) && vscode.workspace.getWorkspaceFolder(target))
+    const openTarget = async (target: vscode.Uri, anchor = '') => {
+      if (document && target.toString() === document.uri.toString()) {
+        const warning = fragmentWarning(resolveSourceFragment(document.getText(), anchor));
+        if (warning) reportAsync(vscode.window.showWarningMessage(warning));
+        fragment = anchor;
+        update();
+      } else if (
+        documentationHome &&
+        /\.(md|markdown)$/i.test(target.path) &&
+        vscode.workspace.getWorkspaceFolder(target)
+      ) {
         await navigate(target, anchor);
-      else await vscode.commands.executeCommand('vscode.open', target);
+      } else if (anchor && /\.(md|markdown)$/i.test(target.path)) {
+        const source = await vscode.workspace.openTextDocument(target);
+        const resolved = resolveSourceFragment(source.getText(), anchor);
+        const warning = fragmentWarning(resolved);
+        if (warning) reportAsync(vscode.window.showWarningMessage(warning));
+        if (resolved.kind === 'heading') {
+          const selection = new vscode.Range(resolved.line, 0, resolved.line, 0);
+          const editor = await vscode.window.showTextDocument(source, { selection });
+          editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+        } else await vscode.window.showTextDocument(source);
+      } else {
+        if (anchor) {
+          const resolved = resolveSourceFragment('', anchor);
+          reportAsync(
+            vscode.window.showWarningMessage(
+              resolved.kind === 'unsupported-line' || resolved.kind === 'malformed'
+                ? fragmentWarning(resolved)!
+                : 'Heading navigation is supported only for Markdown files. Open the source to locate this section.',
+            ),
+          );
+        }
+        await vscode.commands.executeCommand('vscode.open', target);
+      }
     };
     if (documentationHome)
       index = new DocumentationIndex((status) => {
@@ -344,15 +382,7 @@ export function activate(context: vscode.ExtensionContext) {
               try {
                 const stat = await vscode.workspace.fs.stat(target);
                 if (stat.type & vscode.FileType.Directory) continue;
-                let anchor: string | undefined;
-                try {
-                  anchor = reference.path.includes('#')
-                    ? decodeURIComponent(reference.path.split('#').slice(1).join('#'))
-                    : undefined;
-                } catch {
-                  /* Keep navigation when a fragment is malformed. */
-                }
-                await openTarget(target, anchor);
+                await openTarget(target, parseResourceUrl(reference.path).fragment);
                 return;
               } catch {
                 /* Try the dialect's next candidate. */
@@ -442,10 +472,10 @@ export function activate(context: vscode.ExtensionContext) {
               }
             } else if (!/^[a-z][a-z\d+.-]*:/i.test(href) && !href.startsWith('//')) {
               try {
-                await openTarget(
-                  vscode.Uri.joinPath(directory, decodeURIComponent(href.split('#')[0])),
-                  href.includes('#') ? decodeURIComponent(href.split('#').slice(1).join('#')) : undefined,
-                );
+                const parts = parseResourceUrl(href);
+                const path = decodeURIComponent(parts.path);
+                if (/[\u0000-\u001f]/.test(path) || path.startsWith('//') || /^[a-z][a-z\d+.-]*:/i.test(path)) return;
+                await openTarget(parts.path ? vscode.Uri.joinPath(directory, path) : document!.uri, parts.fragment);
               } catch {
                 reportAsync(vscode.window.showWarningMessage('Could not open this link.'));
               }

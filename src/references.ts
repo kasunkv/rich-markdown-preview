@@ -1,3 +1,4 @@
+import { parseResourceUrl } from './resource-url';
 import type MarkdownIt from 'markdown-it';
 
 export interface FileReference {
@@ -11,7 +12,7 @@ export interface FileReference {
 export function referencePaths(reference: FileReference): string[] {
   let path = reference.path;
   if (reference.syntax === 'PyMdown') path = path.replace(/:[\w,\s:-]+$/, '');
-  path = path.split('#')[0].split('?')[0];
+  path = parseResourceUrl(path).path;
   if (reference.syntax === 'Jekyll') return [`/_includes/${path}`];
   if (reference.syntax === 'Retype') {
     const candidates = [path, `_includes/${path}`, `/_includes/${path}`];

@@ -18,6 +18,7 @@ const builds = [
   },
   { entryPoints: ['src/preview.ts'], outfile: 'dist/preview.js', platform: 'browser', format: 'iife' },
   { entryPoints: ['src/render.ts'], outfile: 'dist/render.cjs', platform: 'node', format: 'cjs' },
+  { entryPoints: ['src/fragment-navigation.ts'], outfile: 'dist/fragment-navigation.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/tables.ts'], outfile: 'dist/tables.cjs', platform: 'node', format: 'cjs' },
 ];
 export async function build({
