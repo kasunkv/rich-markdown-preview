@@ -80,6 +80,7 @@ exports.proveResources = async function ({ workspace, checks }) {
       for (const page of context.pages()) await page.emulateMedia({ reducedMotion: 'reduce' });
     if (process.env.RICH_MARKDOWN_PREVIEW_PRIVACY_HOST === '1') await require('./privacy-realhost.cjs').proveExternalImages({ vscode, browser, workspace, findFrame, checks });
     await require('./navigation-host.cjs').proveNavigation({ vscode, workspace, findFrame, checks });
+    await require('./accessibility-host.cjs').proveAccessibility({vscode,browser,workspace,findFrame,checks});
   } finally {
     await browser.close();
   }

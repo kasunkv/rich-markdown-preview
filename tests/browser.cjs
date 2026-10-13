@@ -616,3 +616,34 @@ test('axe, keyboard, zoom reflow and reduced motion accessibility smoke', async 
     assert.equal(await page.locator('.table-count').first().getAttribute('aria-live'),'polite');
   }
 });
+
+test('authored diagram alternatives and accessibility tokens survive rendering and refresh', async ({page,previewServer}) => {
+  await page.goto(previewServer.url);
+  const source='# Workflow\n\n```mermaid\nflowchart TD\naccTitle: Reading workflow\naccDescr: The reader opens a source alternative.\nReader-->Source\n```';
+  const render=async text=>{
+    const result=renderMarkdown(text);
+    await page.evaluate(result=>window.dispatchEvent(new MessageEvent('message',{data:{type:'render',...result,preferences:{style:'aurora',appearance:'dark',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false}}})),result);
+    await page.locator('.mermaid-result svg').waitFor();
+  };
+  await render(source);
+  const image=page.locator('.mermaid-result svg');
+  assert.equal(await image.locator('title').textContent(),'Reading workflow');
+  assert.equal(await image.locator('desc').textContent(),'The reader opens a source alternative.');
+  assert.ok(await image.getAttribute('aria-labelledby'));
+  assert.ok(await image.getAttribute('aria-describedby'));
+  const summary=page.locator('.diagram-source summary');
+  await summary.focus(); await page.keyboard.press('Enter');
+  await render(source+'\n\nUnrelated addition.');
+  assert.equal(await page.locator('.diagram-source').getAttribute('open'),'');
+  assert.equal(await page.evaluate(()=>document.activeElement.tagName),'SUMMARY');
+  for(const [theme,bg,text,accent] of [['vscode-high-contrast','#101010','#eeeeee','#ffff00'],['vscode-high-contrast-light','#fafafa','#111111','#000088']]) {
+    const actual=await page.evaluate(({theme,bg,text,accent})=>{
+      document.body.className=theme;
+      for(const [key,value] of Object.entries({'--vscode-editor-background':bg,'--vscode-editor-foreground':text,'--vscode-textLink-foreground':accent,'--vscode-focusBorder':accent,'--vscode-contrastBorder':text}))document.body.style.setProperty(key,value);
+      const summary=document.querySelector('.diagram-source summary');summary.focus();
+      const body=getComputedStyle(document.body),focus=getComputedStyle(summary);
+      return {bg:body.backgroundColor,text:body.color,focus:focus.outlineColor};
+    },{theme,bg,text,accent});
+    assert.deepEqual(actual,theme==='vscode-high-contrast'?{bg:'rgb(16, 16, 16)',text:'rgb(238, 238, 238)',focus:'rgb(255, 255, 0)'}:{bg:'rgb(250, 250, 250)',text:'rgb(17, 17, 17)',focus:'rgb(0, 0, 136)'});
+  }
+});
