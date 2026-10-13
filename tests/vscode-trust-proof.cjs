@@ -54,6 +54,7 @@ exports.prove = async ({vscode,workspace,browser,findFrame,wait,checks,mode,gran
   await frame.locator('a[href="/test.md"]').click();
   await wait(()=>vscode.window.activeTextEditor?.document.uri.toString() === vscode.Uri.file(path.join(workspace,'test.md')).toString(),'Workspace-root reference remains safe despite untrusted referenceRoot');
   checks.push('Workspace documentation reference navigation remains available');
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
   frame=await findFrame('input[aria-label="Filter documentation"]');
   await frame.locator('input[aria-label="Filter documentation"]').fill('trust-proof.md');
@@ -71,6 +72,21 @@ exports.prove = async ({vscode,workspace,browser,findFrame,wait,checks,mode,gran
     await new Promise(resolve=>setTimeout(resolve,400));
     assert.equal(requests.length,0,'Granting workspace trust must not issue any remote request');
     checks.push('Real trust transition enables exactly one grant control without changing CSP or requesting the remote image');
+    await frame.locator('[data-external-image-action="grant"]').click();
+    let confirmation;
+    await wait(async()=>{
+      for(const context of browser.contexts()) for(const page of context.pages()) {
+        const button=page.getByRole('button',{name:'Allow images',exact:true});
+        if(await button.count()===1) { confirmation=button; return true; }
+      }
+      return false;
+    },'Explicit native image-origin confirmation');
+    await confirmation.click();
+    frame=await findFrame('#rmp-ui-content img[alt="Remote beacon"]');
+    await frame.waitForFunction(()=>document.querySelector('img[alt="Remote beacon"]')?.naturalWidth === 29);
+    assert.equal(requests.length,1,'One explicit grant issues one intercepted image request in the sole preview');
+    assert.equal(await frame.locator('[data-external-image-action="revoke"]').count(),1);
+    checks.push('Explicit native origin consent after trust starts exactly one intercepted request and exposes one revoke control');
     await vscode.commands.executeCommand('richMarkdownPreview.openPreview',outside);
     await findFrame('#rmp-ui-content h1');
     assert.ok(previews().some(tab=>tab.label === 'Rich Markdown Preview: outside.md'));
