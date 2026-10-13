@@ -1,8 +1,5 @@
 name: Dependency maintenance
 on:
-  pull_request:
-  push:
-    branches: [master]
   workflow_dispatch:
   schedule:
     - cron: '41 5 * * 1'
