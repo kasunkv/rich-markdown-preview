@@ -6,7 +6,7 @@ import { PreviewPreferenceStore } from './preview-preferences';
 import { ExternalImagePermissions, externalImageCspOrigins } from './external-images';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
-import { renderMarkdown } from './render';
+import { renderMarkdown, boundRenderedModel } from './render';
 import { resolveSourceFragment, fragmentWarning } from './fragment-navigation';
 import { parseResourceUrl } from './resource-url';
 import { previewStyles } from './styles';
@@ -218,6 +218,7 @@ export function activate(context: vscode.ExtensionContext) {
       webview.html = buildWebviewShell({
         nonce,
         cspSource: webview.cspSource,
+        resourceUris: panel.webview.options.localResourceRoots!.map((root) => webview.asWebviewUri(root).toString()),
         scriptUri: resource('preview.js').toString(),
         styleUri: resource('preview.css').toString(),
         logoUri: webview
@@ -331,6 +332,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         const renderedDocument = document;
         const publish = (result: ReturnType<typeof renderMarkdown>) => {
+          result = boundRenderedModel(result);
           fileReferences = result.references;
           externalImageOrigins = new Set(result.externalImageOrigins);
           reportAsync(

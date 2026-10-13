@@ -23,7 +23,7 @@ async function startSecurityServer({ imageOrigins = [] } = {}) {
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const url = `http://127.0.0.1:${server.address().port}`;
-  page = buildWebviewShell({ nonce: randomBytes(16).toString('hex'), cspSource: url,
+  page = buildWebviewShell({ nonce: randomBytes(16).toString('hex'), cspSource: url, resourceUris: [url],
     scriptUri: `${url}/preview.js`, styleUri: `${url}/preview.css`, logoUri: `${url}/logo.png`, imageOrigins });
   return { url, requests, close: () => new Promise((resolve, reject) => {
     server.close(error => error ? reject(error) : resolve()); server.closeAllConnections();

@@ -17,7 +17,7 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
     'richMarkdownPreview.externalImageOrigins.v1': [origin], 'richMarkdownPreview.allowRemoteImages': true,
   }));
   const target = vscode.Uri.file(path.join(workspace, 'privacy-proof.md'));
-  await fs.writeFile(target.fsPath, `# Image privacy proof\n\n![Private](${origin}/image.svg)`);
+  await fs.writeFile(target.fsPath, `# Image privacy proof\n\n![Private](${origin}/image.svg)\n\n\`\`\`mermaid\nflowchart TD\nA@{img: "${origin}/diagram.svg", label: "Approved image graph", h: 20} --> B[Allowed by exact grant]\n\`\`\``);
   const second = vscode.Uri.file(path.join(workspace, 'privacy-second.md'));
   await fs.writeFile(second.fsPath, `# Second image privacy proof\n\n![Private second](${origin}/second.svg)`);
   const confirm = async () => {
@@ -60,6 +60,8 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
     await confirm();
     frame = await findFrame('img[alt="Private"]');
     await frame.waitForFunction(() => document.querySelector('img[alt="Private"]')?.naturalWidth === 23);
+    await frame.locator('.mermaid-result .image-shape').waitFor();
+    assert.ok(requests.some(request => request.url === origin + '/diagram.svg'));
     assert.ok(requests.length > start);
     assert.ok(requests.slice(start).every(request => request.url.startsWith(origin + '/') && !request.headers.referer));
     await frame.evaluate(() => {

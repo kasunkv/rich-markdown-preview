@@ -216,3 +216,11 @@ test('effective change hook identifies confirmed persisted grants and immediate 
   await assert.rejects(policy.change('revoke', 'https://example.com', () => true, async () => true), /failed/);
   assert.deepEqual(events.at(-1), {action:'revoke',origin:'https://example.com'});
 });
+test('IPv6 canonical URLs remain identifiable but cannot create unsupported CSP image grants', () => {
+  assert.equal(externalImageOrigin('https://[::1]/image.svg'),'https://[::1]');
+  assert.equal(isExternalImageOrigin('https://[::1]'),false);
+  assert.equal(readExternalImageGrants(['https://[::1]']).size,0);
+  assert.equal(externalImageDecision('https://[::1]/image.svg',new Set(['https://[::1]'])).reason,'unsupported-ipv6');
+  const {renderMarkdown}=require('../dist/render.cjs');const result=renderMarkdown('![IPv6](https://[::1]/image.svg)',s=>s,{grants:new Set(['https://[::1]']),enabled:true});
+  assert.match(result.html,/IPv6 image hosts are unsupported/);assert.doesNotMatch(result.html,/external-image-action|<img/);assert.deepEqual(result.externalImageOrigins,[]);
+});

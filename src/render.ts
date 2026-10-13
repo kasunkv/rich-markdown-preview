@@ -1,5 +1,5 @@
 import { messageLimits, validateRenderContent } from './messages';
-import { renderLimits, renderLimitFailure } from './render-limits';
+import { renderLimits, renderLimitFailure, hasInternalDiagramResource } from './render-limits';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import { full as emoji } from 'markdown-it-emoji';
@@ -19,6 +19,22 @@ export interface OutlineItem {
   text: string;
   level: number;
   sourceLine: number;
+}
+
+export interface RenderedMarkdown {
+  html: string;
+  outline: OutlineItem[];
+  references: FileReference[];
+  externalImageOrigins: string[];
+}
+
+/** Recheck final output after async resource URI substitution as well as initial rendering. */
+export function boundRenderedModel(model: RenderedMarkdown): RenderedMarkdown {
+  if (model.references.length > messageLimits.items || !validateRenderContent(model.html, model.outline))
+    return renderLimitFailure(
+      'The rendered content exceeds the supported preview limits. Open the source to read it, or split it into smaller documents.',
+    );
+  return model;
 }
 
 function extractHeadingText(tokens: NonNullable<MarkdownIt.Token['children']>): string {
@@ -176,11 +192,13 @@ export function renderMarkdown(
         extractHeadingText(tokens[index].children ?? []) || tokens[index].content || 'Image',
       );
       const action =
-        externalImages.enabled === false
-          ? '<span>Remote images are disabled in Restricted Mode.</span>'
-          : decision.origin
-            ? `<button type="button" class="external-image-action" data-external-image-action="grant" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Allow images from ${md.utils.escapeHtml(decision.origin)}</button>`
-            : '<span>Only valid HTTPS image origins can be allowed.</span>';
+        decision.reason === 'unsupported-ipv6'
+          ? '<span>IPv6 image hosts are unsupported by the preview Content Security Policy.</span>'
+          : externalImages.enabled === false
+            ? '<span>Remote images are disabled in Restricted Mode.</span>'
+            : decision.origin
+              ? `<button type="button" class="external-image-action" data-external-image-action="grant" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Allow images from ${md.utils.escapeHtml(decision.origin)}</button>`
+              : '<span>Only valid HTTPS image origins can be allowed.</span>';
       return decision.origin
         ? addAction(`<span class="external-image-blocked">${alt}: external image blocked.</span>`, action)
         : `<span class="external-image-blocked">${alt}: external image blocked. ${action}</span>`;
@@ -201,6 +219,8 @@ export function renderMarkdown(
     const language = token.info.trim().split(/\s+/)[0].toLowerCase();
     if (language === 'mermaid' && token.content.length > renderLimits.diagramCharacters)
       return '<figure class="diagram"><p class="diagram-error">This Mermaid diagram exceeds the supported limit of 20,000 characters. Open the source to read it.</p></figure>';
+    if (language === 'mermaid' && hasInternalDiagramResource(token.content, md.utils.unescapeAll))
+      return `<figure class="diagram"><p class="diagram-error">This diagram contains unsupported internal preview resource URLs or ambiguous URL escapes. Use ordinary Markdown images, data images, or an explicitly allowed HTTPS origin.</p><pre><code>${md.utils.escapeHtml(token.content)}</code></pre></figure>`;
     if (language === 'mermaid')
       return `<figure class="diagram"><div class="diagram-label">Mermaid diagram</div><pre class="mermaid-source">${md.utils.escapeHtml(token.content)}</pre></figure>`;
     const code =
@@ -209,10 +229,10 @@ export function renderMarkdown(
         : md.utils.escapeHtml(token.content);
     return `<div class="code-block"><div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
-  const html = frontmatter.html + md.render(frontmatter.body);
-  if (references.length > messageLimits.items || !validateRenderContent(html, outline))
-    return renderLimitFailure(
-      'This document�s rendered content exceeds the supported preview limits. Open the source to read it, or split it into smaller documents.',
-    );
-  return { html, outline, references, externalImageOrigins: [...externalImageOrigins] };
+  return boundRenderedModel({
+    html: frontmatter.html + md.render(frontmatter.body),
+    outline,
+    references,
+    externalImageOrigins: [...externalImageOrigins],
+  });
 }

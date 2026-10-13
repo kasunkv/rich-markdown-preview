@@ -6,7 +6,9 @@ const { renderMarkdown } = require('../dist/render.cjs');
 const { startSecurityServer } = require('./security-server.cjs');
 // Override the ordinary QA fixture: fulfill every candidate remote request safely and count it.
 const test = base.extend({ consoleEvidence: [async ({ page }, use, testInfo) => {
-  const requests = [];
+  const requests = [], consoleMessages = [];
+  page.on('console', message => consoleMessages.push(message.type() + ': ' + message.text()));
+  page.on('pageerror', error => consoleMessages.push('pageerror: ' + error.stack));
   await page.route('**/*', route => {
     const url = new URL(route.request().url());
     if (url.hostname === '127.0.0.1') return route.continue();
@@ -15,6 +17,7 @@ const test = base.extend({ consoleEvidence: [async ({ page }, use, testInfo) => 
   });
   page.securityRequests = requests;
   try { await use(); } finally {
+    await testInfo.attach('browser-console', { body: consoleMessages.join('\n'), contentType: 'text/plain' });
     await testInfo.attach('candidate-network-requests', { body: JSON.stringify(requests), contentType: 'application/json' });
   }
 }, { auto: true }] });
@@ -123,4 +126,24 @@ test('expanded model fallback is actually received and clears stale outline befo
     await expect(page.locator('#rmp-ui-content h1')).toHaveText('After output limit');
     expect(page.securityRequests).toEqual([]);
   } finally { await server.close(); }
+});
+test('valid Mermaid image metadata interprets encoded hosts while exact approved origin remains required', async ({ page }) => {
+  const server=await boot(page,['https://approved.test']);
+  try {
+    for(const escape of ['%61','%41',String.fromCharCode(92)+'u0061',String.fromCharCode(92)+'U00000061']) {
+      const source='```mermaid\nflowchart TD\nA@{img: "https://'+escape+'pproved.test/diagram.png",label: "Valid escaped image",h: 20} --> B[Safe]\n```';
+      await render(page,source);await expect(page.locator('.mermaid-result .image-shape')).toHaveCount(1);
+      expect(page.securityRequests.every(url=>url==='https://approved.test/diagram.png')).toBe(true);
+    }
+    expect(page.securityRequests.length).toBeGreaterThan(0);
+  }finally{await server.close();}
+});
+test('IPv6 origin limitation is visible and unsupported grant messages have no effect', async ({ page }) => {
+  const server=await boot(page);
+  try {
+    await render(page,'![IPv6](https://[::1]/pixel.svg)');
+    await expect(page.locator('#rmp-ui-content')).toContainText('IPv6 image hosts are unsupported');
+    await expect(page.locator('.external-image-action')).toHaveCount(0);
+    expect(page.securityRequests).toEqual([]);
+  }finally{await server.close();}
 });
