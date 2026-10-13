@@ -13,13 +13,13 @@ npm run test:browser
 npm run test:coverage
 ```
 
-`npm test` builds the production profile first and runs renderer, host-bridge, settings, table data, palette, manifest, build/watch, and packaging regressions. Host tests mock VS Code APIs; they do not replace the extension-host smoke test. Coverage output currently measures bundled JavaScript, including vendor code; do not interpret it as a source-only coverage percentage.
+`npm test` builds the production profile first and runs renderer, host-bridge, settings, table data, palette, manifest, build/watch, and packaging regressions. Host tests mock VS Code APIs; they do not replace the extension-host smoke test. `npm run test:coverage` separately collects first-party TypeScript coverage from Node/VM and browser suites, includes unexecuted modules, and enforces the per-module baseline. See [source coverage policy](docs/SOURCE_COVERAGE.md); actual VS Code host counters are not merged.
 
 Browser checks use lockfile-pinned Playwright and exercise the shipped preview bundle, actual Mermaid rendering, 36 style/appearance combinations, table DOM controls, state retention, clipboard, CSV download/BOM, automatic theme changes, error recovery, and narrow layouts. Install the associated Chromium with `npm run browser:install` (`npm run browser:install:ci` includes Linux system dependencies). Browser executable overrides are not supported.
 
 `npm run test:browser` builds production and runs isolated server/failure-evidence regression checks plus both Playwright suites. Results are unique tagged runs under `.test-results/browser/`, with commit/dirty state, lockfile hash, timestamps and status in `run.json`. Failure evidence includes a JSON report, runner log, browser console log, trace and screenshot when a browser page was available. Old success files are not proof of the current run. See [CONTRIBUTING.md](CONTRIBUTING.md) for time limits and trace inspection.
 
-`npm run screenshots:marketing` is the explicit command that regenerates the two tracked README images. Ordinary tests leave them unchanged. `npm run validate` runs quality checks, builds production once, and then runs fresh unit coverage, browser and minimum-host validation using those outputs. Stable and installed-VSIX checks remain separate.
+`npm run screenshots:marketing` is the explicit command that regenerates the two tracked README images. Ordinary tests leave them unchanged. `npm run validate` runs quality checks, fresh source coverage with production packaging and instrumented Node/browser suites, browser harness controls, and minimum-host validation after restoring production assets. Stable and installed-VSIX checks remain separate.
 
 `npm run dev:preview` builds the development profile and prints its allocated loopback URL. Set `PORT` explicitly for a preferred manual QA port. Manual QA and automated suites can run concurrently; automated workers always use allocated ports.
 
@@ -236,3 +236,4 @@ Packaging uses the supplied GitHub repository and its `master` branch to resolve
 The internal package name is `rich-markdown-preview`. The visible name is **Rich Markdown Preview - A Styled Markdown Preview**. Check the current Marketplace for package and display-name collisions before changing either value. A successful local build does not guarantee server-side Marketplace approval.
 
 For opaque upload failures, open the browser developer tools before retrying and inspect the failing upload request's response. Capture the status, error message, and request/correlation ID; do not share cookies or authentication headers. If Marketplace still rejects a valid package, use its **Contact Microsoft** link and include that diagnostic information.
+

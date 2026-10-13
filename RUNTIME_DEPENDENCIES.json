@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scope": "VSIX production JavaScript inputs (not build/test tooling)",
-  "lockfileSha256": "913a833e4c5bed872df545c47d04fc0096e73d5aa195c17349faad5df1579559",
+  "lockfileSha256": "0bb63ed66afdde170853c53db051d7c3e9d7eba79992b3a35b70253cc08c6885",
   "bundles": [
     {
       "file": "dist/extension.js",
