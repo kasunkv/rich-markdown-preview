@@ -5,7 +5,7 @@
   "bundles": [
     {
       "file": "dist/extension.js",
-      "sha256": "effec1eb572f952aad74389cd76b8f84ea144c6f99598174913525fb69351951"
+      "sha256": "2dca9188070ca160eb393c08435225494eea85a0d4147d8a2353c6ead9d65c19"
     },
     {
       "file": "dist/preview.js",

@@ -85,7 +85,7 @@ test('callouts support known markers, nested content, and safe HTML without chan
 });
 
 test('empty source, Unicode headings, formatted headings and document-local state render consistently', () => {
-  assert.deepEqual(renderMarkdown(''),{html:'',outline:[],references:[]});
+  assert.deepEqual(renderMarkdown(''),{html:'',outline:[],references:[],externalImageOrigins:[]});
   const source='# 日本語 **Heading** `code`\n# !!!\n# !!!\n# 日本語 **Heading** `code`';
   const result=renderMarkdown(source);
   assert.deepEqual(result.outline.map(item=>item.fragment),['日本語-heading-code','section','section-1','日本語-heading-code-1']);
@@ -120,3 +120,5 @@ test('heading aliases isolate interface and footnote collisions with stable Unic
   assert.match(result.html, /id="rmp-footnote-fnref1:1"/);
   assert.deepEqual(renderMarkdown(source), result);
 });
+
+

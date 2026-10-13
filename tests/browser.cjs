@@ -288,3 +288,33 @@ test('content anchors isolate UI, footnotes, duplicates and encoded fragments', 
     assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id, options:{behavior:'smooth', block:'start'}});
   }
 });
+
+test('external image policy sends zero blocked requests and no referrer for explicit grants', async ({ page, previewServer }) => {
+  await page.goto(previewServer.url);
+  await page.locator('#rmp-ui-content').waitFor();
+  const requests = [];
+  await page.route('https://privacy.example/**', async route => {
+    requests.push({ url: route.request().url(), headers: route.request().headers() });
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>' });
+  });
+  const preferences = {style:'documentation',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const source = '![Tracking](https://privacy.example/pixel.svg)';
+  const render = async grants => {
+    const result = renderMarkdown(source, undefined, { grants });
+    await page.evaluate(data => window.dispatchEvent(new MessageEvent('message', {data})), { type: 'render', ...result, preferences });
+  };
+  await render(new Set());
+  await page.locator('[data-external-image-action="grant"]').waitFor();
+  await page.waitForTimeout(200);
+  assert.equal(requests.length, 0);
+  await render(new Set(['https://privacy.example']));
+  await page.locator('#rmp-ui-content img').evaluate(img => img.scrollIntoView());
+  await page.waitForFunction(() => document.querySelector('#rmp-ui-content img')?.naturalWidth === 2);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].headers.referer, undefined);
+  assert.equal(await page.locator('[data-external-image-action="revoke"]').count(), 1);
+  await render(new Set());
+  await page.locator('[data-external-image-action="grant"]').waitFor();
+  await page.waitForTimeout(200);
+  assert.equal(requests.length, 1);
+});

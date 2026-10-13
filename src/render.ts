@@ -8,6 +8,7 @@ import mark from 'markdown-it-mark';
 import subscript from 'markdown-it-sub';
 import superscript from 'markdown-it-sup';
 import { renderFrontmatter } from './frontmatter';
+import { externalImageDecision } from './external-images';
 import { installReferences, type FileReference } from './references';
 
 export interface OutlineItem {
@@ -35,7 +36,12 @@ function extractHeadingText(tokens: NonNullable<MarkdownIt.Token['children']>): 
     .trim();
 }
 
-export function renderMarkdown(source: string, imageUri: (src: string) => string = (src) => src) {
+export function renderMarkdown(
+  source: string,
+  imageUri: (src: string) => string = (src) => src,
+  externalImages: { grants?: ReadonlySet<string>; enabled?: boolean } = {},
+) {
+  const externalImageOrigins = new Set<string>();
   const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
   const references: FileReference[] = [];
   installReferences(md, references);
@@ -136,9 +142,24 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
   const image = md.renderer.rules.image!;
   md.renderer.rules.image = (tokens, index, options, env, renderer) => {
     const src = tokens[index].attrGet('src') ?? '';
-    tokens[index].attrSet('src', imageUri(src));
+    const decision = externalImageDecision(src, externalImages.grants ?? new Set(), externalImages.enabled);
+    if (decision.kind !== 'local' && decision.origin) externalImageOrigins.add(decision.origin);
+    if (decision.kind === 'blocked') {
+      const alt = md.utils.escapeHtml(
+        extractHeadingText(tokens[index].children ?? []) || tokens[index].content || 'Image',
+      );
+      const action = decision.origin
+        ? `<button type="button" class="external-image-action" data-external-image-action="grant" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Allow images from ${md.utils.escapeHtml(decision.origin)}</button>`
+        : '<span>Only valid HTTPS image origins can be allowed.</span>';
+      return `<span class="external-image-blocked">${alt}: external image blocked. ${action}</span>`;
+    }
+    tokens[index].attrSet('src', decision.kind === 'allowed' ? decision.source : imageUri(src));
+    tokens[index].attrSet('referrerpolicy', 'no-referrer');
     tokens[index].attrSet('loading', 'lazy');
-    return image(tokens, index, options, env, renderer);
+    const html = image(tokens, index, options, env, renderer);
+    return decision.kind === 'allowed'
+      ? `${html}<button type="button" class="external-image-action" data-external-image-action="revoke" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Block images from ${md.utils.escapeHtml(decision.origin)}</button>`
+      : html;
   };
   md.renderer.rules.fence = (tokens, index) => {
     const token = tokens[index];
@@ -151,5 +172,10 @@ export function renderMarkdown(source: string, imageUri: (src: string) => string
         : md.utils.escapeHtml(token.content);
     return `<div class="code-block"><div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
-  return { html: frontmatter.html + md.render(frontmatter.body), outline, references };
+  return {
+    html: frontmatter.html + md.render(frontmatter.body),
+    outline,
+    references,
+    externalImageOrigins: [...externalImageOrigins],
+  };
 }
