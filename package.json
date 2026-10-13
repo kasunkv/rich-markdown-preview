@@ -166,7 +166,7 @@
           "type": "string",
           "scope": "resource",
           "default": "",
-          "description": "Base directory for file references starting with /. Empty uses the document workspace folder, or document directory for standalone files. Set a workspace-relative path for a skill package root, or an absolute Windows path."
+          "description": "Base directory for file references starting with /. Empty uses the document workspace folder, or document directory for standalone files. Set a workspace-relative path for a skill package root, or an absolute Windows path. Ignored in Restricted Mode; file references remain inside the workspace."
         },
         "richMarkdownPreview.documentation.include": {
           "scope": "resource",
@@ -313,5 +313,16 @@
     "docs/rich-markdown-preview-light.png",
     "docs/rich-markdown-preview-dark.png",
     "RUNTIME_DEPENDENCIES.json"
-  ]
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Local workspace Markdown and documentation are available. Remote images and navigation outside the workspace are disabled in Restricted Mode.",
+      "restrictedConfigurations": [
+        "richMarkdownPreview.referenceRoot",
+        "markdownLens.referenceRoot",
+        "styledMarkdown.referenceRoot"
+      ]
+    }
+  }
 }

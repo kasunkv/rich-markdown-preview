@@ -169,9 +169,12 @@ export function renderMarkdown(
       const alt = md.utils.escapeHtml(
         extractHeadingText(tokens[index].children ?? []) || tokens[index].content || 'Image',
       );
-      const action = decision.origin
-        ? `<button type="button" class="external-image-action" data-external-image-action="grant" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Allow images from ${md.utils.escapeHtml(decision.origin)}</button>`
-        : '<span>Only valid HTTPS image origins can be allowed.</span>';
+      const action =
+        externalImages.enabled === false
+          ? '<span>Remote images are disabled in Restricted Mode.</span>'
+          : decision.origin
+            ? `<button type="button" class="external-image-action" data-external-image-action="grant" data-external-image-origin="${md.utils.escapeHtml(decision.origin)}">Allow images from ${md.utils.escapeHtml(decision.origin)}</button>`
+            : '<span>Only valid HTTPS image origins can be allowed.</span>';
       return decision.origin
         ? addAction(`<span class="external-image-blocked">${alt}: external image blocked.</span>`, action)
         : `<span class="external-image-blocked">${alt}: external image blocked. ${action}</span>`;

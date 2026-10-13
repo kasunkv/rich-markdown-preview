@@ -62,6 +62,23 @@ async function runTrustTests(options, spawn = require('node:child_process').spaw
   return runPrivacyHost(options,{spawn});
 }
 
+/** Reproduce a previously consented origin only inside a new test profile, never its trust state. */
+async function seedTrustImageGrants(directory) {
+  const resolved=path.resolve(directory), base=path.resolve(__dirname,'..','.test-results','host');
+  const normal=value=>process.platform==='win32'?value.toLowerCase():value;
+  if(normal(path.dirname(resolved))!==normal(base)) throw new Error('Trust image seed requires an isolated host run');
+  const storage=path.join(resolved,'user','User','globalStorage');
+  await fs.mkdir(storage,{recursive:true});
+  const {DatabaseSync}=require('node:sqlite');
+  const database=new DatabaseSync(path.join(storage,'state.vscdb'));
+  try {
+    database.exec('CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)');
+    const origins=['https://trust-preview.invalid','https://saved-trust.invalid'];
+    database.prepare('INSERT OR REPLACE INTO ItemTable (key,value) VALUES (?,?)').run((manifest.publisher+'.'+manifest.name).toLowerCase(),JSON.stringify({'richMarkdownPreview.externalImageOrigins.v1':origins}));
+    return origins;
+  } finally {database.close();}
+}
+
 async function run(options, electron = require('@vscode/test-electron')) {
   const root = path.resolve(__dirname, '..');
   const base = path.join(root, '.test-results', 'host');
@@ -76,6 +93,7 @@ async function run(options, electron = require('@vscode/test-electron')) {
     await fs.writeFile(path.join(workspace, 'node_modules', 'excluded.md'), '# Must not be indexed\n');
     await fs.mkdir(path.join(directory, 'user', 'User'), { recursive: true });
     await fs.writeFile(path.join(directory, 'user', 'User', 'settings.json'), JSON.stringify({ 'telemetry.telemetryLevel': 'off', 'update.mode': 'none', 'extensions.autoCheckUpdates': false, 'extensions.autoUpdate': false, 'workbench.enableExperiments': false, 'workbench.startupEditor': 'none', 'security.workspace.trust.startupPrompt':'never', ...((options.privacy || options.trust) ? {'window.dialogStyle': 'custom'} : {}) }));
+    if(options.trust && options.trust!=='trusted') report.seededImageOrigins=await seedTrustImageGrants(directory);
     const profiles = [`--user-data-dir=${path.join(directory, 'user')}`, `--extensions-dir=${path.join(directory, 'extensions')}`];
     const executable = options.executable ? path.resolve(options.executable) : await electron.downloadAndUnzipVSCode({ version: options.version, cachePath: path.join(root, '.test-results', 'host-downloads') });
     if(options.executable && !(await fs.stat(executable)).isFile()) throw new Error('Existing host executable must be a file');
@@ -114,11 +132,20 @@ async function run(options, electron = require('@vscode/test-electron')) {
     const debugPort = debugServer.address().port;
     await new Promise(resolve => debugServer.close(resolve));
     const launch = options.trust ? (electron.runTrustTests || runTrustTests) : options.privacy ? (electron.runPrivacyHost || runPrivacyHost) : electron.runTests;
-    const exitCode = await launch({ privacyDevelopmentPaths, vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs'), launchArgs: [workspace, ...profiles, `--remote-debugging-port=${debugPort}`, '--remote-debugging-address=127.0.0.1', '--skip-welcome', '--skip-release-notes', ...(options.trust ? [] : ['--disable-workspace-trust']), '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { RICH_MARKDOWN_PREVIEW_TEST_TRUST: options.trust || 'disabled', RICH_MARKDOWN_PREVIEW_PRIVACY_HOST: options.privacy ? '1' : '0', RICH_MARKDOWN_PREVIEW_DEBUG_PORT: String(debugPort), RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
+    const exitCode = await launch({ privacyDevelopmentPaths, vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs'), launchArgs: [workspace, ...profiles, `--remote-debugging-port=${debugPort}`, '--remote-debugging-address=127.0.0.1', '--skip-welcome', '--skip-release-notes', ...(options.trust ? [] : ['--disable-workspace-trust']), '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { NODE_DISABLE_COMPILE_CACHE: '1', RICH_MARKDOWN_PREVIEW_TEST_TRUST: options.trust || 'disabled', RICH_MARKDOWN_PREVIEW_PRIVACY_HOST: options.privacy ? '1' : '0', RICH_MARKDOWN_PREVIEW_DEBUG_PORT: String(debugPort), RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
     report.suite = JSON.parse(await fs.readFile(path.join(directory, 'suite.json'), 'utf8'));
     report.hostVersion = report.suite.hostVersion;
     if (exitCode !== 0 || !report.suite.passed) throw new Error(`Host smoke failed (exit ${exitCode})`);
     if (/^\d/.test(options.version) && report.hostVersion !== options.version) throw new Error(`Expected host ${options.version}, got ${report.hostVersion}`);
+    if(options.trust==='transition') {
+      const {DatabaseSync}=require('node:sqlite');
+      const database=new DatabaseSync(path.join(directory,'user','User','globalStorage','state.vscdb'),{readOnly:true});
+      try {
+        const row=database.prepare('SELECT value FROM ItemTable WHERE key=?').get((manifest.publisher+'.'+manifest.name).toLowerCase());
+        report.persistedImageOrigins=JSON.parse(typeof row.value === 'string' ? row.value : Buffer.from(row.value).toString())['richMarkdownPreview.externalImageOrigins.v1'];
+        if(!report.seededImageOrigins.every(origin=>report.persistedImageOrigins.includes(origin))) throw new Error('Native reallow must preserve prior production permissions');
+      } finally {database.close();}
+    }
     report.passed = true;
   } catch (error) {
     report.error = String(error);
@@ -132,5 +159,5 @@ async function run(options, electron = require('@vscode/test-electron')) {
   return report;
 }
 
-module.exports = { parseArgs, run, windowsCliScript, runPrivacyHost, runTrustTests };
+module.exports = { parseArgs, run, windowsCliScript, runPrivacyHost, runTrustTests, seedTrustImageGrants };
 if (require.main === module) Promise.resolve().then(() => run(parseArgs(process.argv.slice(2)))).catch(error => { console.error(error); process.exitCode = 1; });

@@ -37,6 +37,7 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
     }
   };
   const panel = {
+    dispose() {handlers.dispose?.();},
     visible: true, reveal(column) {revealed++; columns.push(column);},
     onDidChangeViewState: handler => {handlers.view = handler; return disposable;},
     onDidDispose: handler => {handlers.dispose = handler; return disposable;},
@@ -66,7 +67,7 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
     workspace: {
       isTrusted: workspaceTrusted,
       onDidGrantWorkspaceTrust: handler => {trustRegistrations++;trustListeners.add(handler);return {dispose:()=>trustListeners.delete(handler)};},
-      onDidChangeWorkspaceFolders: () => disposable,
+      onDidChangeWorkspaceFolders: handler => {handlers.folders=handler;return disposable;},
       fs: {stat:async () => {if(missingReference) throw new Error('Missing'); return {type:1};}, writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
       openTextDocument: async () => {if(failOpen) throw new Error('File unavailable');return document;},
       getConfiguration: section => section === 'richMarkdownPreview' ? configuration : {get:(key, fallback) => (section === 'markdownLens' ? previous : legacy)[key] ?? fallback},
