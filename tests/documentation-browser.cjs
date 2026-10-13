@@ -40,7 +40,7 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     await page.addScriptTag({path: path.resolve('dist/preview.js')});
     await page.getByRole('heading', {name: 'Documentation Home', exact: true}).waitFor();
     assert.equal(await page.locator('.documentation-cards section').count(), 2);
-    assert.equal(await page.locator('.documentation-file').count(), 6);
+    assert.equal(await page.locator('.documentation-file').count(), 2);
     await page.locator('.documentation-cards').getByRole('button', {name: 'docs/ · 2 documents', exact: true}).click();
     assert.equal(await page.locator('.documentation-file:visible').count(), 2);
     assert.equal(await page.locator('.documentation-file img').count(), 0);
@@ -85,6 +85,57 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     assert.equal(await page.locator('.documentation-sidebar').isVisible(), false);
     await page.getByRole('button', {name: 'Navigation', exact: true}).click();
     checks.push('Home return, empty search, dark theme, narrow layout and navigation toggle');
+    await page.locator('.documentation-cards section').filter({hasText: 'other'}).getByRole('button', {name: 'Read README'}).click();
+    await page.getByRole('button', {name: 'Home', exact: true}).click();
+    assert.ok(await page.evaluate(() => window.readState()?.documents?.['file:///other/README.md']));
+    const largeIndexMs = await page.evaluate(() => {
+      const paths = [
+        ...Array.from({length: 120}, (_, i) => `root-${String(i).padStart(3, '0')}.md`),
+        ...Array.from({length: 120}, (_, i) => `section-${String(i).padStart(3, '0')}/index.md`),
+        ...Array.from({length: 9760}, (_, i) => `docs/bulk/${String(i).padStart(5, '0')}.md`)
+      ];
+      const files = paths.map(path => ({id: `file:///repo/${path}`, root: 'file:///repo', rootName: 'project', path}));
+      window.largeFiles = files;
+      const start = performance.now();
+      window.dispatchEvent(new MessageEvent('message', {data: {
+        type: 'documentation', files, roots: ['file:///repo'], snapshot: 200, truncated: true,
+        loading: false, canBack: false, canForward: false
+      }}));
+      return performance.now() - start;
+    });
+    assert.match(await page.locator('.documentation-notice').textContent(), /result limit reached/);
+    assert.equal(await page.evaluate(() => !!window.readState()?.documents?.['file:///other/README.md']), false);
+    assert.equal(await page.evaluate(() => !!window.readState()?.documents?.['file:///repo/README.md']), true);
+    assert.ok(await page.locator('nav[aria-label="Documentation files"] *').count() < 500);
+    assert.match(await page.locator('.documentation-cards').textContent(), /first 100 root documents/);
+    assert.match(await page.locator('.documentation-cards').textContent(), /first 100 folders/);
+    const rootMore = page.locator('nav[aria-label="Documentation files"] > details > .documentation-children > .documentation-more');
+    await rootMore.click();
+    assert.ok(await page.locator('nav[aria-label="Documentation files"] *').count() < 600);
+    const docs = page.locator('nav[aria-label="Documentation files"] > details > .documentation-children > details').filter({hasText: /^docs/});
+    if (!(await docs.evaluate(node => node.open))) await docs.locator(':scope > summary').click();
+    await docs.locator(':scope > .documentation-children > details > summary').click();
+    const bulk = page.locator('nav[aria-label="Documentation files"] summary').filter({hasText: /^bulk$/}).locator('..');
+    await bulk.locator('.documentation-file').first().waitFor();
+    assert.equal(await bulk.locator('.documentation-file').count(), 100);
+    await bulk.getByRole('button', {name: /Show more \(9660 remaining\)/}).click();
+    assert.equal(await bulk.locator('.documentation-file').count(), 200);
+    assert.equal(await bulk.locator('.documentation-more').evaluate(node => document.activeElement === node), true);
+    await page.getByRole('searchbox', {name: 'Filter documentation files or folders'}).fill('bulk/09759.md');
+    assert.equal(await page.getByRole('button', {name: '09759.md'}).isVisible(), true);
+    await page.getByRole('searchbox', {name: 'Filter documentation files or folders'}).fill('');
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', {data: {
+      type: 'documentation', files: window.largeFiles, roots: ['file:///repo'], snapshot: 200,
+      active: 'file:///repo/docs/bulk/09759.md', truncated: true,
+      loading: false, canBack: false, canForward: false
+    }})));
+    assert.equal(await page.locator('.documentation-file[aria-current="page"]').getAttribute('title'), 'docs/bulk/09759.md');
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', {data: {
+      type: 'documentation', files: [], snapshot: 201, complete: false,
+      loading: false, canBack: false, canForward: false
+    }})));
+    assert.equal(await page.evaluate(() => !!window.readState()?.documents?.['file:///repo/README.md']), true);
+    checks.push(`10k navigation update ${largeIndexMs.toFixed(1)}ms with bounded initial DOM`);
     assert.deepEqual(errors, []);
     await testInfo.attach('checks', {body: JSON.stringify(checks), contentType: 'application/json'});
     console.log(checks.map(check => `PASS ${check}`).join('\n'));

@@ -332,7 +332,7 @@ export function activate(context: vscode.ExtensionContext) {
     };
     setWebviewHtml();
     let index: DocumentationIndex | undefined;
-    let indexStatus: { loading: boolean; error?: string } = { loading: true };
+    let indexStatus: { loading: boolean; error?: string; truncated?: boolean; complete?: boolean } = { loading: true };
     const history: { id?: string; fragment?: string }[] = restored?.metadata?.history.length
       ? [{}, ...restored.metadata.history.map((id) => ({ id }))]
       : [{}];
@@ -365,6 +365,8 @@ export function activate(context: vscode.ExtensionContext) {
       const message: HostMessage = {
         type: 'documentation',
         files,
+        roots: (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.toString()),
+        snapshot: index.snapshot,
         ...indexStatus,
         active: document?.uri.toString(),
         canBack: historyPosition > 0,

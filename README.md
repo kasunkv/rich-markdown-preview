@@ -71,6 +71,8 @@ Use VS Code's Find while a preview is active to search rendered document text. D
 
 Filtering searches file paths, not document contents. Files in excluded folders can still be opened through a document link, but do not appear in the tree. VS Code's filesystem watcher exclusions can prevent automatic updates in some folders; use **Refresh** to rescan them.
 
+Documentation Home indexes up to **10,000 Markdown files** across all workspace folders. The navigation status reports when results are truncated. Opaque provider roots retain a separate 5,000-result safety limit. Narrow `richMarkdownPreview.documentation.include` to browse a larger collection in sections. Large folders load navigation entries in batches as you expand them or choose **Show more**. An incomplete provider scan keeps existing reading positions for documents in current workspace roots.
+
 ## Restore after a window reload
 
 Single-file previews and Documentation Home restore their current workspace document, recent reading position, table settings and disclosures after **Developer: Reload Window**. Documentation Home retains up to 20 nearby document visits for Back/Forward navigation. Reading and session context share a 64 KiB saved-state limit, so older detail can be discarded.

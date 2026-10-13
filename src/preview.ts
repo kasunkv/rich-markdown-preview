@@ -14,7 +14,13 @@ import { previewStyles } from './styles';
 import { enhanceTables, type TableState } from './tables';
 import { documentationView } from './documentation-view';
 import { numericPreferenceRanges } from './preference-ranges';
-import { boundReadingState, restoreReadingState, type PersistedReadingState, type ReadingState } from './reading-state';
+import {
+  boundReadingState,
+  documentInWorkspaceRoots,
+  restoreReadingState,
+  type PersistedReadingState,
+  type ReadingState,
+} from './reading-state';
 type InteractionSelection = [number, number, 'forward' | 'backward' | 'none'];
 declare function acquireVsCodeApi(): {
   postMessage(message: WebviewMessage): void;
@@ -444,9 +450,27 @@ window.addEventListener('message', (event) => {
   }
   if (message.type === 'documentation') {
     if (!message.loading && !message.error) {
-      const documents = new Set(message.files.map((file) => file.id));
-      documents.add('home');
-      vscode.setState(boundReadingState(savedState, documents));
+      if (!message.truncated && message.complete !== false) {
+        const documents = new Set(message.files.map((file) => file.id));
+        documents.add('home');
+        vscode.setState(boundReadingState(savedState, documents));
+      } else if (message.roots) {
+        const documents = new Set(
+          Object.keys(savedState.documents).filter((id) => documentInWorkspaceRoots(id, message.roots!)),
+        );
+        documents.add('home');
+        const active = savedState.documentId;
+        vscode.setState(
+          boundReadingState(
+            active && !documentInWorkspaceRoots(active, message.roots)
+              ? { ...savedState, documentId: 'home' }
+              : savedState,
+            documents,
+          ),
+        );
+      } else {
+        vscode.setState(boundReadingState(savedState));
+      }
     }
     documentation.receive(message);
     return;

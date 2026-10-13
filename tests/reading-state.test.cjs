@@ -19,9 +19,22 @@ function load(name) {
   mod._compile(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, filename);
   return mod.exports;
 }
-const { boundReadingState, restoreReadingState, readingStateLimits } = load('reading-state');
+const { boundReadingState, documentInWorkspaceRoots, restoreReadingState, readingStateLimits } = load('reading-state');
 const size = state => Buffer.byteLength(JSON.stringify(state), 'utf8');
 const saved = state => JSON.parse(JSON.stringify(state));
+
+test('partial documentation roots preserve omitted visits but reject removed or sibling roots', () => {
+  const roots = ['mem://alpha/docs', 'file:///repo'];
+  assert.equal(documentInWorkspaceRoots('mem://alpha/docs/omitted.md', roots), true);
+  assert.equal(documentInWorkspaceRoots('mem://beta/docs/omitted.md', roots), false);
+  assert.equal(documentInWorkspaceRoots('file:///repo2/omitted.md', roots), false);
+  const state = boundReadingState({readingStateVersion:1, documentId:'home',
+    documents:{'mem://alpha/docs/omitted.md':{scroll:20},'mem://beta/docs/removed.md':{scroll:30}},
+    documentOrder:['mem://alpha/docs/omitted.md','mem://beta/docs/removed.md']},
+    new Set(['home','mem://alpha/docs/omitted.md']));
+  assert.equal(state.documents['mem://alpha/docs/omitted.md'].scroll,20);
+  assert.equal(state.documents['mem://beta/docs/removed.md'],undefined);
+});
 
 test('a long visit sequence retains the current and most recent useful positions within the budget', () => {
   const documents = Object.fromEntries(Array.from({ length: 1200 }, (_, index) => [`file:///${index}.md`, { scroll: index * 10 }]));

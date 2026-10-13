@@ -99,9 +99,10 @@ test('latest selection and scan win races; late work cannot update disposed pane
   const originalSearch = h.vscode.workspace.findFiles; const scans = [];
   h.vscode.workspace.findFiles = (...args) => new Promise(resolve => scans.push(() => originalSearch(...args).then(resolve)));
   const old = h.action('refresh'); const next = h.action('refresh');
-  await Promise.all(scans.slice(2).map(resolve => resolve())); await next;
+  scans[1](); await new Promise(setImmediate);
+  scans[2](); await next;
   const messages = h.messages.length;
-  await Promise.all(scans.slice(0, 2).map(resolve => resolve())); await old; assert.equal(h.messages.length, messages);
+  scans[0](); await old; assert.equal(h.messages.length, messages);
   const pending = h.action('open', '/repo/README.md'); h.panels[0].dispose(); finish(); await pending; assert.equal(h.messages.length, messages);
 });
 
@@ -198,4 +199,118 @@ test('pending selected-document stat cannot navigate a newer or disposed preview
 });
 test('navigation delivery completion is ignored after disposal',async()=>{
   const h=host();await h.open();const completions=[];h.panels[0].webview.postMessage=()=>new Promise(resolve=>completions.push(resolve));const refresh=h.action('refresh');await refresh;h.panels[0].dispose();completions.forEach(resolve=>resolve(true));await new Promise(setImmediate);await h.panels[0].message({type:'ready'});h.configuration.fire({affectsConfiguration:()=>true});assert.ok(h.watchers.every(w=>w.disposed));
+});
+
+test('dependency event storms skip scans but folder rename, deletion and hidden docs refresh', async () => {
+  const h = host(); await h.open();
+  const initial = h.queries.length;
+  for (let i = 0; i < 300; i++) h.watchers[0].create(h.uri(`/repo/node_modules/pkg-${i}/index.js`));
+  h.watchers[0].create(h.uri('/repo/src/app.ts'));
+  await new Promise(resolve => setTimeout(resolve, 400));
+  assert.equal(h.queries.length, initial);
+
+  h.files.delete('/repo/reports/2026/october/summary.MD');
+  h.files.set('/repo/reports/2026/november/summary.MD', '# Moved');
+  h.watchers[0].remove(h.uri('/repo/reports/2026/october'));
+  h.watchers[0].create(h.uri('/repo/reports/2026/november'));
+  await new Promise(resolve => setTimeout(resolve, 400));
+  assert.ok(h.latest('documentation').files.some(file => file.path === 'reports/2026/november/summary.MD'));
+  assert.ok(!h.latest('documentation').files.some(file => file.path === 'reports/2026/october/summary.MD'));
+
+  h.files.set('/repo/.claude/skills/new/SKILL.md', '# Hidden');
+  h.watchers[0].create(h.uri('/repo/.claude/skills/new'));
+  await new Promise(resolve => setTimeout(resolve, 400));
+  assert.ok(h.latest('documentation').files.some(file => file.path === '.claude/skills/new/SKILL.md'));
+  h.settings['documentation.exclude'] = '';
+  h.files.set('/repo/node_modules/pkg/configured.md', '# Configured');
+  h.watchers[0].create(h.uri('/repo/node_modules/pkg/configured.md'));
+  await new Promise(resolve => setTimeout(resolve, 400));
+  assert.ok(h.latest('documentation').files.some(file => file.path === 'node_modules/pkg/configured.md'));
+});
+
+test('10k result cap marks truncation and bounds provider requests across roots', async () => {
+  const h = host();
+  for (let i = 0; i < 10020; i++) h.files.set(`/repo/docs/bulk/${String(i).padStart(5, '0')}.md`, '# Bulk');
+  const started = performance.now();
+  await h.open();
+  const elapsed = performance.now() - started;
+  const result = h.latest('documentation');
+  assert.equal(result.files.length, 10000);
+  assert.equal(result.truncated, true);
+  assert.ok(h.queries.every(query => query.max <= 10001));
+  assert.ok(h.queries.some(query => query.max === 1));
+  assert.equal(new Set(result.files.map(file => file.id)).size, result.files.length);
+  console.log(`10k-index-fixture=${elapsed.toFixed(1)}ms`);
+});
+
+test('virtual roots with identical paths keep authority and relative paths isolated', async () => {
+  const h = host();
+  const uri = (authority, path) => ({
+    scheme: 'vscode-remote', authority, path, fsPath: path,
+    toString: () => `vscode-remote://${authority}${path}`
+  });
+  h.vscode.workspace.workspaceFolders = [
+    {name: 'alpha', uri: uri('alpha', '/docs')},
+    {name: 'beta', uri: uri('beta', '/docs')}
+  ];
+  h.vscode.workspace.findFiles = async pattern => [
+    uri(pattern.baseUri.authority, '/docs/nested/guide.md'),
+    uri(pattern.baseUri.authority === 'alpha' ? 'beta' : 'alpha', '/docs/foreign.md'),
+    uri(pattern.baseUri.authority, '/docs-elsewhere/escape.md')
+  ];
+  await h.open();
+  const files = h.latest('documentation').files;
+  assert.equal(files.length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(files.map(file => [file.rootName, file.path]))), [
+    ['alpha', 'nested/guide.md'], ['beta', 'nested/guide.md']
+  ]);
+  assert.notEqual(files[0].id, files[1].id);
+});
+
+test('opaque provider index uses bounded scanner, excludes symlinks, and clears removed roots', async () => {
+  const h = host();
+  const uri = path => ({scheme:'memory', authority:'fixture', path, fsPath:path,
+    toString:() => `memory://fixture${path}`});
+  const originalJoin = h.vscode.Uri.joinPath;
+  h.vscode.Uri.joinPath = (base, ...parts) => base.scheme === 'memory'
+    ? uri(require('node:path').posix.join(base.path, ...parts)) : originalJoin(base, ...parts);
+  h.vscode.workspace.workspaceFolders = [{name:'virtual', uri:uri('/docs')}];
+  h.vscode.workspace.fs.stat = async target => ({type: target.path === '/docs' ? 2 : 1});
+  const reads = [];
+  h.vscode.workspace.fs.readDirectory = async target => {
+    reads.push(target.path);
+    if (target.path === '/docs') return [['bulk',2],['node_modules',2],['linked.md',65],['.hidden',2]];
+    if (target.path === '/docs/.hidden') return [['SKILL.md',1]];
+    if (target.path === '/docs/bulk') return Array.from({length:5100},(_,i)=>[`${String(i).padStart(5,'0')}.md`,1]);
+    throw Error('Excluded folder must not be read');
+  };
+  h.vscode.workspace.findFiles = async () => {throw Error('Opaque provider must use shared scanner');};
+  await h.open();
+  const snapshot = h.latest('documentation');
+  assert.equal(snapshot.files.length,5000);
+  assert.equal(snapshot.truncated,true);
+  assert.equal(snapshot.complete,false);
+  assert.ok(snapshot.files.every(file => file.root === 'memory://fixture/docs'));
+  assert.ok(!reads.includes('/docs/node_modules'));
+  assert.ok(!snapshot.files.some(file => file.path === 'linked.md'));
+  h.vscode.workspace.workspaceFolders = [];
+  h.workspaceFolders.fire();
+  await new Promise(setImmediate);
+  assert.equal(h.latest('documentation').files.length,0);
+  assert.equal(h.latest('documentation').complete,true);
+  assert.equal(h.latest('documentation').roots.length,0);
+});
+
+test('late directory stat from a removed root cannot start another scan', async () => {
+  const h=host();await h.open();
+  let completeStat;
+  h.vscode.workspace.fs.stat=()=>new Promise(resolve=>{completeStat=resolve;});
+  h.watchers[0].create(h.uri('/repo/new-folder'));
+  h.vscode.workspace.workspaceFolders=[h.vscode.workspace.workspaceFolders[1]];
+  h.workspaceFolders.fire();
+  await new Promise(setImmediate);
+  const afterRemoval=h.queries.length;
+  completeStat({type:2});
+  await new Promise(resolve=>setTimeout(resolve,400));
+  assert.equal(h.queries.length,afterRemoval);
 });
