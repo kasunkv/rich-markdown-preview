@@ -343,3 +343,40 @@ test('concrete production-style image CSP blocks an injected ungranted origin', 
   assert.equal(await frame.locator('img').nth(1).evaluate(img => img.naturalWidth), 0);
   assert.deepEqual(requests, ['https://privacy.example/allowed.svg']);
 });
+
+test('permission HTML reset preserves bounded reading focus and respects intentional focus changes', async ({ page }) => {
+  const directory = fs.mkdtempSync(path.join(path.resolve('.test-results'), 'privacy-focus-'));
+  const fixture = path.join(directory, 'focus.md');
+  fs.writeFileSync(fixture, '---\nname: private\n---\n# Privacy\n![Remote](https://privacy.example/image.svg)\n\n| Name | Value |\n| --- | --- |\n| Alpha | 1 |\n| Beta | 2 |');
+  const server = await require('./preview-server.cjs').startPreviewServer({fixture});
+  try {
+    await page.goto(server.url);
+    const filter = page.locator('.table-search');
+    await filter.fill('Beta');
+    await page.locator('.frontmatter > summary').click();
+    await filter.focus();
+    await filter.evaluate(input => input.setSelectionRange(1, 3, 'backward'));
+    await page.locator('[data-external-image-action="grant"]').evaluate(button => button.click());
+    assert.equal(await page.evaluate(() => window.externalImageActions.at(-1).type), 'grantExternalImageOrigin');
+    const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('preview-state')));
+    assert.ok(saved.permissionFocus.key.length <= 8192);
+    assert.deepEqual(saved.permissionFocus.selection, [1, 3, 'backward']);
+    await page.reload();
+    await page.locator('.table-search').waitFor();
+    await page.waitForFunction(() => document.activeElement?.classList.contains('table-search'));
+    assert.equal(await page.locator('.table-search').inputValue(), 'Beta');
+    assert.deepEqual(await page.locator('.table-search').evaluate(input => [input.selectionStart, input.selectionEnd, input.selectionDirection]), [1, 3, 'backward']);
+    assert.equal(await page.locator('.frontmatter').getAttribute('open'), null);
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('preview-state')).permissionFocus), undefined);
+    await page.locator('[data-external-image-action="grant"]').click();
+    await page.locator('#rmp-ui-style').focus();
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('preview-state')).permissionFocus), undefined);
+    await page.reload();
+    await page.locator('.table-search').waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('table-search')), false);
+    await page.locator('.table-search').evaluate(input => { input.dataset.readingKey = 'x'.repeat(8193); input.focus(); });
+    await page.locator('[data-external-image-action="grant"]').evaluate(button => button.click());
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('preview-state')).permissionFocus), undefined);
+  } finally { await server.close(); fs.rmSync(fixture); fs.rmdirSync(directory); }
+});
+

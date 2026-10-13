@@ -8,7 +8,7 @@ export function externalImageOrigin(value: unknown): string | undefined {
   if (!authority || authority.includes('@')) return;
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return;
+
     const hostname = url.hostname;
     if (
       !hostname.startsWith('[') &&
