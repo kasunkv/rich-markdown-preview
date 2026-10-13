@@ -119,3 +119,56 @@ test('direct trust launcher never inherits the test-electron trust disabling fla
   await assert.rejects(runTrustTests({...options,launchArgs:['--disable-workspace-trust']},spawn),/retain Workspace Trust/);
   await assert.rejects(runTrustTests(options,()=>{const child = new EventEmitter(); child.kill=()=>{};setImmediate(()=>child.emit('error',Error('Failed to launch')));return child;}),/Failed to launch/);
 });
+
+test('normal privacy host fixture keeps dialogs and all storage roots in isolated runs', async () => {
+  const directories = [];
+  const electron = {
+    downloadAndUnzipVSCode: async () => '/immutable/cache/Code.exe',
+    runPrivacyHost: async options => {
+      const directory = path.dirname(options.extensionTestsEnv.RICH_MARKDOWN_PREVIEW_TEST_RESULT); directories.push(directory);
+      assert.equal(options.extensionTestsEnv.RICH_MARKDOWN_PREVIEW_PRIVACY_HOST,'1');
+      const harness = options.privacyDevelopmentPaths.at(-1);
+      const manifest = JSON.parse(await fs.readFile(path.join(harness,'package.json'),'utf8'));
+      assert.deepEqual(manifest.activationEvents,['onStartupFinished']);
+      const source = await fs.readFile(path.join(harness,'extension.cjs'),'utf8');
+      assert.match(source,/workbench.action.quit/); assert.doesNotMatch(source,/extensionTestsPath/);
+      const settings = JSON.parse(await fs.readFile(path.join(directory,'user','User','settings.json'),'utf8'));
+      assert.equal(settings['window.dialogStyle'],'custom');
+      await fs.writeFile(options.extensionTestsEnv.RICH_MARKDOWN_PREVIEW_TEST_RESULT,JSON.stringify({passed:true,hostVersion:'1.95.0'}));
+      return 0;
+    },
+  };
+  try {
+    const result = await run(parseArgs(['--privacy']),electron);
+    assert.equal(result.privacyHost,true); assert.match(result.dialogFixture,/normal host/);
+    for(const root of Object.values(result.storageRoots)) assert.equal(path.dirname(root),directories[0]);
+  } finally {
+    for(const directory of directories) {
+      assert.equal(path.dirname(directory),path.resolve('.test-results','host'));
+      await fs.rm(directory,{recursive:true,force:true});
+    }
+  }
+});
+
+test('normal privacy launcher omits test mode and bounds cleanup to its spawned process', async () => {
+  const {EventEmitter} = require('node:events');
+  const {PassThrough} = require('node:stream');
+  const {runPrivacyHost} = require('../scripts/vscode-host.cjs');
+  const directory = path.resolve('.test-results','host','fixture-only');
+  const options = {vscodeExecutablePath:'/immutable/Code.exe',privacyDevelopmentPaths:['/extension','/fixture/harness'],launchArgs:[path.join(directory,'workspace'),'--user-data-dir='+path.join(directory,'user'),'--extensions-dir='+path.join(directory,'extensions')],extensionTestsEnv:{RICH_MARKDOWN_PREVIEW_TEST_RESULT:path.join(directory,'suite.json')}};
+  let kills=0;
+  const child = () => {const result=new EventEmitter();result.stdout=new PassThrough();result.stderr=new PassThrough();result.kill=()=>{kills++;result.emit('exit',0);};return result;};
+  await assert.rejects(runPrivacyHost({...options,launchArgs:[]}),/isolated/);
+  await assert.rejects(runPrivacyHost({...options,launchArgs:[...options.launchArgs,'--extensionTestsPath=/bad']}),/normal modal/);
+  const launch = runPrivacyHost(options,{spawn:(executable,args,config)=>{
+    assert.equal(executable,options.vscodeExecutablePath);assert.equal(config.windowsHide,true);
+    assert.ok(args.includes('--shared-data-dir='+path.join(directory,'shared')));
+    assert.ok(args.includes('--extensionDevelopmentPath=/fixture/harness'));
+    assert.equal(args.some(arg=>arg.startsWith('--extensionTestsPath')),false);
+    const result=child();setImmediate(()=>result.emit('exit',0));return result;
+  }});
+  assert.equal(await launch,0);assert.equal(kills,0);
+  await assert.rejects(runPrivacyHost(options,{timeoutMs:5,spawn:()=>child()}),/timed out/);
+  assert.equal(kills,1);
+  await assert.rejects(runPrivacyHost(options,{spawn:()=>{const result=child();setImmediate(()=>result.emit('error',Error('spawn failed')));return result;}}),/spawn failed/);
+});

@@ -69,3 +69,19 @@ test('limits cover expansion and browser collections without permissive fallback
 test('CSV incremental row/column/cell budgets reject delimiter-heavy inputs', () => {
   for (const input of ['""\r\n'.repeat(messageLimits.csvRows+1), Array(messageLimits.csvColumns+1).fill('""').join(',')+'\r\n', (Array(1000).fill('""').join(',')+'\r\n').repeat(1001)]) { assert.ok(input.length <= messageLimits.text); assert.equal(normalizeCSV(input),undefined); assert.equal(valid(message({type:'tableExport',text:input,filename:'table-1.csv'})),false); }
 });
+
+test('image permission command origins are exact concrete bounded HTTPS origins', () => {
+  for (const type of ['grantExternalImageOrigin','revokeExternalImageOrigin']) {
+    assert.equal(valid(message({type,origin:'https://example.com'})),true);
+    for (const origin of [undefined,3,'https://example.com/','HTTPS://example.com','http://example.com','https://*','https://*.example.com','https://@example.com','https://example.com;','https://example.com\n'])
+      assert.equal(valid(message({type,origin})),false);
+    assert.equal(valid({...message({type,origin:'https://example.com'}),extra:true}),false);
+  }
+});
+
+test('permission reset focus state is bounded and validates caret selection before restore', () => {
+  for (const focus of [{key:'reading-key'},{key:'reading-key',documentId:'file:///a',selection:[0,3,'backward']},{key:'reading-key',selection:[0,0,'none']},{key:'reading-key',selection:[1,3,'forward']}])
+    assert.equal(restored({permissionFocus:focus}),true);
+  for (const focus of [null,[],{key:''},{key:'x'.repeat(8193)},{key:'a',documentId:''},{key:'a',extra:1},{key:'a',selection:0},{key:'a',selection:[]},{key:'a',selection:[0.5,3,'forward']},{key:'a',selection:[0,3.5,'forward']},{key:'a',selection:[-1,3,'forward']},{key:'a',selection:[3,1,'forward']},{key:'a',selection:[0,3,'invalid']}])
+    assert.equal(restored({permissionFocus:focus}),false);
+});
