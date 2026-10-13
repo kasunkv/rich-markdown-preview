@@ -126,7 +126,11 @@ function findContentAnchor(fragment: string, internal = false): HTMLElement | un
   return targets.find((target) => target.id === id);
 }
 function scrollToHeading(fragment: string, internal = false) {
-  findContentAnchor(fragment, internal)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const target = findContentAnchor(fragment, internal);
+  if (target) {
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    target.scrollIntoView({ behavior, block: 'start' });
+  }
 }
 async function diagrams(version: number) {
   const dark = isDark();

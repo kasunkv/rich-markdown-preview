@@ -157,14 +157,15 @@ test('content anchors isolate UI, footnotes, duplicates and encoded fragments', 
   await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences});
   await page.evaluate(() => {
     window.anchorCalls = [];
-    Element.prototype.scrollIntoView = function() { window.anchorCalls.push(this.id); };
+    Element.prototype.scrollIntoView = function(options) { window.anchorCalls.push({id:this.id, options}); };
   });
+  await page.emulateMedia({reducedMotion:'reduce'});
   const ids = await page.locator('[id]').evaluateAll(nodes => nodes.map(node => node.id));
   assert.equal(new Set(ids).size, ids.length);
   for (let index = 0; index < result.outline.length; index++) {
     const item = result.outline[index];
     await page.locator('#rmp-ui-outline a').nth(index).click();
-    assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), item.id);
+    assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id:item.id, options:{behavior:'auto', block:'start'}});
     await page.locator('#rmp-ui-content').evaluate((content, fragment) => {
       const link = document.createElement('a');
       link.href = '#' + encodeURIComponent(fragment);
@@ -173,12 +174,12 @@ test('content anchors isolate UI, footnotes, duplicates and encoded fragments', 
       link.click();
       link.remove();
     }, item.fragment);
-    assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), item.id);
+    assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id:item.id, options:{behavior:'auto', block:'start'}});
   }
   await page.locator('.footnote-ref a').nth(1).click();
-  assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), 'rmp-footnote-fn1');
+  assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id:'rmp-footnote-fn1', options:{behavior:'auto', block:'start'}});
   await page.locator('.footnote-backref').nth(1).click();
-  assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), 'rmp-footnote-fnref1:1');
+  assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id:'rmp-footnote-fnref1:1', options:{behavior:'auto', block:'start'}});
   const before = await page.evaluate(() => window.anchorCalls.length);
   for (const fragment of ['missing-anchor','rmp-ui-announcement','%E0%A4%A']) {
     await page.locator('#rmp-ui-content').evaluate((content, fragment) => {
@@ -189,7 +190,15 @@ test('content anchors isolate UI, footnotes, duplicates and encoded fragments', 
   }
   assert.equal(await page.evaluate(() => window.anchorCalls.length), before);
   await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences,fragment:encodeURIComponent('café-日本語-1')});
-  await page.waitForFunction(() => window.anchorCalls.at(-1) === 'rmp-heading-café-日本語-1');
+  await page.waitForFunction(() => window.anchorCalls.at(-1).id === 'rmp-heading-café-日本語-1');
+  assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id:'rmp-heading-café-日本語-1', options:{behavior:'auto', block:'start'}});
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.locator('#rmp-ui-outline a').first().click();
+  assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id:result.outline[0].id, options:{behavior:'smooth', block:'start'}});
+  await page.locator('#rmp-ui-content').evaluate(content => {
+    const link = document.createElement('a'); link.href = '#content'; content.append(link); link.click(); link.remove();
+  });
+  assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id:'rmp-heading-content', options:{behavior:'smooth', block:'start'}});
   const footnotes = renderMarkdown('Note[^a] again[^a].\n\n[^a]: Note text.');
   await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...footnotes,preferences});
   for (const [fragment, id] of [['fn1','rmp-footnote-fn1'], ['fnref1:1','rmp-footnote-fnref1:1']]) {
@@ -198,6 +207,6 @@ test('content anchors isolate UI, footnotes, duplicates and encoded fragments', 
       link.href = '#' + encodeURIComponent(fragment);
       content.append(link); link.click(); link.remove();
     }, fragment);
-    assert.equal(await page.evaluate(() => window.anchorCalls.at(-1)), id);
+    assert.deepEqual(await page.evaluate(() => window.anchorCalls.at(-1)), {id, options:{behavior:'smooth', block:'start'}});
   }
 });
