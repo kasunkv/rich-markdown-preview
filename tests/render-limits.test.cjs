@@ -59,3 +59,16 @@ test('internal diagram kernel URLs reject direct and supported escape spellings 
   }
   assert.match(renderMarkdown('```mermaid\nflowchart TD\nA[50% ordinary graph] --> B[Safe]\n```').html,/mermaid-source/);
 });
+
+test('diagram hostname restriction follows WHATWG UTS46 canonicalization', () => {
+  const wide=Array.from('vscode',character=>String.fromCharCode(character.charCodeAt(0)+0xfee0)).join('');
+  const hosts=['file+.'+wide+'-resource.vscode-cdn.net','file+.vscode-resource'+String.fromCharCode(0x3002)+'vscode-cdn.net','file+.vs'+String.fromCharCode(0xad)+'code-resource.vscode-cdn.net','file+.vs'+String.fromCharCode(0xfeff)+'code-resource.vscode-cdn.net','file+.vs'+String.fromCharCode(0x200b)+'code-resource.vscode-cdn.net'];
+  for(const host of hosts) for(const prefix of ['https://','https:/','https:','https:///','//']) {
+    assert.equal(new URL((prefix==='//'?'https:':'')+prefix+host+'/fixture/image.svg').hostname,'file+.vscode-resource.vscode-cdn.net');
+    const result=renderMarkdown('```mermaid\nflowchart TD\nA@{ img: "'+prefix+host+'/fixture/image.svg", label: "Valid image", h: 20 } --> B[Safe]\n```');
+    assert.match(result.html,/unsupported internal preview resource/);assert.doesNotMatch(result.html,/mermaid-source/);
+  }
+  for(const prefix of ['https://','https:/','https:','https:///']) assert.match(renderMarkdown('```mermaid\nflowchart TD\nA@{ img: "'+prefix+'example.test/image.png", h: 20 } --> B[Safe]\n```').html,/mermaid-source/);
+  assert.match(renderMarkdown('```mermaid\nflowchart TD\nA@{ img: "//example.test/image.png", h: 20 }\n```').html,/mermaid-source/);
+  assert.match(renderMarkdown('```mermaid\nflowchart TD\nA@{ img: "https://%FF.test/image.png", h: 20 }\n```').html,/unsupported internal preview resource/);
+});

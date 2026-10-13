@@ -24,6 +24,15 @@ export function hasInternalDiagramResource(source: string, unescape: (value: str
       .replace(/[\u0000-\u001f\u007f]/g, '');
     try {
       normalized = normalized.replace(/(?:%[a-f\d]{2})+/gi, (chunk) => decodeURIComponent(chunk));
+      // URL applies the browser's UTS46 hostname mapping (width, dots and ignorables).
+      // Inspect authority candidates rather than treating author spelling as a hostname.
+      normalized = normalized.replace(
+        /(?:https?:[^\x00-\x20"'<>()[\]{}]+|\/\/[^\x00-\x20"'<>()[\]{}]+)/gi,
+        (candidate) => {
+          const url = new URL(candidate.startsWith('//') ? `https:${candidate}` : candidate);
+          return `${url.protocol}//${url.hostname}${url.pathname}${url.search}${url.hash}`;
+        },
+      );
     } catch {
       return true;
     }
