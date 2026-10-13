@@ -21,6 +21,10 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
       const result = renderMarkdown(source);
       await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})), {type:'render',...result,preferences});
     };
+    await render('# ![Architecture](diagram.png)\n\nBuild **systems** and [guide](guide.md)\ncontinued\n---');
+    assert.deepEqual(await page.locator('#rmp-ui-outline a').allTextContents(), ['Architecture', 'Build systems and guide continued']);
+    assert.equal(await page.locator('#rmp-ui-outline a').first().getAttribute('href'), '#rmp-heading-architecture');
+    checks.push('Accessible labels and stable navigation for image-only and multiline headings');
     await page.evaluate(() => {
       window.referenceClicks = [];
     });

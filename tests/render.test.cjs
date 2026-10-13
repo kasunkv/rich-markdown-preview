@@ -28,6 +28,25 @@ test('heading suffixes do not collide with literal heading names', () => {
   const result = renderMarkdown('# Hello\n# Hello-1\n# Hello');
   assert.deepEqual(result.outline.map(h => h.fragment), ['hello', 'hello-1', 'hello-2']);
 });
+test('outline labels include recursive image alt text, formatted content, and line breaks while retaining anchor slugs', () => {
+  const result = renderMarkdown('# ![Architecture](diagram.png)\n\n**Build** ![system *map*](map.png) [guide][docs] `v2`\ncontinues 🚀 onward\n---\n\n[docs]: /guide');
+  assert.equal(result.outline[0].text, 'Architecture');
+  assert.equal(result.outline[0].fragment, 'architecture');
+  assert.equal(result.outline[1].text, 'Build system map guide v2 continues 🚀 onward');
+  assert.equal(result.outline[1].fragment, 'build-system-map-guide-v2-continues-onward');
+  assert.equal(result.outline[1].id, 'rmp-heading-build-system-map-guide-v2-continues-onward');
+  assert.match(result.html, /<h1 id="rmp-heading-architecture" data-md-anchor="architecture"><img[^>]+alt="Architecture"/);
+});
+test('escaped and Unicode heading text remains readable and unnamed headings get a stable label without changing fallback anchors', () => {
+  const source = '# Café \\*literal 日本語\n# ![](blank.png)\n# ![](blank.png)';
+  const result = renderMarkdown(source);
+  assert.equal(result.outline[0].text, 'Café *literal 日本語');
+  assert.deepEqual(result.outline.slice(1).map(({ text, fragment }) => [text, fragment]), [
+    ['Untitled section', 'section'],
+    ['Untitled section', 'section-1'],
+  ]);
+  assert.deepEqual(renderMarkdown(source), result);
+});
 test('task lists render accessible read-only checked and unchecked controls', () => {
   const { html } = renderMarkdown('- [ ] Pending **task**\n- [x] Done\n  - [X] Nested done\n\n- [ ] Loose task\n\n  A second paragraph.');
   assert.equal((html.match(/type="checkbox"/g) || []).length, 4);

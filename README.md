@@ -37,7 +37,7 @@ You can also right-click a Markdown file in **Explorer**, use the **Open in Rich
 - **Code highlighting:** Language labels, readable syntax colors, and a Copy button on fenced code blocks.
 - **Mermaid diagrams and charts:** Rendered locally with colors coordinated to your reading style.
 - **Interactive tables:** Sort columns, search rows, choose spacing, and copy or export the visible data as CSV.
-- **Heading navigation:** Jump to sections using the outline or heading links.
+- **Heading navigation:** Jump to sections using the outline or heading links. Outline labels include image alt text and provide a readable fallback for headings without accessible text.
 - **Extended Markdown:** Task lists, emoji shortcodes, footnotes, definition lists, highlighted text, subscript, superscript, and GitHub-style callouts.
 - **File references:** Click includes, imports, embeds, and Markdown file links to open their source in VS Code. Relationship icons and syntax tooltips make dependencies easy to identify.
 - **Links and images:** Local file links open in VS Code. Relative images load from the document directory; HTTPS images are supported.
