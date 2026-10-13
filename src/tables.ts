@@ -73,7 +73,8 @@ export function enhanceTables(
     const occurrence = identities.get(identity) ?? 0;
     identities.set(identity, occurrence + 1);
     const key = JSON.stringify([section, labels, occurrence]);
-    const previous = saved[key];
+    // Consume the original positional format once; subsequent saves use semantic keys.
+    const previous = saved[key] ?? saved[JSON.stringify([index, labels])];
     const settings: TablePreferences = {
       query: typeof previous?.query === 'string' ? previous.query : '',
       column:

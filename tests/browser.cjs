@@ -117,6 +117,10 @@ for (const documentationHome of [false, true]) {
   test(`reading interactions survive refresh (${documentationHome ? 'documentation' : 'single file'})`, async ({page, previewServer}) => {
     await page.goto(previewServer.url);
     await page.locator('.table-search').first().waitFor();
+    const labels = await page.locator('.table-panel').first().locator('.table-sort > span:first-child').allTextContents();
+    await page.evaluate(labels => sessionStorage.setItem('preview-state', JSON.stringify({tables:{[JSON.stringify([0, labels])]:{query:'legacy-migration',column:0,direction:'ascending',density:'compact'}}})), labels);
+    await page.reload();
+    assert.equal(await page.locator('.table-search').first().inputValue(), 'legacy-migration');
     const preferences = {style:'documentation', appearance:'light', contentWidth:900, fontSize:16, lineHeight:1.7, wrapCode:false};
     const source = '---\ntitle: Reading\n---\n# Inventory\n\n| Name | Value |\n| --- | --- |\n| Alpha | 2 |\n| Alphabet | 1 |\n| Beta | 3 |';
     const render = async (text = source, documentId = 'file:///reading.md', fragment) => page.evaluate(message => window.dispatchEvent(new MessageEvent('message', {data:message})), {type:'render', ...renderMarkdown(text), preferences, documentationHome, documentId, fragment});
@@ -158,15 +162,27 @@ for (const documentationHome of [false, true]) {
     await page.locator('.frontmatter > summary').focus();
     await render();
     assert.equal(await page.locator('.frontmatter > summary').evaluate(el => document.activeElement === el), true);
+    for (const selector of ['.table-density', '.table-sort', '.table-copy']) {
+      await page.locator(selector).first().focus();
+      await render();
+      assert.equal(await page.locator(selector).first().evaluate(el => document.activeElement === el), true);
+    }
+    await search.focus();
+    await render(source + '\n\n```mermaid\ngraph TD; A-->B;\n```');
+    await page.getByRole('combobox', {name:'Style', exact:true}).focus();
+    await page.locator('.mermaid-result').waitFor();
+    assert.equal(await page.getByRole('combobox', {name:'Style', exact:true}).evaluate(el => document.activeElement === el), true);
     await search.focus();
     await render(source, 'file:///reading.md', 'inventory');
     assert.equal(await search.evaluate(input => document.activeElement === input), false);
+    await page.locator('.frontmatter > summary').click();
     await render(source, 'file:///other.md');
     assert.equal(await search.inputValue(), '');
     assert.equal(await page.locator('.frontmatter').evaluate(el => el.open), true);
     assert.equal(await page.locator('.table-panel').getAttribute('data-density'), 'comfortable');
     await render(source, 'file:///reading.md');
     assert.equal(await search.inputValue(), 'Alpha');
+    assert.equal(await page.locator('.frontmatter').evaluate(el => el.open), false);
     assert.equal(await search.evaluate(input => document.activeElement === input), false);
   });
 }
