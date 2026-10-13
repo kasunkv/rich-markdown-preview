@@ -95,6 +95,19 @@ test('preview toolbar settings persist with resource scope', async () => {
   assert.ok(host.writes.every(write => write.target === 3));
 });
 
+test('documented numeric preference examples round-trip exactly through the host handler', async () => {
+  const host = previewHost();
+  await host.handlers.command();
+  for (const [key, value] of [['fontSize',17], ['lineHeight',1.8], ['contentWidth',901]]) {
+    await host.handlers.message({type:'preference',key,value});
+    await host.drain();
+    assert.equal(host.saved[key],value);
+    assert.equal(host.messages.at(-1).preferences[key],value);
+  }
+  assert.ok(host.writes.every(write => write.target === 3));
+  assert.equal(host.warnings.length,0);
+});
+
 test('reference clicks use only rendered targets and resolve root, relative and dialect paths', async () => {
   const host = previewHost();
   host.document.getText = () => '{{include: /snippets/guide.md}}\n\n@references/guide.md\n\n{% include notice.md %}\n\n--8<-- "guide.md:2:4"';
@@ -216,15 +229,45 @@ test('invalid and malformed preference messages cannot write settings', async ()
   await host.drain(); assert.equal(host.writes.length, 0);
 });
 
-test('invalid settings read from disk fall back safely; valid range boundaries persist', async () => {
+test('invalid settings read from disk fall back safely; continuous numeric values and boundaries persist exactly', async () => {
   const host = previewHost({initial:{style:'missing',appearance:42,contentWidth:NaN,fontSize:100,lineHeight:-1,wrapCode:'true'}});
   await host.handlers.command(); await host.handlers.message({type:'ready'});
   const prefs = host.messages.at(-1).preferences;
   assert.equal(prefs.style,'documentation'); assert.equal(prefs.appearance,'auto');
   assert.equal(prefs.contentWidth,900); assert.equal(prefs.fontSize,16); assert.equal(prefs.lineHeight,1.7); assert.equal(prefs.wrapCode,false);
-  for (const [key,values] of Object.entries({contentWidth:[480,1600],fontSize:[12,24],lineHeight:[1.3,2.2]})) {
+  for (const [key,values] of Object.entries({contentWidth:[480,901.25,1600],fontSize:[12,17.25,24],lineHeight:[1.3,1.83,2.2]})) {
     for (const value of values) {await host.handlers.message({type:'preference',key,value});await host.drain();assert.equal(host.saved[key],value);}
   }
+});
+
+test('failed numeric preference writes retain exact session values and report the failure', async () => {
+  const host = previewHost({failWrites:true});
+  await host.handlers.command();
+  for (const [key, value] of [['fontSize',17], ['lineHeight',1.8], ['contentWidth',901]]) {
+    await host.handlers.message({type:'preference',key,value});
+    await host.drain();
+  }
+  await host.handlers.message({type:'ready'});
+  const current = host.messages.at(-1).preferences;
+  assert.equal(current.fontSize,17);
+  assert.equal(current.lineHeight,1.8);
+  assert.equal(current.contentWidth,901);
+  assert.equal(host.saved.fontSize,undefined);
+  assert.equal(host.saved.lineHeight,undefined);
+  assert.equal(host.saved.contentWidth,undefined);
+  assert.equal(host.warnings.length,3);
+  assert.ok(host.warnings.every(warning => /Settings file is read-only/.test(warning)));
+});
+
+test('rapid continuous numeric commits serialize and leave the newest exact value active', async () => {
+  const host = previewHost();
+  await host.handlers.command();
+  await Promise.all([17,17.25,17.5].map(value => host.handlers.message({type:'preference',key:'fontSize',value})));
+  await host.drain();
+  assert.deepEqual(host.writes.map(write => write.value),[17,17.25,17.5]);
+  assert.equal(host.saved.fontSize,17.5);
+  assert.equal(host.messages.at(-1).preferences.fontSize,17.5);
+  assert.equal(host.warnings.length,0);
 });
 
 test('rapid preference commits serialize writes and preserve the newest value', async () => {

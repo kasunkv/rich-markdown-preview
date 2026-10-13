@@ -7,8 +7,8 @@ test('regenerate README marketing screenshots', async ({ page, previewServer }) 
     ['editorial', 'light'],
     ['ocean', 'dark'],
   ]) {
-    await page.selectOption('#style', style);
-    await page.selectOption('#appearance', appearance);
+    await page.selectOption('#rmp-ui-style', style);
+    await page.selectOption('#rmp-ui-appearance', appearance);
     await page.waitForFunction(
       ({ style, appearance }) =>
         document.body.dataset.style === style && document.body.dataset.appearance === appearance,

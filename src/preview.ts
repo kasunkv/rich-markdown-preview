@@ -4,6 +4,7 @@ import type { OutlineItem } from './render';
 import { previewStyles } from './styles';
 import { enhanceTables, type TableState } from './tables';
 import { documentationView, type DocumentationViewState } from './documentation-view';
+import { numericPreferenceRanges } from './preference-ranges';
 interface ReadingState {
   scroll?: number;
   tables?: TableState;
@@ -20,9 +21,9 @@ declare function acquireVsCodeApi(): {
 };
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app')!;
-app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="style" aria-label="Style">${previewStyles.map((style) => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="width-value"></output><input id="contentWidth" aria-label="Content width" type="range" min="480" max="1600" step="20"></label><label>Text<select id="fontSize" aria-label="Text size">${[12, 14, 16, 18, 20, 22, 24].map((n) => `<option value="${n}">${n}px</option>`).join('')}</select></label><label>Spacing<select id="lineHeight" aria-label="Line spacing">${[1.3, 1.5, 1.7, 1.9, 2.2].map((n) => `<option value="${n}">${n}</option>`).join('')}</select></label><label class="checkbox"><input id="wrapCode" type="checkbox">Wrap code</label><button id="toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="outline"></nav></aside><main id="content" class="markdown" aria-label="Markdown preview"></main></div><div id="announcement" class="sr-only" aria-live="polite"></div>`;
-const content = document.getElementById('content')!;
-const outline = document.getElementById('outline')!;
+app.innerHTML = `<header class="toolbar" aria-label="Preview controls"><div class="brand"><img class="brand-icon" src="${app.dataset.logo || '/rich-markdown-preview.png'}" alt="" width="34" height="34"><span>Rich Markdown<small>PREVIEW</small></span></div><div class="controls"><label>Style<select id="rmp-ui-style" data-preference-key="style" aria-label="Style">${previewStyles.map((style) => `<option value="${style.id}">${style.label}</option>`).join('')}</select></label><label>Appearance<select id="rmp-ui-appearance" data-preference-key="appearance" aria-label="Appearance"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Width <output id="rmp-ui-width-value" data-preference-output="contentWidth"></output><input id="rmp-ui-content-width" data-preference-key="contentWidth" aria-label="Content width" type="range" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"><input id="rmp-ui-content-width-value" data-preference-key="contentWidth" aria-label="Content width value" type="number" min="${numericPreferenceRanges.contentWidth[0]}" max="${numericPreferenceRanges.contentWidth[1]}" step="any"></label><label>Text <input id="rmp-ui-font-size" data-preference-key="fontSize" aria-label="Text size" type="number" min="${numericPreferenceRanges.fontSize[0]}" max="${numericPreferenceRanges.fontSize[1]}" step="any"></label><label>Spacing <input id="rmp-ui-line-height" data-preference-key="lineHeight" aria-label="Line spacing" type="number" min="${numericPreferenceRanges.lineHeight[0]}" max="${numericPreferenceRanges.lineHeight[1]}" step="any"></label><label class="checkbox"><input id="rmp-ui-wrap-code" data-preference-key="wrapCode" type="checkbox">Wrap code</label><button id="rmp-ui-toggle-outline" type="button" aria-expanded="true">Outline</button></div></header><div class="layout"><aside class="outline" aria-label="Document outline"><p>ON THIS PAGE</p><nav id="rmp-ui-outline"></nav></aside><main id="rmp-ui-content" class="markdown" aria-label="Markdown preview"></main></div><div id="rmp-ui-announcement" class="sr-only" aria-live="polite"></div>`;
+const content = document.getElementById('rmp-ui-content')!;
+const outline = document.getElementById('rmp-ui-outline')!;
 const documentation = documentationView(vscode, content);
 let revision = 0;
 let restored = false;
@@ -76,11 +77,14 @@ function applyPreferences(settings: Preferences, refreshDiagrams = true) {
   document.documentElement.style.setProperty('--reading-size', `${settings.fontSize}px`);
   document.documentElement.style.setProperty('--reading-line-height', `${settings.lineHeight}`);
   for (const [key, value] of Object.entries(settings)) {
-    const control = document.getElementById(key) as HTMLInputElement | HTMLSelectElement;
-    if (key === 'wrapCode') (control as HTMLInputElement).checked = Boolean(value);
-    else control.value = String(value);
+    for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+      `[data-preference-key="${key}"]`,
+    )) {
+      if (key === 'wrapCode') (control as HTMLInputElement).checked = Boolean(value);
+      else control.value = String(value);
+    }
   }
-  document.getElementById('width-value')!.textContent = `${settings.contentWidth}px`;
+  document.querySelector('[data-preference-output="contentWidth"]')!.textContent = `${settings.contentWidth}px`;
   if (refreshDiagrams && (previousDark !== isDark() || previousStyle !== settings.style))
     reportAsync(diagrams(++revision));
 }
@@ -89,6 +93,19 @@ function receivePreferences(saved: Preferences, refreshDiagrams = true) {
     if (saved[key] === value) pendingPreferences.delete(key);
   }
   applyPreferences({ ...saved, ...Object.fromEntries(pendingPreferences) }, refreshDiagrams);
+}
+function isNumericPreference(key: keyof Preferences) {
+  return key === 'contentWidth' || key === 'fontSize' || key === 'lineHeight';
+}
+function preferenceControlValue(control: HTMLInputElement | HTMLSelectElement, key: keyof Preferences) {
+  return key === 'wrapCode'
+    ? (control as HTMLInputElement).checked
+    : isNumericPreference(key)
+      ? Number(control.value)
+      : control.value;
+}
+function validNumericControl(control: HTMLInputElement | HTMLSelectElement) {
+  return Boolean(control.value) && control.validity.valid && Number.isFinite(Number(control.value));
 }
 function scrollToHeading(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -188,13 +205,13 @@ window.addEventListener('message', (event) => {
     return;
   }
   if (message.type === 'copyResult') {
-    document.getElementById('announcement')!.textContent = message.success
+    document.getElementById('rmp-ui-announcement')!.textContent = message.success
       ? 'Code copied'
       : 'Could not copy code. Please try again.';
     return;
   }
   if (message.type === 'tableActionResult') {
-    document.getElementById('announcement')!.textContent = message.cancelled
+    document.getElementById('rmp-ui-announcement')!.textContent = message.cancelled
       ? 'CSV export cancelled'
       : message.success
         ? message.action === 'tableCopy'
@@ -230,7 +247,7 @@ window.addEventListener('message', (event) => {
     content,
     tableState,
     (action) => {
-      document.getElementById('announcement')!.textContent =
+      document.getElementById('rmp-ui-announcement')!.textContent =
         action.type === 'tableCopy' ? 'Copying table CSV…' : 'Choose where to save the CSV file';
       vscode.postMessage(action);
     },
@@ -267,26 +284,28 @@ window.addEventListener('message', (event) => {
     }),
   );
 });
-document
-  .querySelectorAll<HTMLInputElement | HTMLSelectElement>('.controls input, .controls select')
-  .forEach((control) => {
-    const updateLocal = () => {
-      const key = control.id as keyof Preferences;
-      const value =
-        key === 'wrapCode'
-          ? (control as HTMLInputElement).checked
-          : ['contentWidth', 'fontSize', 'lineHeight'].includes(key)
-            ? Number(control.value)
-            : control.value;
-      pendingPreferences.set(key, value);
-      applyPreferences({ ...currentPreferences, [key]: value });
-      return { key, value };
-    };
-    control.addEventListener('input', updateLocal);
-    // Persist on commit; slider input only updates local layout while dragging.
-    control.addEventListener('change', () => vscode.postMessage({ type: 'preference', ...updateLocal() }));
+document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-preference-key]').forEach((control) => {
+  const key = control.dataset.preferenceKey as keyof Preferences;
+  const numeric = isNumericPreference(key);
+  const updateLocal = () => {
+    if (numeric && !validNumericControl(control)) return;
+    const value = preferenceControlValue(control, key);
+    pendingPreferences.set(key, value);
+    applyPreferences({ ...currentPreferences, [key]: value });
+    return { key, value };
+  };
+  control.addEventListener('input', updateLocal);
+  // Persist on commit; the paired width controls and slider drag share one exact value.
+  control.addEventListener('change', () => {
+    if (numeric && !validNumericControl(control)) {
+      applyPreferences(currentPreferences);
+      return;
+    }
+    const preference = updateLocal();
+    if (preference) vscode.postMessage({ type: 'preference', ...preference });
   });
-document.getElementById('toggle-outline')!.addEventListener('click', (event) => {
+});
+document.getElementById('rmp-ui-toggle-outline')!.addEventListener('click', (event) => {
   const hidden = document.body.classList.toggle('hide-outline');
   (event.currentTarget as HTMLElement).setAttribute('aria-expanded', String(!hidden));
 });
@@ -295,7 +314,7 @@ content.addEventListener('click', (event) => {
   const copy = element.closest<HTMLButtonElement>('.copy-code');
   if (copy) {
     vscode.postMessage({ type: 'copy', text: copy.closest('.code-block')?.querySelector('code')?.textContent ?? '' });
-    document.getElementById('announcement')!.textContent = 'Copying code…';
+    document.getElementById('rmp-ui-announcement')!.textContent = 'Copying code…';
     return;
   }
   const link = element.closest<HTMLAnchorElement>('a');

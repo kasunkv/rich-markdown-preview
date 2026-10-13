@@ -12,7 +12,7 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
   await page.goto(previewServer.url);
     await page.locator('.mermaid-result').first().waitFor();
     assert.equal(await page.locator('.brand').innerText(), 'Rich Markdown\nPREVIEW');
-    assert.equal(await page.locator('#style option').count(), 18);
+    assert.equal(await page.locator('#rmp-ui-style option').count(), 18);
     assert.equal(await page.locator('.brand-icon').evaluate(img => img.complete && img.naturalWidth > 0), true);
     checks.push('Brand, icon, eighteen styles, and real Mermaid rendering');
 
@@ -43,7 +43,7 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     await render('---\nname: example-skill\ndescription: |\n  First line\n  Second line\ntags: [agents, writing]\nsettings:\n  enabled: true\n---\n# Instructions\n\nSkill body.');
     assert.equal(await page.locator('.frontmatter').getAttribute('open'), '');
     assert.equal(await page.locator('.frontmatter-field').first().innerText(), 'name\nexample-skill');
-    assert.equal(await page.locator('#outline a').count(), 1);
+    assert.equal(await page.locator('#rmp-ui-outline a').count(), 1);
     await page.locator('.frontmatter-raw > summary').click();
     assert.equal(await page.locator('.frontmatter-source').isVisible(), true);
     await page.locator('.frontmatter > summary').click();
@@ -57,11 +57,46 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     checks.push('Frontmatter fields, nested YAML, outline, source disclosure, collapse, narrow layout and invalid YAML fallback');
     await render(fs.readFileSync(path.resolve(__dirname, '../samples/showcase.md'), 'utf8'));
     await page.locator('.mermaid-result').first().waitFor();
+    await page.locator('#rmp-ui-outline a').first().click();
+    await render('# Numeric target\n\n[Jump to heading](#numeric-target)');
+    await page.locator('#rmp-ui-content a').click();
+    await render('[External reference](https://example.com)');
+    await page.locator('#rmp-ui-content a').click();
+    await render(fs.readFileSync(path.resolve(__dirname, '../samples/showcase.md'), 'utf8'));
+    const widthValue = page.locator('[data-preference-key="contentWidth"][type="number"]');
+    const widthSlider = page.locator('[data-preference-key="contentWidth"][type="range"]');
+    const widthOutput = page.locator('[data-preference-output="contentWidth"]');
+    for (const [key, min, max] of [['contentWidth',480,1600], ['fontSize',12,24], ['lineHeight',1.3,2.2]]) {
+      const control = page.locator(`[data-preference-key="${key}"][type="number"]`);
+      assert.equal(await control.getAttribute('min'), String(min));
+      assert.equal(await control.getAttribute('max'), String(max));
+    }
+    await widthValue.fill('901');
+    assert.equal(await widthSlider.inputValue(), '901');
+    assert.equal(await widthOutput.textContent(), '901px');
+    await widthValue.fill('901.25');
+    assert.equal(await widthSlider.inputValue(), '901.25');
+    assert.equal(await widthOutput.textContent(), '901.25px');
+    await page.locator('[data-preference-key="fontSize"]').fill('17');
+    await page.locator('[data-preference-key="lineHeight"]').fill('1.8');
+    assert.equal(await page.locator('[data-preference-key="fontSize"]').inputValue(), '17');
+    assert.equal(await page.locator('[data-preference-key="lineHeight"]').inputValue(), '1.8');
+    await page.locator('[data-preference-key="fontSize"]').fill('17.25');
+    await page.locator('[data-preference-key="lineHeight"]').fill('1.83');
+    assert.equal(await page.locator('[data-preference-key="fontSize"]').inputValue(), '17.25');
+    assert.equal(await page.locator('[data-preference-key="lineHeight"]').inputValue(), '1.83');
+    assert.equal(await page.locator('#rmp-ui-content').evaluate(el => getComputedStyle(el).fontSize), '17.25px');
+    assert.equal(await page.locator('#rmp-ui-content').evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--reading-line-height').trim()), '1.83');
+    assert.equal(await page.locator('#rmp-ui-content').evaluate(el => getComputedStyle(el).maxWidth), '901.25px');
+    await page.locator('[data-preference-key="fontSize"]').fill('99');
+    await page.locator('[data-preference-key="fontSize"]').dispatchEvent('change');
+    assert.equal(await page.locator('[data-preference-key="fontSize"]').inputValue(), '17.25');
+    checks.push('Continuous numeric controls preserve integer and fractional values, synchronize the width slider/output, and reject invalid bounds');
     for (const appearance of ['light','dark']) {
       for (const style of manifest.contributes.configuration.properties['richMarkdownPreview.style'].enum) {
-        await page.selectOption('#style', style); await page.selectOption('#appearance', appearance);
+        await page.selectOption('#rmp-ui-style', style); await page.selectOption('#rmp-ui-appearance', appearance);
         await page.waitForFunction(({style,appearance}) => document.body.dataset.style===style && document.body.dataset.appearance===appearance, {style,appearance});
-        assert.ok(await page.locator('#content').evaluate(el => getComputedStyle(el).color !== getComputedStyle(document.body).backgroundColor));
+        assert.ok(await page.locator('#rmp-ui-content').evaluate(el => getComputedStyle(el).color !== getComputedStyle(document.body).backgroundColor));
       }
     }
     checks.push('All 36 style/appearance combinations');
@@ -75,7 +110,7 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     assert.equal(await table.locator('tbody tr:visible').count(), 1);
     assert.equal(await page.locator('.table-panel').nth(1).locator('tbody tr:visible').count(), 1);
     await table.locator('.table-copy').click();
-    await page.waitForFunction(() => document.getElementById('announcement').textContent === 'Table CSV copied');
+    await page.waitForFunction(() => document.getElementById('rmp-ui-announcement').textContent === 'Table CSV copied');
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '"Name","Value"\r\n"Item 2","2"\r\n');
     const downloadPromise = page.waitForEvent('download'); await table.locator('.table-export').click();
     const download = await downloadPromise; assert.equal(download.suggestedFilename(),'table-1.csv');
@@ -92,12 +127,12 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     await render('# Heading\n\n```typescript\nconst value = 42;\n```\n\n```mermaid\nflowchart LR\n A --> B\n```');
     await page.locator('.mermaid-result').waitFor();
     await page.locator('.copy-code').click();
-    await page.waitForFunction(() => document.getElementById('announcement').textContent === 'Code copied');
+    await page.waitForFunction(() => document.getElementById('rmp-ui-announcement').textContent === 'Code copied');
     assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n','\n'),'const value = 42;\n');
-    await page.check('#wrapCode'); assert.equal(await page.locator('body').evaluate(el => el.classList.contains('wrap-code')),true);
-    await page.click('#toggle-outline'); assert.equal(await page.locator('.outline').isVisible(),false);
-    await page.click('#toggle-outline'); assert.equal(await page.locator('#toggle-outline').getAttribute('aria-expanded'),'true');
-    await page.selectOption('#appearance','auto');
+    await page.check('#rmp-ui-wrap-code'); assert.equal(await page.locator('body').evaluate(el => el.classList.contains('wrap-code')),true);
+    await page.click('#rmp-ui-toggle-outline'); assert.equal(await page.locator('.outline').isVisible(),false);
+    await page.click('#rmp-ui-toggle-outline'); assert.equal(await page.locator('#rmp-ui-toggle-outline').getAttribute('aria-expanded'),'true');
+    await page.selectOption('#rmp-ui-appearance','auto');
     const before = await page.locator('.mermaid-result svg').getAttribute('id');
     await page.evaluate(() => document.body.classList.add('vscode-dark'));
     await page.waitForFunction(before => document.querySelector('.mermaid-result svg')?.id !== before, before);
@@ -106,7 +141,7 @@ test('shipped preview regressions', async ({page, previewServer}, testInfo) => {
     assert.match(await page.locator('.mermaid-source').innerText(), /invalid diagram syntax/);
     await render(''); assert.equal(await page.locator('.empty').isVisible(),true);
     await page.setViewportSize({width:520,height:800});
-    assert.equal(await page.locator('#toggle-outline').isVisible(),true);
+    assert.equal(await page.locator('#rmp-ui-toggle-outline').isVisible(),true);
     checks.push('Invalid diagram recovery, empty preview, and narrow viewport controls');
     assert.deepEqual(errors, []);
     await testInfo.attach('checks', {body: JSON.stringify(checks), contentType: 'application/json'});
