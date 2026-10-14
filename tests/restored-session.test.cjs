@@ -2,12 +2,15 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const Module = require('node:module');
 const ts = require('typescript');
 const file = path.resolve(__dirname, '../src/restored-session.ts');
 const source = process.env.SOURCE_COVERAGE_DIR ? require('../scripts/coverage-instrument.cjs').instrument(file).code : fs.readFileSync(file, 'utf8');
-const exportsObject = {};
-vm.runInNewContext(ts.transpileModule(source, {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText, {exports:exportsObject, Object, Array, Reflect, Number, Promise, __coverage__:globalThis.__coverage__});
+const loaded = new Module(file, module);
+loaded.filename = file;
+loaded.paths = module.paths;
+loaded._compile(ts.transpileModule(source, {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText, file);
+const exportsObject = loaded.exports;
 const {decodeRestoredSession:decode,validateRestoredTarget:validate} = exportsObject;
 const saved = () => ({version:1,kind:'preview',target:'file:///repo/read.md',workspaceRoot:'file:///repo',history:['file:///repo/read.md'],cursor:0});
 test('session codec rejects forged, obsolete, unbounded and accessor-bearing saved state',()=>{

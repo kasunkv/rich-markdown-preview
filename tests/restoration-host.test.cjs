@@ -60,3 +60,7 @@ test('bounded persisted Home navigation retains adjacent Back/Forward targets af
  await restored.restore('documentation',{readingStateVersion:1,documents:{},documentOrder:[],documentId:context.target,session:context});
  await restored.action('back');assert.equal(restored.latest('render').documentId,'file:///repo/visit-80.md');await restored.action('forward');await restored.action('forward');assert.equal(restored.latest('render').documentId,'file:///repo/visit-82.md');
 });
+test('a root removed between authorization completion and controller opening recovers before a document read',async()=>{
+ const home=host();let checks=0;home.vscode.workspace.fs.isWritableFileSystem=()=>{if(++checks===2)queueMicrotask(()=>{home.vscode.workspace.workspaceFolders=[];});return true;};
+ await home.restore('preview',state());fallback(home);assert.equal(home.reads.length,0);
+});

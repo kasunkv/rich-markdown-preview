@@ -23,14 +23,14 @@ exports.prepareReload = async ({vscode, workspace, findFrame}) => {
     if(mode==='preview')await vscode.commands.executeCommand('richMarkdownPreview.openPreview',targets[index]);
     else {
       await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-      let home=await findFrame('input[aria-label="Filter documentation"]');
-      await home.locator('input[aria-label="Filter documentation"]').fill('reload-documentation-first.md');
+      let home=await findFrame('input[aria-label="Filter documentation files or folders"]');
+      await home.locator('input[aria-label="Filter documentation files or folders"]').fill('reload-documentation-first.md');
       await home.locator('button.documentation-file[title="reload-documentation-first.md"]').click();
       home=await findFrame('#rmp-heading-reload-documentation-first');
-      await home.locator('input[aria-label="Filter documentation"]').fill('reload-documentation.md');
+      await home.locator('input[aria-label="Filter documentation files or folders"]').fill('reload-documentation.md');
       await home.locator('button.documentation-file[title="reload-documentation.md"]').click();
       home=await findFrame('#rmp-heading-reload-documentation');
-      await home.locator('input[aria-label="Filter documentation"]').fill('reload-documentation-next.md');
+      await home.locator('input[aria-label="Filter documentation files or folders"]').fill('reload-documentation-next.md');
       await home.locator('button.documentation-file[title="reload-documentation-next.md"]').click();
       home=await findFrame('#rmp-heading-reload-documentation-next');
       await home.getByRole('button',{name:'← Back',exact:true}).click();
@@ -67,6 +67,16 @@ exports.assertReload = async ({vscode, checkpoint, findFrame}) => {
     assert.equal(await frame.getByRole('combobox',{name:'Table 1 spacing',exact:true}).inputValue(),'compact');
     assert.equal(await frame.locator('th').first().getAttribute('aria-sort'),'ascending');
     await frame.waitForFunction(expected=>Math.abs(window.scrollY-expected)<100,item.scroll);
+    // Panel-level Find survives VS Code's serializer revival; test the native keyboard path.
+    await frame.locator('#rmp-ui-content').click();
+    await frame.locator('body').press('Control+f');
+    const findInput=frame.page().locator('input[aria-label="Find"]').last();
+    await findInput.waitFor({state:'visible',timeout:10000});
+    await findInput.fill('Reload '+item.mode);
+    assert.equal(await findInput.inputValue(),'Reload '+item.mode);
+    await findInput.press('Enter');
+    await frame.page().locator('.simple-find-part.visible .codicon-find-next-match:not(.disabled)').waitFor({state:'visible',timeout:3000});
+    await findInput.press('Escape');
     if(item.mode==='documentation') {
       assert.equal(await frame.getByRole('button',{name:'← Back',exact:true}).isEnabled(),true);
       assert.equal(await frame.getByRole('button',{name:'Forward →',exact:true}).isEnabled(),true);
@@ -77,7 +87,7 @@ exports.assertReload = async ({vscode, checkpoint, findFrame}) => {
       await frame.getByRole('button',{name:'Forward →',exact:true}).click();
       await findFrame('#rmp-heading-reload-documentation-next',{viewType});
     }
-    checks.push({mode:item.mode,uri:item.uri,nativeWindowReload:true,replacedExtensionHost:true,selectedVisiblePanelOwnership:true,reading:true,table:true,disclosure:true,backForward:item.mode==='documentation'});
+    checks.push({mode:item.mode,uri:item.uri,nativeWindowReload:true,replacedExtensionHost:true,selectedVisiblePanelOwnership:true,nativeFind:true,reading:true,table:true,disclosure:true,backForward:item.mode==='documentation'});
   }
   return checks;
 };
