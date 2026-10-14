@@ -184,7 +184,7 @@ Both single-file previews and Documentation Home can load images inside the docu
 
 ### Accessible reading
 
-VS Code high-contrast dark and light themes override the reading palette, including an explicit Light/Dark preview preference, so the editor's accessibility colors and focus border remain visible. Every Mermaid figure retains a keyboard-accessible **Diagram source** disclosure after rendering. Use Mermaid `accTitle` and `accDescr` to supply a descriptive diagram title and explanation; source remains available when a diagram has no authored description or cannot render. Tables retain column headers, keyboard sorting, and polite row-count announcements. The outline remains available in narrow reading layouts.
+VS Code high-contrast dark and light themes override the reading palette, including an explicit Light/Dark preview preference, so the editor's accessibility colors and focus border remain visible. Every Mermaid figure retains a keyboard-accessible **Diagram source** disclosure after rendering. Use Mermaid `accTitle` and `accDescr` to supply a descriptive diagram title and explanation; source remains available when a diagram has no authored description or cannot render. Tables retain column headers, keyboard sorting, and polite row-count announcements. The outline remains available in narrow reading layouts. Selecting an outline entry or document fragment moves keyboard focus to that content, and live refresh preserves the reading target.
 
 Automated contrast, axe, keyboard, reflow and reduced-motion checks complement manual screen-reader testing. The latter requires a representative VS Code installation and assistive technology; automated checks do not establish screen-reader usability by themselves.
 

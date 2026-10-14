@@ -619,7 +619,7 @@ test('authored diagram alternatives and accessibility tokens survive rendering a
   const render=async text=>{
     const result=renderMarkdown(text);
     await page.evaluate(result=>window.dispatchEvent(new MessageEvent('message',{data:{type:'render',...result,preferences:{style:'aurora',appearance:'dark',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false}}})),result);
-    await page.locator('.mermaid-result svg').waitFor();
+    await page.locator('.mermaid-result svg').first().waitFor();
   };
   await render(source);
   const image=page.locator('.mermaid-result svg');
@@ -632,6 +632,15 @@ test('authored diagram alternatives and accessibility tokens survive rendering a
   await render(source+'\n\nUnrelated addition.');
   assert.equal(await page.locator('.diagram-source').getAttribute('open'),'');
   assert.equal(await page.evaluate(()=>document.activeElement.tagName),'SUMMARY');
+  await page.locator('.diagram-source pre').focus();
+  await render(source+'\n\nSource reader refresh.');
+  assert.equal(await page.evaluate(()=>document.activeElement.className),'mermaid-source','Live redraw preserves keyboard source-pane focus');
+  const pairedSource=source+'\n\n```mermaid\nflowchart TD\nSecond-->Reader\n```';
+  await render(pairedSource);
+  await page.locator('.diagram-source summary').nth(1).click();
+  await page.locator('.diagram-source pre').nth(1).focus();
+  await render(pairedSource+'\n\nSecond source reader refresh.');
+  assert.equal(await page.locator('.diagram-source pre').nth(1).evaluate(el=>document.activeElement===el),true,'Repeated source disclosures keep distinct focus identities');
   const heading=page.locator('#rmp-heading-workflow');
   await heading.evaluate(el=>el.setAttribute('tabindex','0'));
   await page.locator('#rmp-ui-outline a').first().focus(); await page.keyboard.press('Enter');

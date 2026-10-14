@@ -3,7 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 // Exercise VS Code's own webview Find widget through the real workbench keyboard path.
-exports.proveFind = async ({ vscode, browser, workspace, checks }) => {
+exports.proveFind = async ({ vscode, findFrame, workspace, checks }) => {
   assert.equal(process.platform, 'win32', 'This smoke covers Windows Ctrl+F only');
   const directory = path.join(workspace, 'find-proof');
   await fs.mkdir(directory, { recursive: true });
@@ -15,34 +15,7 @@ exports.proveFind = async ({ vscode, browser, workspace, checks }) => {
   );
   await fs.writeFile(second, '# Second Find proof\n\nFIND_VISIBLE_OMEGA\n');
 
-  const findActiveFrame = async (selector) => {
-    const deadline = Date.now() + 20000;
-    while (Date.now() < deadline) {
-      for (const context of browser.contexts())
-        for (const page of context.pages())
-          for (const candidate of page.frames()) {
-            if (!candidate.url().startsWith('vscode-webview://')) continue;
-            try {
-              if (!(await candidate.locator(selector).count())) continue;
-              const element = await candidate.frameElement();
-              const visible = await element.evaluate((frameElement) => {
-                let node = frameElement;
-                while (node instanceof HTMLElement) {
-                  const style = getComputedStyle(node);
-                  const rect = node.getBoundingClientRect();
-                  if (node.hidden || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
-                  if (rect.width <= 0 || rect.height <= 0) return false;
-                  node = node.parentElement;
-                }
-                return true;
-              });
-              if (visible) return candidate;
-            } catch {}
-          }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    throw new Error(`No visible active webview frame contains ${selector}`);
-  };
+  const findActiveFrame = findFrame;
 
   const openFind = async (frame, phrase, expectedTabLabel) => {
     assert.ok(
