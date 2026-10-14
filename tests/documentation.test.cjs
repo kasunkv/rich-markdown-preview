@@ -18,6 +18,16 @@ test('discovery includes hidden and nested docs across roots, skips dependencies
   assert.equal(h.reads.length, 0); assert.ok(h.queries.every(query => query.exclude.includes('node_modules')));
 });
 
+test('file URI drive-letter casing from VS Code search preserves root containment', async () => {
+  const h = host({ folders: ['/C:/workspace'] });
+  h.vscode.workspace.findFiles = async () => [
+    h.uri('/c:/workspace/docs/guide.md'),
+    h.uri('/c:/workspace-other/escape.md'),
+  ];
+  await h.open();
+  assert.equal(h.latest('documentation').files.map((file) => file.path).join(','), 'docs/guide.md');
+});
+
 test('selection, relative Markdown links with anchors, images, source, history and non-Markdown links', async () => {
   const h = host(); await h.open(); await h.action('open', '/repo/README.md');
   const ref = h.latest('render').references[0];

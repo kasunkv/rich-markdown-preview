@@ -20,9 +20,19 @@ const markdownFile = /\.(md|markdown)$/i;
 const defaultExcludedDirectory = /^(\.git|node_modules|bower_components|dist|build|out|coverage|\.next|\.venv|venv)$/i;
 
 export function relativeDocumentationPath(root: vscode.Uri, uri: vscode.Uri): string | undefined {
-  if (!sameProviderWithin(root, uri)) return undefined;
+  // VS Code may report a Windows workspace drive as /C: while findFiles returns /c:.
+  // Normalize only that drive letter; opaque provider paths retain exact matching.
+  const canonicalDrive = (path: string) => path.replace(/^\/[A-Z]:/, (drive) => drive.toLowerCase());
+  const within =
+    root.scheme === 'file'
+      ? sameProviderWithin(
+          { scheme: root.scheme, authority: root.authority, path: canonicalDrive(root.path) },
+          { scheme: uri.scheme, authority: uri.authority, path: canonicalDrive(uri.path) },
+        )
+      : sameProviderWithin(root, uri);
+  if (!within) return undefined;
   const prefix = root.path.replace(/\/$/, '') + '/';
-  return uri.path.startsWith(prefix) ? uri.path.slice(prefix.length) : undefined;
+  return uri.path.slice(prefix.length);
 }
 
 /** Index paths only. Text is opened on demand by the preview session. */

@@ -60,7 +60,25 @@ exports.proveResources = async function ({ workspace, checks }) {
         await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
         const frame = await findFrame('input[aria-label="Filter documentation files or folders"]');
         await frame.locator('input[aria-label="Filter documentation files or folders"]').fill('guide.md');
-        await frame.locator('button.documentation-file[title="docs/guide.md"]').click();
+        try {
+          await frame.locator('button.documentation-file[title="docs/guide.md"]').click({ timeout: 5000 });
+        } catch (error) {
+          const diagnostic = await frame.evaluate(() => ({
+            notice: document.querySelector('.documentation-status')?.textContent,
+            text: document.querySelector('#rmp-ui-app')?.textContent?.slice(0, 2000),
+            files: [...document.querySelectorAll('button.documentation-file')].map((button) => button.title).slice(0, 20),
+            filter: document.querySelector('input[aria-label="Filter documentation files or folders"]')?.value,
+          }));
+          const root = vscode.workspace.workspaceFolders?.[0];
+          diagnostic.root = root?.uri.toString();
+          diagnostic.rootPath = root?.uri.path;
+          diagnostic.scan = (await vscode.workspace.findFiles(
+            new vscode.RelativePattern(root, '**/*.{md,MD,markdown,MARKDOWN}'),
+            '**/{.git,node_modules,bower_components,dist,build,out,coverage,.next,.venv,venv}/**',
+            5,
+          )).map((uri) => ({ uri: uri.toString(), path: uri.path }));
+          throw new Error(`Documentation Home did not expose the resource fixture: ${JSON.stringify(diagnostic)}`, { cause: error });
+        }
       }
       const frame = await findFrame('#rmp-ui-content img[alt="Sibling authorized"]');
       try { await frame.waitForFunction(() => document.querySelector('img[alt="Sibling authorized"]')?.naturalWidth > 0); }
