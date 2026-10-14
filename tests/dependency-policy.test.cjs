@@ -30,7 +30,7 @@ test('production input inventory includes new/nested packages, excludes tooling 
   }
   await fs.writeFile(path.join(root, 'package-lock.json'), JSON.stringify({ packages }));
   await fs.mkdir(path.join(root, 'dist'));
-  const bundles = ['dist/extension.js', 'dist/preview.js', 'dist/render.cjs'];
+  const bundles = ['dist/extension.js', 'dist/preview.js', 'dist/render.cjs', 'dist/diagrams.js'];
   for (const bundle of bundles) await fs.writeFile(path.join(root, bundle), 'production bundle fixture');
   const inputs = [
     'src/extension.ts',

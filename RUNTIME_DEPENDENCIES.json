@@ -5,7 +5,7 @@
   "bundles": [
     {
       "file": "dist/diagrams.js",
-      "sha256": "c1d32c5defbcf7d3da668ad5a507c823856b1d07630e8dc585640d39781ffc51"
+      "sha256": "8e77e12f3fc650a35d3595f42ef7d7f6c760e509b7ec589c7c07758667e6ae76"
     },
     {
       "file": "dist/extension.js",
@@ -17,7 +17,7 @@
     },
     {
       "file": "dist/render.cjs",
-      "sha256": "b42844f22a221de3ba9dabdfd1d3a93f5034ecf4ecefaa153cb421fbcc3ed525"
+      "sha256": "04db38305c9a461749375cb27a910e438f782a031535e71a8b74fe7560fd6420"
     }
   ],
   "noticesSha256": "757d4f70c1e18e949d791509f20f83e45c7a68e79eeb09f3e458648f3582aed9",

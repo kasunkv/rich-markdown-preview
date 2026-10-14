@@ -25,7 +25,7 @@ window.dispatchEvent(new MessageEvent('message',{data:{type:'tableActionResult',
 }catch(error){window.dispatchEvent(new MessageEvent('message',{data:{type:'tableActionResult',requestId:m.requestId,action:m.type,success:false,error:String(error)}}));}
 }
 }}}
-</script><script src="/preview.js"></script></body></html>`;
+</script><script data-diagram-runtime="/diagrams.js" src="/preview.js"></script></body></html>`;
   const server = http.createServer((req, res) => {
     if (req.url === '/') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -36,7 +36,7 @@ window.dispatchEvent(new MessageEvent('message',{data:{type:'tableActionResult',
     } else if (req.url === '/document') {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify(result));
-    } else if (req.url === '/preview.js' || req.url === '/preview.css') {
+    } else if (req.url === '/diagrams.js' || req.url === '/preview.js' || req.url === '/preview.css') {
       res.setHeader('Content-Type', req.url.endsWith('.js') ? 'text/javascript' : 'text/css');
       res.end(fs.readFileSync(path.join(root, 'dist', req.url.slice(1))));
     } else if (

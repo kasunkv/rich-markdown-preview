@@ -17,6 +17,7 @@ const builds = [
     format: 'cjs',
     external: ['vscode', './render.cjs'],
   },
+  { entryPoints: ['src/diagram-runtime.ts'], outfile: 'dist/diagrams.js', platform: 'browser', format: 'iife', globalName: 'RichMarkdownDiagrams' },
   { entryPoints: ['src/preview.ts'], outfile: 'dist/preview.js', platform: 'browser', format: 'iife' },
   { entryPoints: ['src/fragment-navigation.ts'], outfile: 'dist/render.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/fragment-navigation.ts'], outfile: 'dist/fragment-navigation.cjs', platform: 'node', format: 'cjs' },
@@ -67,7 +68,7 @@ export async function build({
     await Promise.all(contexts.map((ctx) => ctx.dispose()));
   };
   const productionInputs = new Set();
-  const runtimeBundles = ['dist/extension.js', 'dist/preview.js', 'dist/render.cjs'];
+  const runtimeBundles = ['dist/extension.js', 'dist/preview.js', 'dist/render.cjs', 'dist/diagrams.js'];
   const assets = {
     absWorkingDir: root,
     entryPoints: staticAssets,
@@ -118,6 +119,7 @@ export async function build({
       }
     }
     if (production) {
+      await writeFile(path.join(root, 'dist/runtime-composition.json'), JSON.stringify([...productionInputs].sort(), null, 2));
       const policy = JSON.parse(await readFile(path.join(root, 'scripts/license-policy.json'), 'utf8'));
       await dependencyPolicy.generateRuntime(
         root,

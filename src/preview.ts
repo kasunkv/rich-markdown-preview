@@ -2,7 +2,37 @@ import { RenderCache, diagramRenderKey } from './render-work';
 import { isolateDiagramSvg } from './diagram-cache';
 import { renderLimits } from './render-limits';
 import { reportAsync } from './async';
-import mermaid from 'mermaid';
+import type mermaidType from 'mermaid';
+
+type DiagramRuntime = { renderer: () => typeof mermaidType };
+const bootstrap = document.currentScript as HTMLScriptElement;
+const diagramRuntimeUri = bootstrap?.dataset.diagramRuntime;
+const diagramRuntimeNonce = bootstrap?.nonce ?? '';
+let diagramRuntime: Promise<typeof mermaidType> | undefined;
+function loadDiagramRuntime(): Promise<typeof mermaidType> {
+  if (!diagramRuntime) {
+    diagramRuntime = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.nonce = diagramRuntimeNonce;
+      script.src = diagramRuntimeUri!;
+      script.onload = () => {
+        const runtime = (globalThis as typeof globalThis & { RichMarkdownDiagrams: DiagramRuntime })
+          .RichMarkdownDiagrams;
+        if (runtime?.renderer) resolve(runtime.renderer());
+        else fail();
+      };
+      const fail = () => {
+        script.remove();
+        diagramRuntime = undefined;
+        reject(new Error('Diagram runtime unavailable'));
+      };
+      script.onerror = fail;
+      if (diagramRuntimeUri) document.body.append(script);
+      else fail();
+    });
+  }
+  return diagramRuntime;
+}
 import {
   validateWebviewMessage,
   validateHostMessage,
@@ -322,11 +352,19 @@ function diagrams(version: number): Promise<void> {
 }
 async function renderDiagrams(version: number) {
   if (version !== revision || document.hidden) return;
+  if (!content.querySelector('.diagram')) return;
+  let mermaid: typeof mermaidType | undefined;
+  try {
+    mermaid = await loadDiagramRuntime();
+  } catch {
+    // Each retained diagram receives the existing readable recovery below.
+  }
+  if (version !== revision || document.hidden) return;
   const dark = isDark();
   const palette = getComputedStyle(document.body);
   const color = (name: string) => palette.getPropertyValue(name).trim();
   const themeKey = diagramThemeFingerprint();
-  mermaid.initialize({
+  mermaid?.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
     secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'maxEdges', 'suppressErrorRendering'],
@@ -394,6 +432,7 @@ async function renderDiagrams(version: number) {
       const key = diagramRenderKey(text, themeKey, 'strict-mermaid11-svg-v2');
       let svg = diagramCache.get(key);
       if (!svg) {
+        if (!mermaid) throw new Error('Diagram runtime unavailable');
         const rendered = await mermaid.render(`diagram-${++diagramSequence}`, text);
         if (version !== revision || document.hidden) return;
         svg = rendered.svg;

@@ -309,6 +309,7 @@
     "dist/extension.js",
     "dist/render.cjs",
     "dist/preview.js",
+    "dist/diagrams.js",
     "dist/preview.css",
     "assets/rich-markdown-preview.png",
     "README.md",
