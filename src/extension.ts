@@ -193,6 +193,7 @@ export function activate(context: vscode.ExtensionContext) {
       viewColumn,
       {
         enableScripts: true,
+        enableFindWidget: true,
         localResourceRoots: previewResourceRoots(context.extensionUri, document?.uri),
       },
     );

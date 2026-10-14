@@ -188,7 +188,7 @@ test('accessible diagram, privacy and documentation keyboard flows use exact pro
     const file={id:'file:///fixture/reading.md',root:'file:///fixture',rootName:'Fixture',path:'reading.md'};
     await page.evaluate(file=>dispatchEvent(new MessageEvent('message',{data:{type:'documentation',files:[file],active:file.id,loading:false,canBack:false,canForward:false}})),file);
     await page.evaluate(model=>dispatchEvent(new MessageEvent('message',{data:{type:'render',renderId:'accessibility_doc',...model,preferences:{style:'documentation',appearance:'auto',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false},documentationHome:true,documentId:'file:///fixture/reading.md'}})),renderMarkdown(source));
-    const filter=page.getByRole('searchbox',{name:'Filter documentation'});
+    const filter=page.getByRole('searchbox',{name:'Filter documentation files or folders'});
     await filter.fill('reading.md');
     const entry=page.getByRole('button',{name:'reading.md',exact:true});
     await entry.focus(); await page.keyboard.press('Enter');

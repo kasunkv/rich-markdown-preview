@@ -58,8 +58,8 @@ exports.proveResources = async function ({ workspace, checks }) {
       if (mode === 'single-file') await vscode.commands.executeCommand('richMarkdownPreview.openPreview', guide);
       else {
         await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-        const frame = await findFrame('input[aria-label="Filter documentation"]');
-        await frame.locator('input[aria-label="Filter documentation"]').fill('guide.md');
+        const frame = await findFrame('input[aria-label="Filter documentation files or folders"]');
+        await frame.locator('input[aria-label="Filter documentation files or folders"]').fill('guide.md');
         await frame.locator('button.documentation-file[title="docs/guide.md"]').click();
       }
       const frame = await findFrame('#rmp-ui-content img[alt="Sibling authorized"]');
@@ -84,6 +84,7 @@ exports.proveResources = async function ({ workspace, checks }) {
       assert.equal(denied.naturalWidth, 0);
       assert.equal(outOfRootResponses.length, 0, 'No successful outside-root request');
     }
+    await require('./find-host.cjs').proveFind({ vscode, findFrame, workspace, checks });
     // Harmless fixture-only raw resource probe bypasses the Markdown image resolver.
     const outside = path.join(path.dirname(workspace),'raw-alias-outside');
     const alias = path.join(workspace,'assets','raw-alias');

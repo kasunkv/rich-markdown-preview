@@ -63,9 +63,9 @@ exports.proveAccessibility = async ({vscode, browser, workspace, findFrame, chec
         await page.screenshot({path:path.join(workspace,`accessibility-${kind}-${scale}.png`)});
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
         await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-        let home=await findFrame('input[aria-label="Filter documentation"]');
+        let home=await findFrame('input[aria-label="Filter documentation files or folders"]');
         let homePage=home.page();
-        await home.getByRole('searchbox',{name:'Filter documentation'}).fill('accessibility-proof.md');
+        await home.getByRole('searchbox',{name:'Filter documentation files or folders'}).fill('accessibility-proof.md');
         await home.locator('button.documentation-file[title="accessibility-proof.md"]').focus(); await homePage.keyboard.press('Enter');
         home=await findFrame('#rmp-heading-accessibility-proof');homePage=home.page();
         await home.getByRole('button',{name:'On this page',exact:true}).focus(); await homePage.keyboard.press('Enter');

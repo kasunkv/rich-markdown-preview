@@ -67,6 +67,8 @@ Discovery includes nested and hidden documentation folders such as `docs/`, `rep
 | `richMarkdownPreview.documentation.exclude` | `**/{.git,node_modules,bower_components,dist,build,out,coverage,.next,.venv,venv}/**`; set empty to remove exclusions |
 | `richMarkdownPreview.documentation.showStatusBar` | `true`; disable to hide the status bar button |
 
+Use VS Code's Find while a preview is active to search rendered document text. Documentation Home's **Filter documentation files or folders** searches paths separately. Filtered-out table rows are excluded from Find, while visible diagram source remains searchable.
+
 Filtering searches file paths, not document contents. Files in excluded folders can still be opened through a document link, but do not appear in the tree. VS Code's filesystem watcher exclusions can prevent automatic updates in some folders; use **Refresh** to rescan them.
 
 ## Make it yours
