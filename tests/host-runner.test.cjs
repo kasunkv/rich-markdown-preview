@@ -199,3 +199,7 @@ test('provider host creates initial isolated roots and registers its provider be
  }};
  try{const result=await run(parseArgs(['--providers']),electron);assert.equal(result.providerHost,true);assert.equal(result.passed,true);}finally{for(const directory of directories){assert.equal(path.dirname(directory),path.resolve('.test-results','host'));await fs.rm(directory,{recursive:true,force:true});}}
 });
+test('reload proof selects the normal companion and rejects conflicting lifecycle suites',()=>{
+ assert.deepEqual(parseArgs(['--reload']),{version:'1.95.0',mode:'development',forceFailure:false,reload:true,privacy:true});
+ for(const args of [['--reload','--mode','package'],['--reload','--trust','restricted'],['--reload','--providers']])assert.throws(()=>parseArgs(args),/Reload proof requires/);
+});

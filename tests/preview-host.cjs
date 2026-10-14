@@ -64,13 +64,13 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
   const vscode = {
     StatusBarAlignment: {Left: 1},
     Uri: {joinPath: (base, ...segments) => ({scheme: base.scheme ?? 'file', authority: base.authority ?? '', toString: () => `${base.toString()}/${segments.join('/')}`}), parse: value => ({toString: () => value})}, FileType: {File:1, Directory:2}, ViewColumn: {Beside: -2, Active: -1}, ConfigurationTarget: {Global: 1, WorkspaceFolder: 3},
-    window: {createOutputChannel: () => ({appendLine:line => diagnostics.push(line),dispose(){}}), createStatusBarItem: () => ({show() {}, hide() {}, dispose() {}}), activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column, options) => {panel.webview.options=options;created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: (message, _options, ...items) => {warnings.push(message); return Promise.resolve(items.includes('Allow images') && allowImages ? 'Allow images' : undefined);}, showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
+    window: {registerWebviewPanelSerializer: () => disposable, createOutputChannel: () => ({appendLine:line => diagnostics.push(line),dispose(){}}), createStatusBarItem: () => ({show() {}, hide() {}, dispose() {}}), activeTextEditor: noEditor ? undefined : {document}, createWebviewPanel: (type, title, column, options) => {panel.webview.options=options;created++; columns.push(column); return panel;}, showInformationMessage: message => info.push(message), showWarningMessage: (message, _options, ...items) => {warnings.push(message); return Promise.resolve(items.includes('Allow images') && allowImages ? 'Allow images' : undefined);}, showSaveDialog: async options => { dialogs.push(options); return cancelExport ? undefined : uri; }},
     env: {openExternal: async uri => external.push(uri.toString()), clipboard: {writeText: async text => {if(failCopy) throw new Error('Clipboard unavailable'); clipboard.push(text);}}},
     workspace: {
       isTrusted: workspaceTrusted,
       onDidGrantWorkspaceTrust: handler => {trustRegistrations++;trustListeners.add(handler);return {dispose:()=>trustListeners.delete(handler)};},
       onDidChangeWorkspaceFolders: handler => {handlers.folders=handler;return disposable;},
-      fs: {stat:async () => {if(missingReference) throw new Error('Missing'); return {type:1};}, writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
+      fs: {isWritableFileSystem: scheme => scheme === 'file' ? true : undefined, stat:async () => {if(missingReference) throw new Error('Missing'); return {type:1};}, writeFile: async (destination, bytes) => { if (failExport) throw new Error('Disk is read-only'); files.push({destination, text:Buffer.from(bytes).toString('utf8')}); }},
       openTextDocument: async () => {if(failOpen) throw new Error('File unavailable');return document;},
       getConfiguration: section => section === 'richMarkdownPreview' ? configuration : {get:(key, fallback) => (section === 'markdownLens' ? previous : legacy)[key] ?? fallback},
       getWorkspaceFolder: () => inWorkspace ? {uri} : undefined,
@@ -82,7 +82,7 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
   initializeVscode?.(vscode);
   const module = {exports: {}};
   const runtime = vm.createContext({
-    module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, URL, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
+    module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, URL, TextEncoder, TextDecoder, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
     require: name => name === 'vscode' ? vscode : require(name)
   });
   wireMessage = require('./vm-wire.cjs').wireParser(runtime);

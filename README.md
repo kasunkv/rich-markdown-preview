@@ -71,6 +71,12 @@ Use VS Code's Find while a preview is active to search rendered document text. D
 
 Filtering searches file paths, not document contents. Files in excluded folders can still be opened through a document link, but do not appear in the tree. VS Code's filesystem watcher exclusions can prevent automatic updates in some folders; use **Refresh** to rescan them.
 
+## Restore after a window reload
+
+Single-file previews and Documentation Home restore their current workspace document, recent reading position, table settings and disclosures after **Developer: Reload Window**. Documentation Home retains up to 20 nearby document visits for Back/Forward navigation. Reading and session context share a 64 KiB saved-state limit, so older detail can be discarded.
+
+Restoration checks the current workspace roots, provider availability and access policy again. Deleted or renamed files, removed workspace roots, unsupported old state, and unavailable or restricted providers show a recovery message. Standalone previews outside the current workspace require reopening the source with **Open in Rich Markdown Preview**; saved paths cannot authorize access to another folder. Local workspace previews remain available in Restricted Mode under its existing containment policy. External-image permissions continue to come from VS Code user storage.
+
 ## Make it yours
 
 Use the toolbar to change **Style**, **Appearance**, **Width**, **Text**, **Spacing**, and **Wrap code**. The **Outline** button toggles section navigation. Drag the Width slider or enter an exact value; the slider and pixel readout stay in sync and save when you commit the value. Text size and line spacing accept any value within their displayed ranges.
