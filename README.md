@@ -182,6 +182,12 @@ Rich Markdown Preview is available under the [MIT License](LICENSE).
 
 Both single-file previews and Documentation Home can load images inside the document’s active workspace folder, including sibling paths such as `../assets/diagram.svg`. Standalone documents can load images only from their own directory. Spaces and encoded filename characters are supported; URL queries and fragments remain separate from the file path. Missing images, traversal outside the allowed root, and symlinks that escape its canonical directory are blocked. Local images from remote or virtual filesystem providers are currently blocked; provider support is tracked separately.
 
+### Accessible reading
+
+VS Code high-contrast dark and light themes override the reading palette, including an explicit Light/Dark preview preference, so the editor's accessibility colors and focus border remain visible. Every Mermaid figure retains a keyboard-accessible **Diagram source** disclosure after rendering. Use Mermaid `accTitle` and `accDescr` to supply a descriptive diagram title and explanation; source remains available when a diagram has no authored description or cannot render. Tables retain column headers, keyboard sorting, and polite row-count announcements. The outline remains available in narrow reading layouts. Selecting an outline entry or document fragment moves keyboard focus to that content, and live refresh preserves the reading target.
+
+Automated contrast, axe, keyboard, reflow and reduced-motion checks complement manual screen-reader testing. The latter requires a representative VS Code installation and assistive technology; automated checks do not establish screen-reader usability by themselves.
+
 ### External image privacy
 
 Remote Markdown images are blocked by default in single-file previews and Documentation Home. Use **Allow images from https://…** beside a blocked image, then confirm in VS Code, to allow that exact HTTPS origin. Images use a `no-referrer` policy. HTTP, protocol-relative URLs, credentials, and malformed remote URLs cannot be granted. Local images continue to follow the local resource policy.

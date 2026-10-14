@@ -147,3 +147,58 @@ test('IPv6 origin limitation is visible and unsupported grant messages have no e
     expect(page.securityRequests).toEqual([]);
   }finally{await server.close();}
 });
+
+
+test('accessible diagram, privacy and documentation keyboard flows use exact production shell', async ({page}) => {
+  const server=await boot(page,['https://approved.test']);
+  const source='---\ntitle: Accessible reading\n---\n# Reading\n\n![Private](https://approved.test/image.png)\n\n```mermaid\nflowchart TD\naccTitle: Reading workflow\naccDescr: A reader opens the source alternative.\nReader-->Source\n```\n\n| Name | Count |\n|---|---|\n| Alpha | 1 |\n| Beta | 2 |';
+  try {
+    await render(page,source);
+    await expect(page.locator('.mermaid-result svg')).toHaveCount(1);
+    expect(await page.locator('html').getAttribute('lang')).toBe('en');
+    await expect(page.locator('.mermaid-result svg title')).toHaveText('Reading workflow');
+    await expect(page.locator('.mermaid-result svg desc')).toHaveText('A reader opens the source alternative.');
+    await page.evaluate(fs.readFileSync(require.resolve('axe-core/axe.min.js'),'utf8'));
+    for(const theme of ['vscode-high-contrast','vscode-high-contrast-light']) {
+      await page.evaluate(theme=>document.body.className=theme,theme);
+      for(const width of [640,320]) {
+        await page.setViewportSize({width,height:900});
+        const grant=page.locator('[data-external-image-action="grant"]').first();
+        await grant.focus(); await page.keyboard.press('Enter');
+        expect(await page.evaluate(()=>window.hostMessages.at(-1).type)).toBe('grantExternalImageOrigin');
+        await render(page,source,['https://approved.test']);
+        const revoke=page.locator('[data-external-image-action="revoke"]').first();
+        await revoke.focus(); await page.keyboard.press('Enter');
+        expect(await page.evaluate(()=>window.hostMessages.at(-1).type)).toBe('revokeExternalImageOrigin');
+        await render(page,source);
+        await expect(page.locator('.mermaid-result svg')).toHaveCount(1);
+        const summary=page.locator('.diagram-source summary');
+        await summary.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Tab');
+        expect(await page.evaluate(()=>document.activeElement.className)).toBe('mermaid-source');
+        await summary.focus(); await page.keyboard.press('Enter');
+        const reset=page.locator('.table-reset').first();
+        if(await reset.isEnabled()){await reset.focus();await page.keyboard.press('Enter');}
+        await page.locator('.table-sort').first().focus(); await page.keyboard.press('Enter');
+        await expect(page.locator('th').first()).toHaveAttribute('aria-sort','ascending');
+        const scan=await page.evaluate(async()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+        expect(scan.violations.map(v=>({id:v.id,impact:v.impact,targets:v.nodes.map(n=>n.target)}))).toEqual([]);
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+      }
+    }
+    const file={id:'file:///fixture/reading.md',root:'file:///fixture',rootName:'Fixture',path:'reading.md'};
+    await page.evaluate(file=>dispatchEvent(new MessageEvent('message',{data:{type:'documentation',files:[file],active:file.id,loading:false,canBack:false,canForward:false}})),file);
+    await page.evaluate(model=>dispatchEvent(new MessageEvent('message',{data:{type:'render',renderId:'accessibility_doc',...model,preferences:{style:'documentation',appearance:'auto',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false},documentationHome:true,documentId:'file:///fixture/reading.md'}})),renderMarkdown(source));
+    const filter=page.getByRole('searchbox',{name:'Filter documentation'});
+    await filter.fill('reading.md');
+    const entry=page.getByRole('button',{name:'reading.md',exact:true});
+    await entry.focus(); await page.keyboard.press('Enter');
+    expect(await page.evaluate(()=>window.hostMessages.at(-1))).toMatchObject({type:'documentationAction',action:'open',id:file.id});
+    await page.getByRole('button',{name:'On this page',exact:true}).focus(); await page.keyboard.press('Enter');
+    const heading=page.locator('#rmp-ui-outline a').first();
+    await heading.focus(); await page.keyboard.press('Enter');
+    expect(await page.evaluate(()=>document.activeElement.id)).toBe('rmp-heading-reading');
+    const scan=await page.evaluate(async()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+    expect(scan.violations.map(v=>({id:v.id,impact:v.impact,targets:v.nodes.map(n=>n.target)}))).toEqual([]);
+    expect(await page.evaluate(()=>window.policyViolations.filter(v=>v.directive!=='img-src'))).toEqual([]);
+  } finally {await server.close();}
+});

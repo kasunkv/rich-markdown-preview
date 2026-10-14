@@ -37,7 +37,16 @@ exports.proveResources = async function ({ workspace, checks }) {
           for (const page of context.pages())
             for (const frame of page.frames()) {
               try {
-                if (await frame.locator(selector).count()) return frame;
+                if (!(await frame.locator(selector).count()) || !(await frame.locator('#rmp-ui-app').isVisible())) continue;
+                let owner=frame, visible=true;
+                while(owner.parentFrame()) {
+                  const element=await owner.frameElement();
+                  try {
+                    if(!(await element.isVisible()) || await element.evaluate(el=>Boolean(el.closest('[aria-hidden="true"]')))) {visible=false;break;}
+                  } finally {await element.dispose();}
+                  owner=owner.parentFrame();
+                }
+                if(visible) return frame;
               } catch {}
             }
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -106,6 +115,7 @@ exports.proveResources = async function ({ workspace, checks }) {
       for (const page of context.pages()) await page.emulateMedia({ reducedMotion: 'reduce' });
     if (process.env.RICH_MARKDOWN_PREVIEW_PRIVACY_HOST === '1') await require('./privacy-realhost.cjs').proveExternalImages({ vscode, browser, workspace, findFrame, checks });
     await require('./navigation-host.cjs').proveNavigation({ vscode, workspace, findFrame, checks });
+    await require('./accessibility-host.cjs').proveAccessibility({vscode,browser,workspace,findFrame,checks});
   } finally {
     await browser.close();
   }

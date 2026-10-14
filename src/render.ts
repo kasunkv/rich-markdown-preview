@@ -220,9 +220,9 @@ export function renderMarkdown(
     if (language === 'mermaid' && token.content.length > renderLimits.diagramCharacters)
       return '<figure class="diagram"><p class="diagram-error">This Mermaid diagram exceeds the supported limit of 20,000 characters. Open the source to read it.</p></figure>';
     if (language === 'mermaid' && hasInternalDiagramResource(token.content, md.utils.unescapeAll))
-      return `<figure class="diagram"><p class="diagram-error">This diagram contains unsupported internal preview resource URLs or ambiguous URL escapes. Use ordinary Markdown images, data images, or an explicitly allowed HTTPS origin.</p><pre><code>${md.utils.escapeHtml(token.content)}</code></pre></figure>`;
+      return `<figure class="diagram" aria-label="Mermaid diagram source"><figcaption class="diagram-label">Mermaid diagram</figcaption><p class="diagram-error">This diagram contains unsupported internal preview resource URLs or ambiguous URL escapes. Use ordinary Markdown images, data images, or an explicitly allowed HTTPS origin.</p><details class="diagram-source" open><summary>Diagram source</summary><pre class="diagram-disabled-source" tabindex="0"><code>${md.utils.escapeHtml(token.content)}</code></pre></details></figure>`;
     if (language === 'mermaid')
-      return `<figure class="diagram"><div class="diagram-label">Mermaid diagram</div><pre class="mermaid-source">${md.utils.escapeHtml(token.content)}</pre></figure>`;
+      return `<figure class="diagram" aria-label="Mermaid diagram"><figcaption class="diagram-label">Mermaid diagram</figcaption><details class="diagram-source"><summary>Diagram source</summary><pre class="mermaid-source" tabindex="0">${md.utils.escapeHtml(token.content)}</pre></details></figure>`;
     const code =
       language && hljs.getLanguage(language)
         ? hljs.highlight(token.content, { language, ignoreIllegals: true }).value

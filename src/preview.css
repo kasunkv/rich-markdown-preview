@@ -308,5 +308,43 @@ body:not(:is([data-appearance="dark"],[data-appearance="auto"].vscode-dark,[data
 body:not(:is([data-appearance="dark"],[data-appearance="auto"].vscode-dark,[data-appearance="auto"].vscode-high-contrast)) .markdown blockquote.markdown-alert-warning { --alert-color:#7e520c; }
 body:not(:is([data-appearance="dark"],[data-appearance="auto"].vscode-dark,[data-appearance="auto"].vscode-high-contrast)) .markdown blockquote.markdown-alert-caution { --alert-color:#a03732; }
 body:not(:is([data-appearance="dark"],[data-appearance="auto"].vscode-dark,[data-appearance="auto"].vscode-high-contrast)) .diagram-error { color:#a13e25; }
+
+/* Accessibility palettes take precedence over appearance and decorative presets.
+   VS Code supplies user-selected high-contrast colors; standalone fixtures use
+   the same distinct dark/light fallbacks. */
+body.vscode-high-contrast[data-style][data-appearance] {
+  --bg:var(--vscode-editor-background,#000000); --surface:var(--vscode-editor-background,#000000);
+  --code:var(--vscode-editor-background,#000000); --text:var(--vscode-editor-foreground,#ffffff);
+  --muted:var(--vscode-editor-foreground,#ffffff); --accent:var(--vscode-textLink-foreground,#ffff00);
+  --border:var(--vscode-contrastBorder,#ffffff); --focus:var(--vscode-focusBorder,#ffff00);
+  --syntax-keyword:var(--text); --syntax-string:var(--text); --syntax-number:var(--text); color-scheme:dark;
+}
+body.vscode-high-contrast-light[data-style][data-appearance] {
+  --bg:var(--vscode-editor-background,#ffffff); --surface:var(--vscode-editor-background,#ffffff);
+  --code:var(--vscode-editor-background,#ffffff); --text:var(--vscode-editor-foreground,#000000);
+  --muted:var(--vscode-editor-foreground,#000000); --accent:var(--vscode-textLink-foreground,#0000aa);
+  --border:var(--vscode-contrastBorder,#000000); --focus:var(--vscode-focusBorder,#0000aa);
+  --syntax-keyword:var(--text); --syntax-string:var(--text); --syntax-number:var(--text); color-scheme:light;
+}
+body:is(.vscode-high-contrast,.vscode-high-contrast-light)[data-style][data-appearance] .markdown blockquote.markdown-alert { --alert-color:var(--accent); }
+body:is(.vscode-high-contrast,.vscode-high-contrast-light)[data-style][data-appearance] .diagram-error { color:var(--text); }
+body:is(.vscode-high-contrast,.vscode-high-contrast-light) .markdown mark { color:var(--bg); background:var(--text); }
+body :is(button,select,input[type="number"],input[type="search"],.table-search) { border-color:var(--control-border,color-mix(in srgb,var(--muted) 80%,var(--surface))); }
+body:is(.vscode-high-contrast,.vscode-high-contrast-light) :is(button,select,input[type="number"],input[type="search"],.table-search) { border-color:var(--border); }
+body :focus-visible { outline:3px solid var(--focus,var(--accent)); outline-offset:3px; }
+.diagram-source > summary { cursor:pointer; color:var(--accent); margin-top:1em; }
+.diagram-source pre { overflow-wrap:anywhere; }
+@media(max-width:850px) {
+  .layout { flex-direction:column; }
+  body:not(.hide-outline) .outline { display:block; position:static; width:100%; max-height:180px; }
+}
+@media(max-width:400px) {
+  .toolbar { position:static; }
+  .controls label { flex-wrap:wrap; }
+  .diagram { padding:12px; }
+}
+
+body .markdown .table-sort:focus-visible { outline-color:var(--bg); }
+
 .external-image-blocked { display:inline-block; padding:.5em .65em; border:1px solid var(--border); border-radius:6px; background:var(--code); font-family:var(--vscode-font-family,system-ui,sans-serif); font-size:.9em; font-weight:400; }
 .external-image-action { margin:.25em .35em; overflow-wrap:anywhere; text-align:left; }
