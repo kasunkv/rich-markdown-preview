@@ -58,13 +58,14 @@ export function renderMarkdown(
   source: string,
   imageUri: (src: string) => string = (src) => src,
   externalImages: { grants?: ReadonlySet<string>; enabled?: boolean } = {},
+  outlineOnly = false,
 ) {
   if (source.length > renderLimits.sourceCharacters)
     return renderLimitFailure(
       'This document exceeds the supported preview limit of 2,000,000 characters. Open the source to read it.',
     );
   let lines = 1;
-  for (const character of source) {
+  for (const character of outlineOnly ? [] : source) {
     if (character === '\n' && ++lines > renderLimits.sourceLines)
       return renderLimitFailure(
         'The rendered content exceeds the supported preview limit of 25,000 source lines. Read the complete source in the editor, or split it into smaller Markdown documents to resume preview.',
@@ -246,6 +247,13 @@ export function renderMarkdown(
     return `<div class="code-block">${notice}<div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
   const tokens = md.parse(frontmatter.body, {});
+  if (outlineOnly) {
+    for (let index = 0; index < tokens.length; index++) {
+      if (tokens[index].type === 'heading_open')
+        md.renderer.rules.heading_open!(tokens, index, md.options, {}, md.renderer);
+    }
+    return boundRenderedModel({ html: '', outline, references: [], externalImageOrigins: [] });
+  }
   let tokenCount = 0;
   const pendingTokens = [...tokens];
   while (pendingTokens.length) {
@@ -276,4 +284,9 @@ export function renderMarkdown(
     references,
     externalImageOrigins: [...externalImageOrigins],
   });
+}
+
+/** Source navigation must retain heading intent even when the preview body exceeds its DOM budgets. */
+export function renderMarkdownOutline(source: string): OutlineItem[] {
+  return renderMarkdown(source, undefined, {}, true).outline;
 }

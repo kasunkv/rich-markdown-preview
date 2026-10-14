@@ -11,9 +11,19 @@ export function isolateDiagramSvg(svg: string, prefix: string): SVGSVGElement | 
   const identities = new Map<string, string>();
   for (const element of elements) {
     if (
-      ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'animate', 'set'].includes(
-        element.localName.toLowerCase(),
-      )
+      [
+        'script',
+        'iframe',
+        'object',
+        'embed',
+        'form',
+        'input',
+        'button',
+        'animate',
+        'animatemotion',
+        'animatetransform',
+        'set',
+      ].includes(element.localName.toLowerCase())
     )
       return undefined;
     for (const attribute of element.attributes) {
@@ -45,8 +55,8 @@ export function isolateDiagramSvg(svg: string, prefix: string): SVGSVGElement | 
   const sheets = new Map<Element, CSSStyleSheet>();
   const scope = (rules: CSSRuleList): boolean =>
     [...rules].every((rule) => {
-      if (rule instanceof CSSStyleRule)
-        return rule.selectorText.split(',').every((selector) => {
+      if (rule instanceof CSSStyleRule) {
+        const valid = rule.selectorText.split(',').every((selector) => {
           const value = selector.trim();
           const anchor = '#' + root.id;
           return (
@@ -55,6 +65,12 @@ export function isolateDiagramSvg(svg: string, prefix: string): SVGSVGElement | 
             (value === anchor || (value.startsWith(anchor) && /^[\s:.>+~[]/.test(value.slice(anchor.length))))
           );
         });
+        if (valid)
+          rule.selectorText = rule.selectorText.replace(/#([a-z\d_-]+)/gi, (reference, identity: string) =>
+            identities.has(identity) ? '#' + identities.get(identity) : reference,
+          );
+        return valid;
+      }
       if (rule instanceof CSSKeyframesRule) {
         if (!/^[a-z_][a-z\d_-]*$/i.test(rule.name)) return false;
         const previous = rule.name;
@@ -94,8 +110,9 @@ export function isolateDiagramSvg(svg: string, prefix: string): SVGSVGElement | 
   };
   for (const sheet of sheets.values()) updateAnimations(sheet.cssRules);
   const rewrite = (value: string) =>
-    value.replace(/#([a-z\d_:-]+)/gi, (reference, identity: string) =>
-      identities.has(identity) ? '#' + identities.get(identity) : reference,
+    value.replace(
+      /url\(\s*(['"]?)#([^'"\s)]+)['"]?\s*\)/gi,
+      (_reference, _quote: string, identity: string) => `url(#${identities.get(identity)})`,
     );
   for (const element of elements) {
     for (const attribute of [...element.attributes]) {
@@ -118,7 +135,12 @@ export function isolateDiagramSvg(svg: string, prefix: string): SVGSVGElement | 
           !identities.has(attribute.value.slice(1))
         )
           return undefined;
-        element.setAttribute(attribute.name, rewrite(attribute.value));
+        element.setAttribute(
+          attribute.name,
+          ['href', 'xlink:href'].includes(attribute.name) && attribute.value.startsWith('#')
+            ? '#' + identities.get(attribute.value.slice(1))
+            : rewrite(attribute.value),
+        );
       }
     }
     if (element.localName === 'style')

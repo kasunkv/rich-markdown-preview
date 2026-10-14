@@ -35,3 +35,11 @@ test('missing, malformed and DocFX line fragments produce actionable outcomes', 
     assert.match(fragmentWarning(resolveSourceFragment('', fragment)), /not found/);
   }
 });
+
+test('preview overflow does not lose source heading intent or authorize resources during outline lookup',()=>{
+ const {renderMarkdown,renderMarkdownOutline}=require('../dist/render.cjs');
+ for(const source of ['| A |\n| --- |\n'+'| row |\n'.repeat(10000)+'\n# Target', '```mermaid\ngraph TD; A-->B\n```\n\n'.repeat(21)+'# Target', 'line\n'.repeat(25001)+'\n# Target', '![local](a.png) '.repeat(50001)+'\n\n# Target']) {
+  assert.match(renderMarkdown(source).html,/role="alert"/);const result=resolveSourceFragment(source,'target');assert.equal(result.kind,'heading');assert.equal(source.split('\n')[result.line],'# Target');
+ }
+ const outline=renderMarkdownOutline('# ![Architecture](private.svg)\n\n```js\nconst value=1;\n```');assert.equal(outline[0].text,'Architecture');assert.equal(renderMarkdownOutline('x'.repeat(2000001)).length,0);
+});

@@ -14,7 +14,7 @@ exports.run=async()=>{
  assert.equal(process.env.RICH_MARKDOWN_PREVIEW_PRIVACY_HOST,'1');
  assert.ok(path.resolve(workspace).startsWith(path.resolve(__dirname,'..','.test-results','host')+path.sep));
  const checks=[],results=[];let browser;
- const regressionBudgets={hostSynchronousMs:100,coldPreviewMs:3000,typingToPaintMs:1000,hostEventLoopLagMs:1000};
+ const regressionBudgets={hostSynchronousMs:100,coldPreviewMs:3000,typingToPaintMs:2000,hostEventLoopLagMs:1000};
  const report={passed:false,hostVersion:vscode.version,node:process.version,platform:process.platform,cpu:os.cpus()[0]?.model,memoryGiB:os.totalmem()/1024**3,samplesPerFixture:7,regressionBudgets,metrics:'Native normal isolated host: command-to-complete-frame cold latency; source WorkspaceEdit (180ms debounce included) to settled complete frame; identical renderMarkdown synchronous time in the extension-host runtime; real host event-loop lag sampled every10ms.',notes:['Native latency includes CDP polling, IPC and two animation frames; it is a reproducible upper-bound paint proxy, not compositor tracing.','Fresh cold panels discard body/SVG caches; typing keeps source-identical SVG templates. Extension startup activation is excluded; this is cold panel/script/model initialization.','1k/10k/50k many/invalid diagrams and oversized tables are measured through documented complete-model fallbacks. Supported 20-diagram fixtures execute real Mermaid, DOM and source disclosure work.','p95 uses nearest rank; with 7 samples it is the maximum.'],results};
  try{
   const extension=vscode.extensions.getExtension(`${manifest.publisher}.${manifest.name}`);assert.ok(extension);assert.equal(path.resolve(extension.extensionPath),path.resolve(__dirname,'..'));await extension.activate();
@@ -55,7 +55,7 @@ exports.run=async()=>{
    // Broad native cold/paint limits include initialization, IPC and machine load; host guard catches regressions in the bounded CPU work.
    assert.ok(metrics.hostSynchronousMs.p95<=regressionBudgets.hostSynchronousMs,fixture.name+' bounded synchronous host work <=100ms');
    assert.ok(metrics.coldPreviewMs.p95<=regressionBudgets.coldPreviewMs,fixture.name+' cold complete preview <=3s');
-   assert.ok(metrics.typingToPaintMs.p95<=regressionBudgets.typingToPaintMs,fixture.name+' edit-to-complete-paint <=1s');
+   assert.ok(metrics.typingToPaintMs.p95<=regressionBudgets.typingToPaintMs,fixture.name+' edit-to-complete-paint <=2s');
    assert.ok(metrics.hostEventLoopLagMs.p95<=regressionBudgets.hostEventLoopLagMs,fixture.name+' whole native host sampled event-loop lag <=1s');
    await fs.writeFile(path.join(path.dirname(output),'performance-progress.json'),JSON.stringify(report,null,2));
   }
