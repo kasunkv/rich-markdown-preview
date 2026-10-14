@@ -75,7 +75,7 @@ exports.proveAccessibility = async ({vscode, browser, workspace, findFrame, chec
         assert.ok(homeGeometry.scrollWidth<=homeGeometry.width+1,'Native Documentation Home reflow');
         observations.at(-1).documentationKeyboard={treeSelection:true,outlineHeadingFocus:true,geometry:homeGeometry};
         if(scale===4 && kind===vscode.ColorThemeKind.HighContrastLight && process.env.RICH_MARKDOWN_PREVIEW_PRIVACY_HOST==='1') {
-          await require('./privacy-realhost.cjs').proveExternalImages({vscode,browser,workspace,findFrame,checks});
+          await require('./privacy-realhost.cjs').proveNativeZoomImageControls({vscode,browser,workspace,findFrame,checks});
           observations.at(-1).nativePrivacyKeyboard=true;
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');

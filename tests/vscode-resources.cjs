@@ -37,7 +37,16 @@ exports.proveResources = async function ({ workspace, checks }) {
           for (const page of context.pages())
             for (const frame of page.frames()) {
               try {
-                if (await frame.locator(selector).count()) return frame;
+                if (!(await frame.locator(selector).count()) || !(await frame.locator('#rmp-ui-app').isVisible())) continue;
+                let owner=frame, visible=true;
+                while(owner.parentFrame()) {
+                  const element=await owner.frameElement();
+                  try {
+                    if(!(await element.isVisible()) || await element.evaluate(el=>Boolean(el.closest('[aria-hidden="true"]')))) {visible=false;break;}
+                  } finally {await element.dispose();}
+                  owner=owner.parentFrame();
+                }
+                if(visible) return frame;
               } catch {}
             }
         await new Promise((resolve) => setTimeout(resolve, 100));
