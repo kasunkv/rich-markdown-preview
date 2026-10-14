@@ -372,7 +372,7 @@ async function renderDiagrams(version: number) {
     const text = diagramSources.get(figure);
     if (text === undefined) continue;
     try {
-      const key = diagramRenderKey(text, themeKey, 'strict-mermaid11-svg-v1');
+      const key = diagramRenderKey(text, themeKey, 'strict-mermaid11-svg-v2');
       let svg = diagramCache.get(key);
       if (!svg) {
         const rendered = await mermaid.render(`diagram-${++diagramSequence}`, text);
@@ -627,3 +627,4 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', () => flushScrollState());
 vscode.postMessage({ type: 'ready' });
+
