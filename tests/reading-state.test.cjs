@@ -141,3 +141,39 @@ test('a structured-cloned state may share table objects without being cyclic', (
     tables, documents: { 'file:///guide.md': { scroll: 20, tables } } });
   assert.equal(state.documents['file:///guide.md'].tables.first.query, 'guide');
 });
+
+test('the byte cap evicts oldest bulky visits while preserving the active reading context', () => {
+  const documents = Object.fromEntries(Array.from({ length: 24 }, (_, index) => [`file:///chapter${index}.md`, {
+    scroll: index * 100, tables: { search: { query: '界'.repeat(4000), column: 0, direction: 'none', density: 'compact' } },
+  }]));
+  const state = boundReadingState({ readingStateVersion: 1, documentId: 'file:///chapter23.md',
+    documents, documentOrder: Object.keys(documents), scroll: 2300 });
+  assert.ok(size(state) <= readingStateLimits.bytes);
+  assert.equal(state.documents['file:///chapter23.md'].scroll, 2300);
+  assert.equal(state.documents['file:///chapter0.md'], undefined);
+  assert.ok(state.documentOrder.length < 24);
+});
+
+test('extreme active URI length keeps top-level scroll after optional context is exhausted', () => {
+  const target = `file:///${'界'.repeat(8180)}`;
+  const state = restoreReadingState({ readingStateVersion: 1, documentId: target, scroll: 480,
+    documents: { [target]: { scroll: 480 } }, documentOrder: [target],
+    documentation: { filter: '界'.repeat(2500) }, permissionFocus: { key: '界'.repeat(8000), documentId: target },
+    session: { version: 1, kind: 'preview', target, workspaceRoot: target, history: [target], cursor: 0 } });
+  assert.ok(size(state) <= readingStateLimits.bytes);
+  assert.equal(state.documentId, target);
+  assert.equal(state.scroll, 480);
+  assert.equal(state.documents[target], undefined);
+});
+
+test('malformed session metadata and cyclic restored maps fall back without navigation authority', () => {
+  const empty = { readingStateVersion: 1, documents: {}, documentOrder: [] };
+  const cyclic = { documents: {} }; cyclic.documents.self = cyclic;
+  assert.deepEqual(restoreReadingState(cyclic), empty);
+  const reading = { readingStateVersion: 1, documents: {}, documentOrder: [] };
+  assert.equal(restoreReadingState({ ...reading, session: null }).session, undefined);
+  assert.equal(restoreReadingState({ ...reading, session: { version: 1, kind: 'preview', target: 'file:///a.md',
+    history: ['file:///b.md'], cursor: 0 } }).session, undefined);
+  assert.equal(restoreReadingState({ ...reading, session: { version: 1, kind: 'preview', target: 'file:///a.md',
+    history: ['file:///a.md'], cursor: 2 } }).session, undefined);
+});

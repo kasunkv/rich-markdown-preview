@@ -61,9 +61,36 @@ test('long reading sessions bound saved bytes and scroll writes without losing n
     window.dispatchEvent(new Event('pagehide'));
   });
   assert.equal(await page.evaluate(() => window.savedReading().scroll), 700);
+  await page.evaluate(() => {
+    window.scrollTo(0, 500);
+    window.dispatchEvent(new Event('scroll'));
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    delete document.hidden;
+  });
+  assert.equal(await page.evaluate(() => window.savedReading().scroll), 500);
   await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
     type: 'documentation', files: [{ id: 'file:///docs/next.md', root: 'file:///docs', rootName: 'docs', path: 'next.md' }],
     active: 'file:///docs/next.md', loading: false, canBack: false, canForward: false,
   } })));
   assert.deepEqual(await page.evaluate(() => Object.keys(window.savedReading().documents)), ['file:///docs/next.md']);
+  await page.evaluate(() => {
+    const files = Array.from({ length: 140 }, (_, index) => ({ id: `file:///docs/folder${index}/a.md`,
+      root: 'file:///docs', rootName: 'docs', path: `folder${index}/a.md` }));
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'documentation', files,
+      loading: false, canBack: false, canForward: false } }));
+    for (const details of document.querySelectorAll('.documentation-folder')) {
+      details.open = true;
+      details.dispatchEvent(new Event('toggle'));
+    }
+  });
+  assert.ok((await page.evaluate(() => window.savedReading().documentation.expanded.length)) <= 128);
+  await page.getByRole('searchbox', { name: 'Filter documentation' }).fill('x'.repeat(700));
+  assert.equal(await page.evaluate(() => window.savedReading().documentation.filter.length), 512);
+  await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+    type: 'documentation', files: [{ id: 'file:///docs/folder139/a.md', root: 'file:///docs',
+      rootName: 'docs', path: 'folder139/a.md' }], loading: false, canBack: false, canForward: false,
+  } })));
+  assert.ok(await page.evaluate(() => window.savedReading().documentation.expanded.every(key =>
+    key === 'file:///docs' || key === 'file:///docs/folder139')));
 });
