@@ -40,6 +40,21 @@ export const readingStateLimits = {
   restoredHistory: 20,
 } as const;
 
+/** Serialized URI identity retains scheme and authority; the slash prevents sibling-root matches. */
+export function documentInWorkspaceRoots(id: string, roots: readonly string[]): boolean {
+  if (id === 'home') return true;
+  const drive = (value: string) =>
+    value.replace(
+      /^(file:\/\/\/)([a-zA-Z])(?:%3[Aa]|:)(?=\/|$)/,
+      (_match, prefix: string, letter: string) => `${prefix}${letter.toLowerCase()}:`,
+    );
+  const target = drive(id);
+  return roots.some((root) => {
+    const current = drive(root);
+    return target === current || target.startsWith(current.endsWith('/') ? current : `${current}/`);
+  });
+}
+
 const own = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
 const safeKey = (key: string) =>
   key !== '__proto__' && key !== 'constructor' && key !== 'prototype' && key.length <= readingStateLimits.keyLength;

@@ -81,10 +81,14 @@ function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, im
       getWorkspaceFolder: target => vscode.workspace.workspaceFolders.find(folder => target.path === folder.uri.path || target.path.startsWith(folder.uri.path + '/')),
       getConfiguration: (section, target) => ({get: (key, fallback) => section === 'richMarkdownPreview' ? settings[`${target?.path}:${key}`] ?? settings[key] ?? fallback : fallback, inspect: () => ({})}),
       openTextDocument: async target => {reads.push(target.path); return getDocument(target);},
-      fs: { isWritableFileSystem: scheme => scheme === 'file' ? true : undefined, stat: async target => {if (!files.has(target.path)) throw new Error('Missing file'); return {type: 1};} },
+      fs: { isWritableFileSystem: scheme => scheme === 'file' ? true : undefined, stat: async target => {
+        if (files.has(target.path)) return {type: 1};
+        if ([...files.keys()].some(file => file.startsWith(target.path + '/'))) return {type: 2};
+        throw new Error('Missing file');
+      } },
       findFiles: async (include, exclude, max, token) => {
-        queries.push({include, exclude, token});
-        return [...files.keys()].filter(file => file.startsWith(include.baseUri.path + '/') && minimatch(file.slice(include.baseUri.path.length + 1), include.pattern, {dot: true}) && (!exclude || !minimatch(file, exclude, {dot: true}))).map(uri);
+        queries.push({include, exclude, max, token});
+        return [...files.keys()].filter(file => file.startsWith(include.baseUri.path + '/') && minimatch(file.slice(include.baseUri.path.length + 1), include.pattern, {dot: true}) && (!exclude || !minimatch(file, exclude, {dot: true}))).slice(0, max).map(uri);
       },
       createFileSystemWatcher: pattern => {
         const create = event(), remove = event(), change = event();

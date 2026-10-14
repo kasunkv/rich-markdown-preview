@@ -1,6 +1,6 @@
 import type { WebviewCommand, DocumentationAction, HostMessage } from './messages';
 import type { DocumentationFile } from './documentation';
-import { readingStateLimits } from './reading-state';
+import { documentInWorkspaceRoots, readingStateLimits } from './reading-state';
 
 export interface DocumentationViewState {
   expanded?: string[];
@@ -18,13 +18,18 @@ interface Folder {
   key: string;
   folders: Map<string, Folder>;
   files: DocumentationFile[];
+  count: number;
 }
+const visibleBatch = 100;
+const maxSavedFolders = 10;
 
 export function documentationView(vscode: Bridge, content: HTMLElement) {
   let enabled = false;
   let data: IndexMessage = { files: [], loading: true, canBack: false, canForward: false };
+  let homeRoots = new Map<string, Folder>();
+  let homeSnapshot: number | undefined;
   const saved = vscode.getState()?.documentation;
-  const expanded = new Set(saved?.expanded ?? []);
+  const expanded = new Set((saved?.expanded ?? []).slice(-maxSavedFolders));
   let filter = saved?.filter ?? '';
   let showOutline = saved?.outline ?? false;
   let previousActive: string | undefined;
@@ -34,7 +39,8 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
   const send = (action: DocumentationAction, id?: string) =>
     vscode.postMessage({ type: 'documentationAction', action, id });
   const save = () => {
-    while (expanded.size > readingStateLimits.expandedDirectories) expanded.delete(expanded.values().next().value!);
+    while (expanded.size > Math.min(readingStateLimits.expandedDirectories, maxSavedFolders))
+      expanded.delete(expanded.values().next().value!);
     vscode.setState({ ...vscode.getState(), documentation: { expanded: [...expanded], filter, outline: showOutline } });
   };
   const button = (label: string, action: () => void) => {
@@ -117,16 +123,19 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
     for (const file of files) {
       let root = roots.get(file.root);
       if (!root) {
-        root = { name: file.rootName, key: file.root, folders: new Map(), files: [] };
+        root = { name: file.rootName, key: file.root, folders: new Map(), files: [], count: 0 };
         roots.set(file.root, root);
       }
       const parts = file.path.split('/');
       parts.pop();
       let folder = root;
+      folder.count++;
       for (const part of parts) {
         const key = `${folder.key}/${part}`;
-        if (!folder.folders.has(part)) folder.folders.set(part, { name: part, key, folders: new Map(), files: [] });
+        if (!folder.folders.has(part))
+          folder.folders.set(part, { name: part, key, folders: new Map(), files: [], count: 0 });
         folder = folder.folders.get(part)!;
+        folder.count++;
       }
       folder.files.push(file);
     }
@@ -138,13 +147,29 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
     const scroll = sidebar.scrollTop;
     const query = filter.trim().toLocaleLowerCase();
     const files = data.files.filter((file) => `${file.rootName}/${file.path}`.toLocaleLowerCase().includes(query));
+    const activeFolders = new Set<string>();
+    const active = files.find((file) => file.id === data.active);
+    if (active) {
+      let key = active.root;
+      activeFolders.add(key);
+      for (const part of active.path.split('/').slice(0, -1)) {
+        key += `/${part}`;
+        activeFolders.add(key);
+      }
+    }
     tree.replaceChildren();
     notice.textContent =
-      data.error ?? (data.loading ? 'Finding Markdown files…' : `${files.length} of ${data.files.length} documents`);
+      data.error ??
+      (data.loading
+        ? 'Finding Markdown files…'
+        : `${files.length} of ${data.files.length} indexed documents${data.truncated ? ' — result limit reached; refine the include setting to find other documents' : data.complete === false ? ' — some provider documents are unavailable; check workspace trust and access' : ''}`);
     const renderFolder = (folder: Folder, parent: HTMLElement, root = false) => {
       const details = document.createElement('details');
       details.className = 'documentation-folder';
-      details.open = !!query || expanded.has(folder.key) || (root && !expanded.has(`closed:${folder.key}`));
+      details.open =
+        activeFolders.has(folder.key) ||
+        (root && (!!query || !expanded.has(`closed:${folder.key}`))) ||
+        (!root && (expanded.has(folder.key) || (!!query && files.length <= visibleBatch)));
       const summary = document.createElement('summary');
       summary.textContent = folder.name;
       summary.dataset.key = folder.key;
@@ -164,21 +189,56 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
       const children = document.createElement('div');
       children.className = 'documentation-children';
       details.append(children);
-      for (const child of [...folder.folders.values()].sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { numeric: true }),
-      ))
-        renderFolder(child, children);
-      for (const file of folder.files) {
-        const link = button(file.path.split('/').pop()!, () => send('open', file.id));
-        link.className = 'documentation-file';
-        link.dataset.key = file.id;
-        link.title = file.path;
-        if (file.id === data.active) link.setAttribute('aria-current', 'page');
-        children.append(link);
-      }
+      let shown = 0;
+      let populated = false;
+      const folders = [...folder.folders.values()].sort(
+        (a, b) =>
+          Number(activeFolders.has(b.key)) - Number(activeFolders.has(a.key)) ||
+          a.name.localeCompare(b.name, undefined, { numeric: true }),
+      );
+      const selected = folder.files.find((file) => file.id === data.active);
+      const entries: (Folder | DocumentationFile)[] = selected
+        ? [selected, ...folders, ...folder.files.filter((file) => file !== selected)]
+        : [...folders, ...folder.files];
+      const total = entries.length;
+      const appendBatch = () => {
+        const pagingButtonFocused = document.activeElement === more;
+        const end = Math.min(shown + visibleBatch, total);
+        for (; shown < end; shown++) {
+          const entry = entries[shown];
+          if ('folders' in entry) {
+            renderFolder(entry, children);
+          } else {
+            const file = entry;
+            const link = button(file.path.split('/').pop()!, () => send('open', file.id));
+            link.className = 'documentation-file';
+            link.dataset.key = file.id;
+            link.title = file.path;
+            if (file.id === data.active) link.setAttribute('aria-current', 'page');
+            children.append(link);
+          }
+        }
+        more?.remove();
+        if (shown < total) {
+          more = button(`Show more (${total - shown} remaining)`, appendBatch);
+          more.className = 'documentation-more';
+          children.append(more);
+        }
+        if (pagingButtonFocused) (more?.isConnected ? more : (children.lastElementChild as HTMLElement))?.focus();
+      };
+      let more: HTMLButtonElement | undefined;
+      const populate = () => {
+        if (populated) return;
+        populated = true;
+        appendBatch();
+      };
+      if (details.open) populate();
+      details.addEventListener('toggle', () => {
+        if (details.open) populate();
+      });
       parent.append(details);
     };
-    for (const root of buildTree(files).values()) renderFolder(root, tree, true);
+    for (const root of (query ? buildTree(files) : homeRoots).values()) renderFolder(root, tree, true);
     if (!files.length && !data.loading) {
       const empty = document.createElement('p');
       empty.textContent = query
@@ -213,19 +273,22 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
     }
     const grid = document.createElement('div');
     grid.className = 'documentation-cards';
-    for (const root of buildTree(data.files).values()) {
+    for (const root of homeRoots.values()) {
       const group = document.createElement('section');
       const heading = document.createElement('h2');
       heading.textContent = root.name;
       group.append(heading);
       const readme = root.files.find((file) => /^readme\.(md|markdown)$/i.test(file.path));
       if (readme) group.append(button('Read README', () => send('open', readme.id)));
-      for (const file of root.files.filter((file) => file !== readme))
+      for (const file of root.files.filter((file) => file !== readme).slice(0, visibleBatch))
         group.append(button(file.path, () => send('open', file.id)));
-      for (const folder of root.folders.values()) {
-        const count = data.files.filter(
-          (file) => file.root === root.key && file.path.startsWith(`${folder.name}/`),
-        ).length;
+      if (root.files.length > visibleBatch) {
+        const hint = document.createElement('p');
+        hint.textContent = `Showing the first ${visibleBatch} root documents. Use the navigation to browse more.`;
+        group.append(hint);
+      }
+      for (const folder of [...root.folders.values()].slice(0, visibleBatch)) {
+        const count = folder.count;
         group.append(
           button(`${folder.name}/ · ${count} document${count === 1 ? '' : 's'}`, () => {
             filter = `${root.name}/${folder.name}/`.slice(0, readingStateLimits.filterLength);
@@ -236,6 +299,11 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
             search.focus();
           }),
         );
+      }
+      if (root.folders.size > visibleBatch) {
+        const hint = document.createElement('p');
+        hint.textContent = `Showing the first ${visibleBatch} folders. Use the navigation to browse more.`;
+        group.append(hint);
       }
       grid.append(group);
     }
@@ -248,21 +316,30 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
       data = message;
       if (!data.loading && !data.error) {
         const directories = new Set<string>();
-        for (const file of data.files) {
-          let key = file.root;
-          directories.add(key);
-          for (const part of file.path.split('/').slice(0, -1)) {
-            key += `/${part}`;
+        if (!data.truncated && data.complete !== false) {
+          for (const file of data.files) {
+            let key = file.root;
             directories.add(key);
+            for (const part of file.path.split('/').slice(0, -1)) {
+              key += `/${part}`;
+              directories.add(key);
+            }
           }
         }
         let pruned = false;
         for (const key of expanded) {
-          if (directories.has(key.replace(/^closed:/, ''))) continue;
+          const id = key.replace(/^closed:/, '');
+          if (data.truncated || data.complete === false) {
+            if (!data.roots || documentInWorkspaceRoots(id, data.roots)) continue;
+          } else if (directories.has(id)) continue;
           expanded.delete(key);
           pruned = true;
         }
         if (pruned) save();
+      }
+      if (message.snapshot === undefined || homeSnapshot !== message.snapshot) {
+        homeRoots = buildTree(data.files);
+        homeSnapshot = message.snapshot;
       }
       back.disabled = !data.canBack;
       forward.disabled = !data.canForward;

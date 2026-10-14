@@ -54,7 +54,11 @@ export type HostMessage =
   | {
       type: 'documentation';
       files: DocumentationFile[];
+      roots?: string[];
+      snapshot?: number;
       loading: boolean;
+      truncated?: boolean;
+      complete?: boolean;
       error?: string;
       active?: string;
       canBack: boolean;
@@ -281,11 +285,16 @@ export function validateHostMessage(value: unknown): value is HostMessage {
     case 'documentation':
       return (
         Array.isArray(value.files) &&
-        value.files.length <= messageLimits.items &&
+        (value.roots === undefined ||
+          (Array.isArray(value.roots) && value.roots.length <= 1024 && value.roots.every(id))) &&
+        (value.snapshot === undefined || (Number.isSafeInteger(value.snapshot) && (value.snapshot as number) >= 0)) &&
+        value.files.length <= 10000 &&
         value.files.every(
           (file) => plainRecord(file) && ['id', 'root', 'rootName', 'path'].every((key) => id(file[key])),
         ) &&
         typeof value.loading === 'boolean' &&
+        (value.truncated === undefined || typeof value.truncated === 'boolean') &&
+        (value.complete === undefined || typeof value.complete === 'boolean') &&
         typeof value.canBack === 'boolean' &&
         typeof value.canForward === 'boolean' &&
         (value.active === undefined || id(value.active)) &&
