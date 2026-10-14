@@ -1,3 +1,4 @@
+import { renderLimits } from './render-limits';
 import { RenderCache, RenderWork, documentRenderKey } from './render-work';
 import { restoreReadingState } from './reading-state';
 import { decodeRestoredSession, validateRestoredTarget, type RestoredSession } from './restored-session';
@@ -18,7 +19,7 @@ import { referencePaths, type FileReference } from './references';
 import { homedir, platform } from 'node:os';
 import { resolveReference } from './provider-paths';
 import { resolveProviderImageResource } from './provider-images';
-import { renderWithAsyncImages } from './async-images';
+import { ProviderImageReadBudget, renderWithAsyncImages } from './async-images';
 import { DocumentationIndex } from './documentation';
 import { numericPreferenceRanges } from './preference-ranges';
 import {
@@ -284,6 +285,11 @@ export function activate(context: vscode.ExtensionContext) {
     const renderWork = new RenderWork();
     renderWork.setVisible(panel.visible);
     const bodyCache = new RenderCache<ReturnType<typeof renderMarkdown>>(2, 6_000_000);
+    const imageReads = new ProviderImageReadBudget(() => {
+      if (!session.current()) return;
+      invalidateBody();
+      if (panel.visible) session.debounce(update, 180);
+    });
     let resourceEpoch = 0;
     let resourceWatcher: vscode.FileSystemWatcher | undefined;
     const invalidateBody = () => {
@@ -480,9 +486,10 @@ export function activate(context: vscode.ExtensionContext) {
               const bodyKey = documentRenderKey(
                 acceptedDocument?.uri.toString() ?? 'home',
                 acceptedDocument?.version ?? 0,
-                source,
+                source.length <= renderLimits.sourceCharacters ? source : `oversized:${source.length}`,
                 policyKey,
               );
+              let providerBusy = false;
               let result = bodyCache.get(bodyKey);
               if (!result) {
                 result = !acceptedDocument
@@ -497,16 +504,29 @@ export function activate(context: vscode.ExtensionContext) {
                   : acceptedDocument.uri.scheme && acceptedDocument.uri.scheme !== 'file'
                     ? await renderWithAsyncImages(
                         (image) => renderMarkdown(source, image, policy),
-                        async (src) =>
-                          /^(https?:|data:)/i.test(src) || src.startsWith('//')
-                            ? resolveImageResource(src, acceptedDocument.uri, webview)
-                            : resolveProviderImageResource(src, acceptedDocument.uri, webview, currentWork),
+                        async (src) => {
+                          if (/^(https?:|data:)/i.test(src) || src.startsWith('//'))
+                            return resolveImageResource(src, acceptedDocument.uri, webview);
+                          const read = await imageReads.resolve(
+                            () => resolveProviderImageResource(src, acceptedDocument.uri, webview, currentWork),
+                            currentWork,
+                          );
+                          providerBusy ||= read.busy;
+                          return read.resource;
+                        },
                         currentWork,
                       )
                     : renderMarkdown(source, (src) => resolveImageResource(src, acceptedDocument.uri, webview), policy);
                 if (!currentWork()) return;
+                if (providerBusy)
+                  result = {
+                    ...result,
+                    html:
+                      result.html +
+                      '<p role="status">Some local images are still waiting for their provider. The document remains readable. The preview will retry when pending reads finish; reopen it to retry sooner.</p>',
+                  };
                 result = boundRenderedModel(result);
-                bodyCache.set(bodyKey, result, JSON.stringify(result).length);
+                if (!providerBusy) bodyCache.set(bodyKey, result, JSON.stringify(result).length);
               }
               if (!currentWork()) return;
               fileReferences = result.references;
@@ -522,7 +542,7 @@ export function activate(context: vscode.ExtensionContext) {
                     acceptedDocument?.uri.toString() ?? (restored?.fallback ? 'restoration-unavailable' : 'home'),
                   session: savedNavigation(),
                   fragment: anchor,
-                  documentationHome,
+                  ...(documentationHome || !acceptedDocument ? { documentationHome } : {}),
                 },
                 request,
               );

@@ -275,7 +275,11 @@ function scrollToHeading(fragment: string, internal = false) {
   }
 }
 function diagrams(version: number): Promise<void> {
-  const work = diagramQueue.then(() => renderDiagrams(version));
+  const work = diagramQueue
+    .then(() => renderDiagrams(version))
+    .then(() => {
+      if (version === revision && !document.hidden) content.setAttribute('aria-busy', 'false');
+    });
   diagramQueue = work.catch(() => {});
   return work;
 }
@@ -488,6 +492,7 @@ window.addEventListener('message', (event) => {
       : (vscode.getState()?.scroll ?? 0);
   restored = true;
   const version = ++revision;
+  content.setAttribute('aria-busy', 'true');
   receivePreferences(message.preferences, false);
   content.innerHTML =
     message.html ||
@@ -539,6 +544,7 @@ window.addEventListener('message', (event) => {
   reportAsync(
     diagrams(version).then(() => {
       if (version !== revision) return;
+      content.setAttribute('aria-busy', 'false');
       if (typeof message.fragment === 'string' && message.fragment) scrollToHeading(message.fragment);
       else if (changedDocument) window.scrollTo(0, scroll);
       saveState();

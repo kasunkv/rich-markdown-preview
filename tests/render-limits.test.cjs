@@ -72,3 +72,20 @@ test('diagram hostname restriction follows WHATWG UTS46 canonicalization', () =>
   assert.match(renderMarkdown('```mermaid\nflowchart TD\nA@{ img: "//example.test/image.png", h: 20 }\n```').html,/mermaid-source/);
   assert.match(renderMarkdown('```mermaid\nflowchart TD\nA@{ img: "https://%FF.test/image.png", h: 20 }\n```').html,/unsupported internal preview resource/);
 });
+
+test('performance budgets reject complete oversized tables/diagram models without authorizing resources',()=>{
+ let images=0;const image=()=>{images++;return 'unexpected';};
+ for(const source of ['| A |\n| --- |\n'+'| row |\n'.repeat(5000)+'\n![image](local.png)', '```mermaid\ngraph TD; A-->B\n```\n\n'.repeat(21)+'![image](local.png)']) {
+  const result=renderMarkdown(source,image);assert.match(result.html,/role="alert"/);assert.match(result.html,/split/);assert.deepEqual(result.references,[]);assert.deepEqual(result.outline,[]);
+ }
+ assert.equal(images,0);assert.match(renderMarkdown('| A |\n| --- |\n'+'| row |\n'.repeat(4999)).html,/<table>/);
+ assert.equal((renderMarkdown('```mermaid\ngraph TD; A-->B\n```\n\n'.repeat(20)).html.match(/class="diagram"/g)||[]).length,20);
+});
+test('large code retains complete escaped text while bounding per-block and total highlighting',()=>{
+ const source='const value = "<script>";\n'.repeat(1200);const result=renderMarkdown('```typescript\n'+source+'```');assert.match(result.html,/highlighting is disabled/);assert.doesNotMatch(result.html,/hljs-keyword|<script>/);assert.equal((result.html.match(/&lt;script&gt;/g)||[]).length,1200);
+ const code='const x = 1;\n'.repeat(1200);const combined=renderMarkdown(Array.from({length:6},()=> '```js\n'+code+'```').join('\n\n')).html;assert.equal((combined.match(/highlighting is disabled/g)||[]).length,1);assert.match(combined,/hljs-keyword/);
+});
+
+test('single-line structural expansion has a token budget before image authorization or markup output',()=>{
+ let calls=0;const result=renderMarkdown('![local](a.png) '.repeat(50001),()=>{calls++;return 'resource';});assert.match(result.html,/100,000 Markdown tokens/);assert.equal(calls,0);assert.deepEqual(result.references,[]);
+});

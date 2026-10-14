@@ -87,8 +87,8 @@ function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, im
         return [...files.keys()].filter(file => file.startsWith(include.baseUri.path + '/') && minimatch(file.slice(include.baseUri.path.length + 1), include.pattern, {dot: true}) && (!exclude || !minimatch(file, exclude, {dot: true}))).map(uri);
       },
       createFileSystemWatcher: pattern => {
-        const create = event(), remove = event();
-        const watcher = {pattern, onDidCreate: create.listen, onDidDelete: remove.listen, create: create.fire, remove: remove.fire, disposed: false, dispose() {this.disposed = true;} };
+        const create = event(), remove = event(), change = event();
+        const watcher = {pattern, onDidCreate: create.listen, onDidDelete: remove.listen, onDidChange: change.listen, change: change.fire, create: create.fire, remove: remove.fire, disposed: false, dispose() {this.disposed = true;} };
         watchers.push(watcher); return watcher;
       }
     }

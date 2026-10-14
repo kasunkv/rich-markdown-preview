@@ -9,6 +9,7 @@ function parseArgs(args) {
   while (args.length) {
     const key = args.shift();
     if (key === '--force-failure') options.forceFailure = true;
+    else if (key === '--performance') { options.performance = true; options.privacy = true; }
     else if (key === '--privacy') options.privacy = true;
     else if (key === '--reload') { options.reload = true; options.privacy = true; }
     else if (key === '--providers') options.providers = true;
@@ -19,6 +20,7 @@ function parseArgs(args) {
   if (!['development', 'package'].includes(options.mode)) throw new Error('Mode must be development or package');
   if (!/^(stable|insiders|\d+\.\d+\.\d+)$/.test(options.version)) throw new Error('Version must be minimum/exact version, stable or insiders');
   if (options.trust && !['trusted','restricted','transition'].includes(options.trust)) throw new Error('Trust must be trusted, restricted or transition');
+  if (options.performance && (options.mode !== 'development' || options.trust || options.providers || options.reload)) throw new Error('Performance proof requires an isolated normal development host');
   if (options.reload && (options.mode !== 'development' || options.trust || options.providers)) throw new Error('Reload proof requires a normal development host without trust/provider suite overrides');
   return options;
 }
@@ -34,7 +36,7 @@ async function windowsCliScript(executable) {
 }
 
 /** Modal API prompts are refused in extension-test mode; use a normal isolated host. */
-async function runPrivacyHost(options, {spawn = require('node:child_process').spawn, timeoutMs = 180000} = {}) {
+async function runPrivacyHost(options, {spawn = require('node:child_process').spawn, timeoutMs = options.extensionTestsEnv?.RICH_MARKDOWN_PREVIEW_PERFORMANCE_HOST === '1' ? 600000 : 180000} = {}) {
   const directory = path.dirname(options.extensionTestsEnv.RICH_MARKDOWN_PREVIEW_TEST_RESULT);
   if (!options.launchArgs.includes('--user-data-dir=' + path.join(directory,'user')) ||
       !options.launchArgs.includes('--extensions-dir=' + path.join(directory,'extensions')) ||
@@ -106,6 +108,7 @@ async function run(options, electron = require('@vscode/test-electron')) {
     report.executable=executable;
     report.runtimeHashes=Object.fromEntries(await Promise.all(['extension.js','preview.js','preview.css'].map(async name=>[name,require('node:crypto').createHash('sha256').update(await fs.readFile(path.join(root,'dist',name))).digest('hex')])));
     report.reloadHost=Boolean(options.reload);
+    report.performanceHost=Boolean(options.performance);
     let developmentPath = root;
     if (options.mode === 'package') {
       const vsix = path.resolve(options.vsix || path.join(root, `${manifest.name}-${manifest.version}.vsix`));
@@ -128,7 +131,7 @@ async function run(options, electron = require('@vscode/test-electron')) {
       const harness = path.join(directory,'privacy-harness');
       await fs.mkdir(harness);
       await fs.writeFile(path.join(harness,'package.json'),JSON.stringify({name:'privacy-host-harness',publisher:'test',version:'0.0.1',engines:{vscode:'^1.95.0'},activationEvents:['onStartupFinished'],main:'./extension.cjs',capabilities:{untrustedWorkspaces:{supported:true}}}));
-      const suite = path.join(root,'tests',options.reload ? 'vscode-reload.cjs' : options.providers ? 'vscode-providers.cjs' : options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs');
+      const suite = path.join(root,'tests',options.performance ? 'vscode-performance.cjs' : options.reload ? 'vscode-reload.cjs' : options.providers ? 'vscode-providers.cjs' : options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs');
       await fs.writeFile(path.join(harness,'extension.cjs'),
         'const vscode=require("vscode");exports.activate=()=>{' + (options.providers ? 'require(' + JSON.stringify(path.join(root,'tests','provider-host.cjs')) + ').registerProviderFixture(vscode);' : '') + 'setTimeout(async()=>{let result;try{result=await require(' + JSON.stringify(suite) + ').run();}catch{console.error("Isolated host privacy suite failed; see suite.json");}finally{if(!result?.reloading)await vscode.commands.executeCommand("workbench.action.quit");}},500);};');
       privacyDevelopmentPaths = [...(options.mode === 'development' ? [root] : []),harness];
@@ -142,7 +145,7 @@ async function run(options, electron = require('@vscode/test-electron')) {
     const debugPort = debugServer.address().port;
     await new Promise(resolve => debugServer.close(resolve));
     const launch = options.trust ? (electron.runTrustTests || runTrustTests) : (options.privacy || options.providers) ? (electron.runPrivacyHost || runPrivacyHost) : electron.runTests;
-    const exitCode = await launch({ privacyDevelopmentPaths, vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', options.providers ? 'vscode-providers.cjs' : options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs'), launchArgs: [launchWorkspace, ...profiles, `--remote-debugging-port=${debugPort}`, '--remote-debugging-address=127.0.0.1', '--skip-welcome', '--skip-release-notes', ...(options.trust ? [] : ['--disable-workspace-trust']), '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { NODE_DISABLE_COMPILE_CACHE: '1', RICH_MARKDOWN_PREVIEW_TEST_TRUST: options.trust || 'disabled', RICH_MARKDOWN_PREVIEW_PRIVACY_HOST: options.privacy ? '1' : '0', RICH_MARKDOWN_PREVIEW_DEBUG_PORT: String(debugPort), RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
+    const exitCode = await launch({ privacyDevelopmentPaths, vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath, extensionTestsPath: path.join(root, 'tests', options.providers ? 'vscode-providers.cjs' : options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs'), launchArgs: [launchWorkspace, ...profiles, `--remote-debugging-port=${debugPort}`, '--remote-debugging-address=127.0.0.1', '--skip-welcome', '--skip-release-notes', ...(options.trust ? [] : ['--disable-workspace-trust']), '--disable-updates', '--disable-telemetry'], extensionTestsEnv: { NODE_DISABLE_COMPILE_CACHE: '1', RICH_MARKDOWN_PREVIEW_TEST_TRUST: options.trust || 'disabled', RICH_MARKDOWN_PREVIEW_PRIVACY_HOST: options.privacy ? '1' : '0', RICH_MARKDOWN_PREVIEW_PERFORMANCE_HOST: options.performance ? '1' : '0', RICH_MARKDOWN_PREVIEW_DEBUG_PORT: String(debugPort), RICH_MARKDOWN_PREVIEW_TEST_RESULT: path.join(directory, 'suite.json'), RICH_MARKDOWN_PREVIEW_TEST_WORKSPACE: workspace, RICH_MARKDOWN_PREVIEW_TEST_MODE: options.mode, RICH_MARKDOWN_PREVIEW_TEST_EXTENSIONS: path.join(directory, 'extensions'), RICH_MARKDOWN_PREVIEW_FORCE_FAILURE: options.forceFailure ? '1' : '0' } });
     report.suite = JSON.parse(await fs.readFile(path.join(directory, 'suite.json'), 'utf8'));
     report.hostVersion = report.suite.hostVersion;
     if (exitCode !== 0 || !report.suite.passed) throw new Error(`Host smoke failed (exit ${exitCode})`);

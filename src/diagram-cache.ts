@@ -11,7 +11,9 @@ export function isolateDiagramSvg(svg: string, prefix: string): SVGSVGElement | 
   const identities = new Map<string, string>();
   for (const element of elements) {
     if (
-      ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'animate', 'set'].includes(element.localName)
+      ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'animate', 'set'].includes(
+        element.localName.toLowerCase(),
+      )
     )
       return undefined;
     for (const attribute of element.attributes) {
@@ -31,17 +33,14 @@ export function isolateDiagramSvg(svg: string, prefix: string): SVGSVGElement | 
     for (const name of ['id', 'name']) {
       const identity = element.getAttribute(name);
       if (!identity) continue;
-      if (!/^[a-z\d_:.-]+$/i.test(identity) || (name === 'id' && identities.has(identity))) return undefined;
+      if (!/^[a-z\d_:-]+$/i.test(identity) || (name === 'id' && identities.has(identity))) return undefined;
       if (!identities.has(identity)) identities.set(identity, `${prefix}-${identities.size}`);
     }
   }
-  const rewrite = (value: string) => {
-    for (const [old, unique] of identities) {
-      const escaped = old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      value = value.replace(new RegExp(`#${escaped}(?![a-z\\d_:.-])`, 'gi'), `#${unique}`);
-    }
-    return value;
-  };
+  const rewrite = (value: string) =>
+    value.replace(/#([a-z\d_:-]+)/gi, (reference, identity: string) =>
+      identities.has(identity) ? '#' + identities.get(identity) : reference,
+    );
   for (const element of elements) {
     for (const attribute of [...element.attributes]) {
       if (['id', 'name'].includes(attribute.name)) {
@@ -51,6 +50,11 @@ export function isolateDiagramSvg(svg: string, prefix: string): SVGSVGElement | 
         if (tokens.some((token) => !identities.has(token))) return undefined;
         element.setAttribute(attribute.name, tokens.map((token) => identities.get(token)).join(' '));
       } else {
+        if (
+          ['href', 'xlink:href', 'src'].includes(attribute.name) &&
+          !/^(?:#|https?:|data:image\/)/i.test(attribute.value)
+        )
+          return undefined;
         if (
           (attribute.name === 'href' || attribute.name === 'xlink:href') &&
           attribute.value.startsWith('#') &&

@@ -67,7 +67,7 @@ export function renderMarkdown(
   for (const character of source) {
     if (character === '\n' && ++lines > renderLimits.sourceLines)
       return renderLimitFailure(
-        'This document exceeds the preview limit of 25,000 lines. Read the complete source in the editor, or split it into smaller Markdown documents to resume preview.',
+        'The rendered content exceeds the supported preview limit of 25,000 source lines. Read the complete source in the editor, or split it into smaller Markdown documents to resume preview.',
       );
   }
   let highlightedCharacters = 0;
@@ -246,6 +246,16 @@ export function renderMarkdown(
     return `<div class="code-block">${notice}<div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
   const tokens = md.parse(frontmatter.body, {});
+  let tokenCount = 0;
+  const pendingTokens = [...tokens];
+  while (pendingTokens.length) {
+    const token = pendingTokens.pop()!;
+    if (++tokenCount > renderLimits.markdownTokens)
+      return renderLimitFailure(
+        'This document exceeds the preview limit of 100,000 Markdown tokens. Read the complete source in the editor, or split it into smaller Markdown documents to resume preview.',
+      );
+    for (const child of token.children ?? []) pendingTokens.push(child);
+  }
   let tableRows = 0;
   let diagrams = 0;
   for (const token of tokens) {

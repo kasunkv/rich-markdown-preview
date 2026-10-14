@@ -3,6 +3,7 @@ export const renderLimits = {
   sourceCharacters: 2_000_000,
   sourceLines: 25_000,
   tableRows: 5_000,
+  markdownTokens: 100_000,
   diagrams: 20,
   highlightCharacters: 20_000,
   totalHighlightCharacters: 80_000,
@@ -10,6 +11,7 @@ export const renderLimits = {
   diagramEdges: 500,
   providerImages: 128,
   providerConcurrency: 4,
+  providerWaitMilliseconds: 2_000,
   providerPathSegments: 64,
 } as const;
 

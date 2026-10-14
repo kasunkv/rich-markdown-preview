@@ -129,3 +129,8 @@ test('coverage instrumentation obeys production no-eval CSP', () => {
   assert.doesNotMatch(code, /new Function|eval\(/);
   assert.match(code, /var global = globalThis/);
 });
+
+test('coverage capture identities retain separate maps even when process IDs are reused',()=>{
+ const os=require('node:os');const {execFileSync}=require('node:child_process');const directory=fs.mkdtempSync(path.join(os.tmpdir(),'source-capture-'));
+ try {execFileSync(process.execPath,['-e','require("./tests/coverage-preload.cjs");globalThis.__coverage__={before:{capture:1}};process.emit("exit");globalThis.__coverage__={after:{capture:2}};'],{cwd:path.resolve(__dirname,'..'),env:{...process.env,SOURCE_COVERAGE_DIR:directory}});const maps=fs.readdirSync(directory).map(name=>JSON.parse(fs.readFileSync(path.join(directory,name))));assert.equal(maps.length,2);assert.ok(maps.some(map=>map.before));assert.ok(maps.some(map=>map.after));}finally{fs.rmSync(directory,{recursive:true,force:true});}
+});
