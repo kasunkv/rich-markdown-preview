@@ -1,3 +1,5 @@
+import { renderLimits } from './render-limits';
+import { RenderCache, RenderWork, documentRenderKey } from './render-work';
 import { restoreReadingState } from './reading-state';
 import { decodeRestoredSession, validateRestoredTarget, type RestoredSession } from './restored-session';
 import { sameProviderWithin } from './provider-paths';
@@ -17,10 +19,15 @@ import { referencePaths, type FileReference } from './references';
 import { homedir, platform } from 'node:os';
 import { resolveReference } from './provider-paths';
 import { resolveProviderImageResource } from './provider-images';
-import { renderWithAsyncImages } from './async-images';
+import { ProviderImageReadBudget, renderWithAsyncImages } from './async-images';
 import { DocumentationIndex } from './documentation';
 import { numericPreferenceRanges } from './preference-ranges';
-import { previewResourceRoots, resolveImageResource, restrictedNavigationAllowed } from './resources';
+import {
+  documentResourceRoot,
+  previewResourceRoots,
+  resolveImageResource,
+  restrictedNavigationAllowed,
+} from './resources';
 
 const defaults = {
   style: 'documentation',
@@ -275,6 +282,27 @@ export function activate(context: vscode.ExtensionContext) {
     panels.set(key, panel);
     const webview = panel.webview;
     const session = new PreviewSession(sessionDiagnostic(output));
+    const renderWork = new RenderWork();
+    renderWork.setVisible(panel.visible);
+    const bodyCache = new RenderCache<ReturnType<typeof renderMarkdown>>(2, 6_000_000);
+    const imageReads = new ProviderImageReadBudget(() => {
+      if (!session.current()) return;
+      invalidateBody();
+      if (panel.visible) session.debounce(update, 180);
+    });
+    let resourceEpoch = 0;
+    let resourceWatcher: vscode.FileSystemWatcher | undefined;
+    const invalidateBody = () => {
+      ++resourceEpoch;
+      bodyCache.clear();
+      renderWork.reset();
+    };
+    session.own({
+      dispose: () => {
+        invalidateBody();
+        resourceWatcher?.dispose();
+      },
+    });
     const bridge = new PreviewHostBridge(session, (message) => webview.postMessage(message));
     const post = (message: HostMessage, generation = session.capture()) => bridge.post(message, generation);
     const navigationAdapter = new PreviewNavigationAdapter(session);
@@ -362,6 +390,8 @@ export function activate(context: vscode.ExtensionContext) {
     const updateResourceRoots = () =>
       session.boundary('update preview resource roots', () => {
         try {
+          invalidateBody();
+          watchResources();
           webview.options = {
             enableScripts: true,
             localResourceRoots: previewResourceRoots(context.extensionUri, document?.uri),
@@ -392,6 +422,7 @@ export function activate(context: vscode.ExtensionContext) {
     const resetExternalImagePolicy = () =>
       session.boundary('reset external image policy', () => {
         session.supersede();
+        invalidateBody();
         renderId = '';
         fileReferences = [];
         externalImageOrigins.clear();
@@ -403,84 +434,128 @@ export function activate(context: vscode.ExtensionContext) {
         externalImageRefreshers.delete(resetExternalImagePolicy);
       },
     });
+    const watchResources = () => {
+      resourceWatcher?.dispose();
+      if (!document) return;
+      resourceWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(documentResourceRoot(document.uri), '**/*'),
+      );
+      const changed = () => {
+        if (!session.current()) return;
+        invalidateBody();
+        session.debounce(update, 180);
+      };
+      resourceWatcher.onDidChange(changed);
+      resourceWatcher.onDidCreate(changed);
+      resourceWatcher.onDidDelete(changed);
+    };
     const update = () =>
       session.boundary('render Markdown', () => {
-        if (document && !navigationAllowed(document.uri, false)) return;
+        if (!panel.visible || (document && !navigationAllowed(document.uri, false))) return;
         const source = refreshModelIdentity();
-        if (!document) {
-          fileReferences = [];
-          reportAsync(
-            post({
-              type: 'render',
-              renderId,
-              html: restored?.fallback
-                ? '<section class="empty" role="status" aria-label="Preview restoration unavailable"><h1>Preview could not be restored</h1><p>The saved document is unavailable or is outside the current workspace access policy. Open an available Markdown file to continue.</p></section>'
-                : '',
-              outline: [],
-              preferences: effectivePreferences(),
-              documentationHome,
-              documentId: restored?.fallback ? 'restoration-unavailable' : 'home',
-              session: savedNavigation(),
-            }),
-          );
-          sendNavigation(true);
-          return;
-        }
-        const renderedDocument = document;
-        const publish = (result: ReturnType<typeof renderMarkdown>) => {
-          result = boundRenderedModel(result);
-          fileReferences = result.references;
-          externalImageOrigins = new Set(result.externalImageOrigins);
-          reportAsync(
-            post({
-              type: 'render',
-              renderId,
-              ...result,
-              preferences: effectivePreferences(),
-              documentId: renderedDocument.uri.toString(),
-              fragment,
-              session: savedNavigation(),
-              ...(documentationHome
-                ? { documentationHome: true, documentId: renderedDocument.uri.toString(), fragment }
-                : {}),
-            }),
-          );
-          fragment = undefined;
+        const acceptedDocument = document;
+        const acceptedModel = renderId;
+        const request = session.capture();
+        const epoch = resourceEpoch;
+        const policy = remoteImagePolicy();
+        const policyKey = JSON.stringify([
+          epoch,
+          policy.enabled,
+          [...policy.grants].sort(),
+          document ? documentResourceRoot(document.uri).toString() : 'home',
+          vscode.workspace.workspaceFolders?.map((folder) => folder.uri.toString()),
+          webview.options.localResourceRoots?.map((root) => root.toString()),
+        ]);
+        const deliveryKey = JSON.stringify([renderId, policyKey]);
+        if (!renderWork.needsRender(deliveryKey) && !fragment) {
           sendNavigation();
-        };
-        if (document.uri.scheme && document.uri.scheme !== 'file') {
-          const acceptedDocument = document;
-          const acceptedModel = renderId;
-          const request = session.capture();
-          reportAsync(
-            session.run(
-              'render provider Markdown',
-              async () => {
-                const result = await renderWithAsyncImages(
-                  (image) => renderMarkdown(source, image, remoteImagePolicy()),
-                  async (src) =>
-                    /^(https?:|data:)/i.test(src) || src.startsWith('//')
-                      ? resolveImageResource(src, acceptedDocument.uri, webview)
-                      : resolveProviderImageResource(src, acceptedDocument.uri, webview),
-                );
-                if (
-                  !session.current(request) ||
-                  document !== acceptedDocument ||
-                  renderId !== acceptedModel ||
-                  acceptedDocument.getText() !== source
-                )
-                  return;
-                publish(result);
-              },
-              request,
-            ),
-          );
           return;
         }
-        publish(
-          renderMarkdown(source, (src) => resolveImageResource(src, document!.uri, webview), remoteImagePolicy()),
+        const work = renderWork.request();
+        const currentWork = () =>
+          session.current(request) &&
+          renderWork.current(work) &&
+          document === acceptedDocument &&
+          renderId === acceptedModel &&
+          resourceEpoch === epoch &&
+          (acceptedDocument?.getText() ?? '') === source;
+        reportAsync(
+          session.run(
+            'render current Markdown',
+            async () => {
+              const bodyKey = documentRenderKey(
+                acceptedDocument?.uri.toString() ?? 'home',
+                acceptedDocument?.version ?? 0,
+                source.length <= renderLimits.sourceCharacters ? source : `oversized:${source.length}`,
+                policyKey,
+              );
+              let providerBusy = false;
+              let result = bodyCache.get(bodyKey);
+              if (!result) {
+                result = !acceptedDocument
+                  ? {
+                      html: restored?.fallback
+                        ? '<section class="empty" role="status" aria-label="Preview restoration unavailable"><h1>Preview could not be restored</h1><p>The saved document is unavailable or is outside the current workspace access policy. Open an available Markdown file to continue.</p></section>'
+                        : '',
+                      outline: [],
+                      references: [],
+                      externalImageOrigins: [],
+                    }
+                  : acceptedDocument.uri.scheme && acceptedDocument.uri.scheme !== 'file'
+                    ? await renderWithAsyncImages(
+                        (image) => renderMarkdown(source, image, policy),
+                        async (src) => {
+                          if (/^(https?:|data:)/i.test(src) || src.startsWith('//'))
+                            return resolveImageResource(src, acceptedDocument.uri, webview);
+                          const read = await imageReads.resolve(
+                            () => resolveProviderImageResource(src, acceptedDocument.uri, webview, currentWork),
+                            currentWork,
+                          );
+                          providerBusy ||= read.busy;
+                          return read.resource;
+                        },
+                        currentWork,
+                      )
+                    : renderMarkdown(source, (src) => resolveImageResource(src, acceptedDocument.uri, webview), policy);
+                if (!currentWork()) return;
+                if (providerBusy)
+                  result = {
+                    ...result,
+                    html:
+                      result.html +
+                      '<p role="status">Some local images are still waiting for their provider. The document remains readable. The preview will retry when pending reads finish; reopen it to retry sooner.</p>',
+                  };
+                result = boundRenderedModel(result);
+                if (!providerBusy) bodyCache.set(bodyKey, result, JSON.stringify(result).length);
+              }
+              if (!currentWork()) return;
+              fileReferences = result.references;
+              externalImageOrigins = new Set(result.externalImageOrigins);
+              const anchor = fragment;
+              const delivered = await post(
+                {
+                  type: 'render',
+                  renderId: acceptedModel,
+                  ...result,
+                  preferences: effectivePreferences(),
+                  documentId:
+                    acceptedDocument?.uri.toString() ?? (restored?.fallback ? 'restoration-unavailable' : 'home'),
+                  session: savedNavigation(),
+                  fragment: anchor,
+                  ...(documentationHome || !acceptedDocument ? { documentationHome } : {}),
+                },
+                request,
+              );
+              if (!currentWork() || !delivered) return;
+              renderWork.delivered(deliveryKey, work);
+              fragment = undefined;
+              sendNavigation(!acceptedDocument);
+            },
+            request,
+          ),
         );
       });
+    watchResources();
     const navigate = async (target?: vscode.Uri, anchor?: string, position?: number) => {
       if (
         target &&
@@ -515,6 +590,8 @@ export function activate(context: vscode.ExtensionContext) {
           if (warning) reportAsync(vscode.window.showWarningMessage(warning));
         }
         document = next;
+        watchResources();
+        renderWork.reset();
         fragment = anchor;
         directory = document ? vscode.Uri.joinPath(document.uri, '..') : preferenceUri();
         webview.options = {
@@ -654,11 +731,12 @@ export function activate(context: vscode.ExtensionContext) {
     const disposables = [
       vscode.workspace.onDidChangeTextDocument((event) => {
         if (session.current() && event.document.uri.toString() === document?.uri.toString()) {
+          renderWork.request();
           fileReferences = [];
           renderId = '';
           if (!navigationAllowed(event.document.uri, false)) return;
           session.boundary('render Markdown', () => refreshModelIdentity(event.document.getText()));
-          session.debounce(update, 180);
+          if (panel.visible) session.debounce(update, 180);
         }
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
@@ -670,12 +748,14 @@ export function activate(context: vscode.ExtensionContext) {
           updatePreferences();
       }),
       panel.onDidChangeViewState(() => {
+        renderWork.setVisible(panel.visible);
         if (panel.visible) update();
       }),
       webview.onDidReceiveMessage((raw) =>
         bridge.receive(raw, async (message, request) => {
           if (!session.current(request) || !validateWebviewMessage(message)) return;
           if (message.type === 'ready') {
+            renderWork.reset();
             sentFiles = undefined;
             update();
             if (index) await index.refresh();

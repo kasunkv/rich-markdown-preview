@@ -1,3 +1,4 @@
+import { renderLimits } from './render-limits';
 import * as vscode from 'vscode';
 import { documentResourceRoot, parseResourceUrl } from './resources';
 import { sameProviderWithin } from './provider-paths';
@@ -9,8 +10,9 @@ export async function resolveProviderImageResource(
   src: string,
   document: vscode.Uri,
   webview: vscode.Webview,
+  currentWork: () => boolean = () => true,
 ): Promise<string> {
-  if (document.scheme === 'file' || !vscode.workspace.isTrusted) return '';
+  if (!currentWork() || document.scheme === 'file' || !vscode.workspace.isTrusted) return '';
   try {
     const parts = parseResourceUrl(src);
     const decoded = decodeURIComponent(parts.path);
@@ -26,9 +28,11 @@ export async function resolveProviderImageResource(
     const root = documentResourceRoot(document);
     if (!sameProviderWithin(root, target)) return '';
     const acceptedRoot = root.toString();
-    const allowed = () => vscode.workspace.isTrusted && documentResourceRoot(document).toString() === acceptedRoot;
+    const allowed = () =>
+      currentWork() && vscode.workspace.isTrusted && documentResourceRoot(document).toString() === acceptedRoot;
     const suffix = target.path.slice(root.path.replace(/\/$/, '').length);
     const segments = suffix.split('/').filter(Boolean);
+    if (segments.length > renderLimits.providerPathSegments) return '';
     let current = root;
     const rootStat = await vscode.workspace.fs.stat(root);
     if (!allowed() || rootStat.type & vscode.FileType.SymbolicLink || !(rootStat.type & vscode.FileType.Directory))

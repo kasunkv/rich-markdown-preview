@@ -26,3 +26,9 @@ test('provider images reject a resource root changing during provider stat befor
  const h=fixture();const stat=h.vscode.workspace.fs.stat;h.vscode.workspace.fs.stat=async target=>{const result=await stat(target);h.root.path='/replacement-root';return result;};assert.equal(await h.resolve('inline.svg',h.document,h.webview),'');assert.equal(h.converted.length,0);assert.equal(h.reads.length,1);
  const target=fixture();const read=target.vscode.workspace.fs.stat;target.vscode.workspace.fs.stat=async uri=>{const result=await read(uri);if(uri.path.endsWith('.svg'))target.vscode.workspace.isTrusted=false;return result;};assert.equal(await target.resolve('inline.svg',target.document,target.webview),'');assert.equal(target.converted.length,0);
 });
+
+test('provider path depth and current-work cancellation stop authorization before further stat',async()=>{
+ const h=fixture();assert.equal(await h.resolve('a/'.repeat(65)+'image.svg',h.document,h.webview),'');assert.equal(h.reads.length,0);
+ assert.equal(await h.resolve('inline.svg',h.document,h.webview,()=>false),'');assert.equal(h.reads.length,0);
+ let current=true;const stat=h.vscode.workspace.fs.stat;h.vscode.workspace.fs.stat=async uri=>{const value=await stat(uri);current=false;return value;};assert.equal(await h.resolve('inline.svg',h.document,h.webview,()=>current),'');assert.equal(h.reads.length,1);assert.equal(h.converted.length,0);
+});

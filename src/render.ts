@@ -58,11 +58,20 @@ export function renderMarkdown(
   source: string,
   imageUri: (src: string) => string = (src) => src,
   externalImages: { grants?: ReadonlySet<string>; enabled?: boolean } = {},
+  outlineOnly = false,
 ) {
   if (source.length > renderLimits.sourceCharacters)
     return renderLimitFailure(
       'This document exceeds the supported preview limit of 2,000,000 characters. Open the source to read it.',
     );
+  let lines = 1;
+  for (const character of outlineOnly ? [] : source) {
+    if (character === '\n' && ++lines > renderLimits.sourceLines)
+      return renderLimitFailure(
+        'The rendered content exceeds the supported preview limit of 25,000 source lines. Read the complete source in the editor, or split it into smaller Markdown documents to resume preview.',
+      );
+  }
+  let highlightedCharacters = 0;
   const externalImageOrigins = new Set<string>();
   const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
   const references: FileReference[] = [];
@@ -223,16 +232,61 @@ export function renderMarkdown(
       return `<figure class="diagram" aria-label="Mermaid diagram source"><figcaption class="diagram-label">Mermaid diagram</figcaption><p class="diagram-error">This diagram contains unsupported internal preview resource URLs or ambiguous URL escapes. Use ordinary Markdown images, data images, or an explicitly allowed HTTPS origin.</p><details class="diagram-source" open><summary>Diagram source</summary><pre class="diagram-disabled-source" tabindex="0"><code>${md.utils.escapeHtml(token.content)}</code></pre></details></figure>`;
     if (language === 'mermaid')
       return `<figure class="diagram" aria-label="Mermaid diagram"><figcaption class="diagram-label">Mermaid diagram</figcaption><details class="diagram-source"><summary>Diagram source</summary><pre class="mermaid-source" tabindex="0">${md.utils.escapeHtml(token.content)}</pre></details></figure>`;
+    const highlight =
+      token.content.length <= renderLimits.highlightCharacters &&
+      highlightedCharacters + token.content.length <= renderLimits.totalHighlightCharacters;
+    if (highlight) highlightedCharacters += token.content.length;
+    const notice =
+      !highlight && language && hljs.getLanguage(language)
+        ? '<p class="render-budget-note">Syntax highlighting is disabled for this large code block. The complete code remains below; split the block into smaller parts to restore highlighting.</p>'
+        : '';
     const code =
-      language && hljs.getLanguage(language)
+      highlight && language && hljs.getLanguage(language)
         ? hljs.highlight(token.content, { language, ignoreIllegals: true }).value
         : md.utils.escapeHtml(token.content);
-    return `<div class="code-block"><div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
+    return `<div class="code-block">${notice}<div class="code-toolbar"><span>${md.utils.escapeHtml(language || 'plain text')}</span><button class="copy-code" type="button" aria-label="Copy code">Copy</button></div><pre><code class="hljs">${code}</code></pre></div>`;
   };
+  const tokens = md.parse(frontmatter.body, {});
+  if (outlineOnly) {
+    for (let index = 0; index < tokens.length; index++) {
+      if (tokens[index].type === 'heading_open')
+        md.renderer.rules.heading_open!(tokens, index, md.options, {}, md.renderer);
+    }
+    return boundRenderedModel({ html: '', outline, references: [], externalImageOrigins: [] });
+  }
+  let tokenCount = 0;
+  const pendingTokens = [...tokens];
+  while (pendingTokens.length) {
+    const token = pendingTokens.pop()!;
+    if (++tokenCount > renderLimits.markdownTokens)
+      return renderLimitFailure(
+        'This document exceeds the preview limit of 100,000 Markdown tokens. Read the complete source in the editor, or split it into smaller Markdown documents to resume preview.',
+      );
+    for (const child of token.children ?? []) pendingTokens.push(child);
+  }
+  let tableRows = 0;
+  let diagrams = 0;
+  for (const token of tokens) {
+    if (token.type === 'tr_open') tableRows++;
+    if (token.type === 'fence' && token.info.trim().split(/\s+/)[0].toLowerCase() === 'mermaid') diagrams++;
+  }
+  if (tableRows > renderLimits.tableRows)
+    return renderLimitFailure(
+      'This document exceeds the preview limit of 5,000 table rows. Read the complete source in the editor, or split the tables into smaller Markdown documents to resume preview.',
+    );
+  if (diagrams > renderLimits.diagrams)
+    return renderLimitFailure(
+      'This document exceeds the preview limit of 20 Mermaid diagrams. Read the complete source in the editor, or split the diagrams into smaller Markdown documents to resume preview.',
+    );
   return boundRenderedModel({
-    html: frontmatter.html + md.render(frontmatter.body),
+    html: frontmatter.html + md.renderer.render(tokens, md.options, {}),
     outline,
     references,
     externalImageOrigins: [...externalImageOrigins],
   });
+}
+
+/** Source navigation must retain heading intent even when the preview body exceeds its DOM budgets. */
+export function renderMarkdownOutline(source: string): OutlineItem[] {
+  return renderMarkdown(source, undefined, {}, true).outline;
 }
