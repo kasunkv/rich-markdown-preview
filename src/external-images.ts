@@ -24,7 +24,7 @@ export function externalImageOrigin(value: unknown): string | undefined {
 
 /** Messages and stored grants must name an origin, never a URL/path or wildcard. */
 export function isExternalImageOrigin(value: unknown): value is string {
-  return typeof value === 'string' && externalImageOrigin(value) === value;
+  return typeof value === 'string' && !value.startsWith('https://[') && externalImageOrigin(value) === value;
 }
 
 export function readExternalImageGrants(value: unknown): Set<string> {
@@ -33,7 +33,7 @@ export function readExternalImageGrants(value: unknown): Set<string> {
 
 export type ExternalImageDecision =
   | { kind: 'local'; source: string }
-  | { kind: 'blocked'; origin?: string }
+  | { kind: 'blocked'; origin?: string; reason?: 'unsupported-ipv6' }
   | { kind: 'allowed'; source: string; origin: string };
 
 /** The enabled hook lets the host apply its trust policy without a workspace setting. */
@@ -43,6 +43,7 @@ export function externalImageDecision(
   enabled = true,
 ): ExternalImageDecision {
   if (source.trim() !== source || /[\\\u0000-\u001f\u007f]/u.test(source)) return { kind: 'blocked' };
+  if (/^https:\/\/(?:\[|%5b)/i.test(source)) return { kind: 'blocked', reason: 'unsupported-ipv6' };
   const origin = externalImageOrigin(source);
   if (origin) {
     return enabled && grants.has(origin) ? { kind: 'allowed', source, origin } : { kind: 'blocked', origin };

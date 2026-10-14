@@ -124,7 +124,7 @@ function verifyRuntime(entries, expected) {
   if (hash(notices) !== inventory.noticesSha256) throw new Error('Packaged notices hash mismatch');
   if (
     JSON.stringify(inventory.bundles.map((item) => item.file).sort()) !==
-    JSON.stringify(['dist/extension.js', 'dist/preview.js'])
+    JSON.stringify(require('../package.json').files.filter((file) => /^dist\/[^/]+\.(?:js|cjs)$/.test(file)).sort())
   )
     throw new Error('Invalid runtime bundle inventory');
   for (const bundle of inventory.bundles)

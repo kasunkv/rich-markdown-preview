@@ -38,8 +38,8 @@ exports.proveNavigation = async ({ vscode, workspace, findFrame, checks }) => {
       if (mode === 'single-file') await vscode.commands.executeCommand('richMarkdownPreview.openPreview', landing);
       else {
         await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-        const home = await findFrame('input[aria-label="Filter documentation"]');
-        await home.locator('input[aria-label="Filter documentation"]').fill('navigation-landing.md');
+        const home = await findFrame('input[aria-label="Filter documentation files or folders"]');
+        await home.locator('input[aria-label="Filter documentation files or folders"]').fill('navigation-landing.md');
         await home.locator('button.documentation-file[title="docs/navigation-landing.md"]').click();
       }
       const frame = await findFrame('#rmp-ui-content a');

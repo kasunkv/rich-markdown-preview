@@ -63,7 +63,9 @@ try {
     .readdirSync(path.join(root, 'tests'))
     .filter((file) => file.endsWith('.test.cjs') && file !== 'package.test.cjs')
     .map((file) => 'tests/' + file);
-  execute(['--require', './tests/coverage-preload.cjs', '--test', ...tests], { SOURCE_COVERAGE_DIR: host });
+  execute(['--require', './tests/coverage-preload.cjs', '--test', '--test-concurrency=2', ...tests], {
+    SOURCE_COVERAGE_DIR: host,
+  });
   execute(['--require', './tests/coverage-preload.cjs', 'scripts/browser-runner.cjs'], {
     SOURCE_COVERAGE_DIR: host,
     SOURCE_BROWSER_COVERAGE_DIR: browser,
@@ -87,14 +89,23 @@ try {
   });
   for (const name of ['html', 'lcovonly', 'json', 'json-summary', 'text']) reports.create(name).execute(context);
   const baselinePath = path.join(root, 'coverage-baseline.json');
-  if (process.argv.includes('--update-baseline'))
-    fs.writeFileSync(baselinePath, JSON.stringify(summary, null, 2) + '\n');
+  const updating = process.argv.includes('--update-baseline');
+  const previous = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+  // An explicit update may add modules or tighten floors, never shrink or lower inherited entries.
   const failures = check(
     summary,
-    JSON.parse(fs.readFileSync(baselinePath, 'utf8')),
-    JSON.parse(fs.readFileSync(path.join(root, 'coverage-exceptions.json'), 'utf8')),
+    updating ? { ...summary, ...previous } : previous,
+    updating ? [] : JSON.parse(fs.readFileSync(path.join(root, 'coverage-exceptions.json'), 'utf8')),
   );
   if (failures.length) throw new Error(failures.join('\n'));
+  const finalGate = require('./final-coverage-enforcement.cjs').enforce(
+    combined.toJSON(),
+    root,
+    process.env.COVERAGE_BASE,
+  );
+  fs.writeFileSync(path.join(run, 'final-gate.json'), JSON.stringify(finalGate, null, 2));
+  if (finalGate.failures.length) throw new Error(finalGate.failures.join('\n'));
+  if (updating) fs.writeFileSync(baselinePath, JSON.stringify(summary, null, 2) + '\n');
   status = 'passed';
 } finally {
   fs.writeFileSync(
