@@ -32,8 +32,8 @@ exports.proveProductionCsp = async ({ vscode, browser, workspace, findFrame, che
     if (mode === 'single-file') await vscode.commands.executeCommand('richMarkdownPreview.openPreview', target);
     else {
       await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-      const home = await findFrame('input[aria-label="Filter documentation"]');
-      await home.locator('input[aria-label="Filter documentation"]').fill('production-csp-proof.md');
+      const home = await findFrame('input[aria-label="Filter documentation files or folders"]');
+      await home.locator('input[aria-label="Filter documentation files or folders"]').fill('production-csp-proof.md');
       await home.locator('button.documentation-file[title="production-csp-proof.md"]').click();
     }
     const frame = await findFrame('#rmp-heading-production-csp-proof');

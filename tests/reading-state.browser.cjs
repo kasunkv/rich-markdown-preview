@@ -85,7 +85,7 @@ test('long reading sessions bound saved bytes and scroll writes without losing n
     }
   });
   assert.ok((await page.evaluate(() => window.savedReading().documentation.expanded.length)) <= 128);
-  await page.getByRole('searchbox', { name: 'Filter documentation' }).fill('x'.repeat(700));
+  await page.getByRole('searchbox', { name: 'Filter documentation files or folders' }).fill('x'.repeat(700));
   assert.equal(await page.evaluate(() => window.savedReading().documentation.filter.length), 512);
   await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
     type: 'documentation', files: [{ id: 'file:///docs/folder139/a.md', root: 'file:///docs',

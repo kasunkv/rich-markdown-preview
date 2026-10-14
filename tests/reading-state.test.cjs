@@ -177,3 +177,55 @@ test('malformed session metadata and cyclic restored maps fall back without navi
   assert.equal(restoreReadingState({ ...reading, session: { version: 1, kind: 'preview', target: 'file:///a.md',
     history: ['file:///a.md'], cursor: 2 } }).session, undefined);
 });
+
+test('legacy unordered back positions survive migration behind the active visit', () => {
+  const state = restoreReadingState({ documentId: 'file:///current.md', scroll: 90, documents: {
+    'file:///older.md': { scroll: 12 }, 'file:///current.md': { scroll: 90 },
+    'file:///unlisted.md': { scroll: 44 },
+  } });
+  assert.equal(state.documentOrder.at(-1), 'file:///current.md');
+  assert.equal(state.documents['file:///older.md'].scroll, 12);
+  assert.equal(state.documents['file:///unlisted.md'].scroll, 44);
+  assert.ok(size(state) <= readingStateLimits.bytes);
+});
+
+test('a partially recorded versioned order retains other readable Back positions', () => {
+  const state = restoreReadingState({ readingStateVersion: 1, documentId: 'file:///current.md',
+    documentOrder: ['file:///current.md'], documents: {
+      'file:///older.md': { scroll: 12 }, 'file:///current.md': { scroll: 90 },
+      'file:///unlisted.md': { scroll: 44 },
+    } });
+  assert.equal(state.documentOrder.at(-1), 'file:///current.md');
+  assert.ok(state.documentOrder.includes('file:///older.md'));
+  assert.ok(state.documentOrder.includes('file:///unlisted.md'));
+  assert.equal(state.documents['file:///older.md'].scroll, 12);
+  assert.equal(state.documents['file:///unlisted.md'].scroll, 44);
+});
+
+test('reload session pruning keeps selected target and adjacent Back and Forward context', () => {
+  const target = 'file:///chapter10.md';
+  const history = Array.from({ length: 20 }, (_, index) => `file:///chapter${index}-${'a'.repeat(4000)}.md`);
+  history[10] = target;
+  const state = restoreReadingState({ readingStateVersion: 1, documents: {}, documentOrder: [],
+    session: { version: 1, kind: 'documentation', target, workspaceRoot: 'file:///docs', history, cursor: 10 } });
+  assert.ok(size(state) <= readingStateLimits.bytes);
+  assert.equal(state.session.history[state.session.cursor], target);
+  assert.ok(state.session.history.length > 1);
+  assert.ok(state.session.history.some(id => id.includes('chapter9-')));
+  assert.ok(state.session.history.some(id => id.includes('chapter11-')));
+});
+
+test('malformed arrays and session cursors fall back without reading accessor values', () => {
+  let getterReads = 0;
+  const empty = { readingStateVersion: 1, documents: {}, documentOrder: [] };
+  const sparse = { ...empty, documentOrder: new Array(2) };
+  const cyclic = []; cyclic.push(cyclic);
+  const getter = Object.defineProperty(['file:///a.md'], '0', { get() { getterReads++; return 'file:///a.md'; } });
+  assert.deepEqual(restoreReadingState(sparse), empty);
+  assert.deepEqual(restoreReadingState({ ...empty, documentOrder: cyclic }), empty);
+  assert.deepEqual(restoreReadingState({ ...empty, documentOrder: getter }), empty);
+  assert.equal(getterReads, 0);
+  const session = { version: 1, kind: 'preview', target: 'file:///a.md', history: ['file:///a.md'], cursor: -1 };
+  assert.equal(restoreReadingState({ ...empty, session }).session, undefined);
+  assert.equal(restoreReadingState({ ...empty, session: { ...session, history: [], cursor: 0 } }).session, undefined);
+});

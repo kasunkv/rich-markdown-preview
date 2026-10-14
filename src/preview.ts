@@ -480,6 +480,7 @@ window.addEventListener('message', (event) => {
     tableState = readingStates[documentId!]?.tables ?? {};
     disclosureState = readingStates[documentId!]?.disclosures ?? {};
   }
+  vscode.setState({ ...vscode.getState(), session: message.session });
   const scroll = changedDocument
     ? (readingStates[documentId!]?.scroll ?? 0)
     : restored

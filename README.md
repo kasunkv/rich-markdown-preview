@@ -67,7 +67,15 @@ Discovery includes nested and hidden documentation folders such as `docs/`, `rep
 | `richMarkdownPreview.documentation.exclude` | `**/{.git,node_modules,bower_components,dist,build,out,coverage,.next,.venv,venv}/**`; set empty to remove exclusions |
 | `richMarkdownPreview.documentation.showStatusBar` | `true`; disable to hide the status bar button |
 
+Use VS Code's Find while a preview is active to search rendered document text. Documentation Home's **Filter documentation files or folders** searches paths separately. Filtered-out table rows are excluded from Find, while visible diagram source remains searchable.
+
 Filtering searches file paths, not document contents. Files in excluded folders can still be opened through a document link, but do not appear in the tree. VS Code's filesystem watcher exclusions can prevent automatic updates in some folders; use **Refresh** to rescan them.
+
+## Restore after a window reload
+
+Single-file previews and Documentation Home restore their current workspace document, recent reading position, table settings and disclosures after **Developer: Reload Window**. Documentation Home retains up to 20 nearby document visits for Back/Forward navigation. Reading and session context share a 64 KiB saved-state limit, so older detail can be discarded.
+
+Restoration checks the current workspace roots, provider availability and access policy again. Deleted or renamed files, removed workspace roots, unsupported old state, and unavailable or restricted providers show a recovery message. Standalone previews outside the current workspace require reopening the source with **Open in Rich Markdown Preview**; saved paths cannot authorize access to another folder. Local workspace previews remain available in Restricted Mode under its existing containment policy. External-image permissions continue to come from VS Code user storage.
 
 ## Make it yours
 
@@ -170,6 +178,7 @@ Supported callouts: **Note**, **Tip**, **Important**, **Warning**, and **Caution
 
 ## Current limits
 
+Saved reading state retains the active document and up to 24 recent document positions within a 64 KiB budget. Each document retains up to 24 table states and 64 disclosures; Documentation Home retains up to 128 directory expansion entries and 512 characters of filter text. Older detail is discarded as the budget fills. Scroll saves settle after 200 ms of quiet, with a one-second maximum delay, and flush before navigation or when the preview hides. Malformed or unsupported saved formats fall back to empty state.
 The preview scrolls independently of the source editor. Full-document PDF/HTML export, math typesetting, custom CSS, and editable task checkboxes are not available in this release. CSV table export is supported for file workspaces. Local images stay within the document workspace folder, or its directory for standalone documents. Preview panels must be reopened after restarting VS Code. Documents are limited to 2,000,000 UTF-16 code units, and individual Mermaid diagrams to 20,000 code units and 500 edges. Rendered content must also fit the validated message contract: at most 100,000 outline/reference entries, 8,192 code units per outline field and 33,554,432 UTF-16 code units of HTML. A document that expands beyond these limits shows an actionable message; open its source or split it into smaller documents. Oversized diagrams show a diagram error. Diagram security settings cannot be weakened by document configuration directives. Authored internal preview-resource URLs and ambiguous URL escapes in diagrams are unsupported; use ordinary Markdown images, data images, or an explicitly allowed HTTPS origin instead. IPv6 image hosts are unsupported by Chromium CSP and display an explanation without an Allow button. These ceilings bound supported input and output; complex diagrams can still take longer to render.
 
 ## License

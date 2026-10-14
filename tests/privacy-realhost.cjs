@@ -46,8 +46,8 @@ exports.proveExternalImages = async ({ vscode, browser, workspace, findFrame, ch
     if (mode === 'single-file') await vscode.commands.executeCommand('richMarkdownPreview.openPreview', target);
     else {
       await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-      const home = await findFrame('input[aria-label="Filter documentation"]');
-      await home.locator('input[aria-label="Filter documentation"]').fill('privacy-proof'+suffix+'.md');
+      const home = await findFrame('input[aria-label="Filter documentation files or folders"]');
+      await home.locator('input[aria-label="Filter documentation files or folders"]').fill('privacy-proof'+suffix+'.md');
       await home.locator('button.documentation-file[title="privacy-proof'+suffix+'.md"]').click();
     }
     let frame = await findFrame('[data-external-image-action="grant"][data-external-image-origin="'+origin+'"]');

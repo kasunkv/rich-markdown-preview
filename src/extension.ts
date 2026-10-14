@@ -1,4 +1,7 @@
 import { RenderCache, RenderWork, documentRenderKey } from './render-work';
+import { restoreReadingState } from './reading-state';
+import { decodeRestoredSession, validateRestoredTarget, type RestoredSession } from './restored-session';
+import { sameProviderWithin } from './provider-paths';
 import { buildWebviewShell } from './webview-shell';
 import { validateWebviewMessage, normalizeCSV, validLink, messageLimits, type HostMessage } from './messages';
 import { reportAsync as observeAsync } from './async';
@@ -140,11 +143,47 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.workspace.onDidChangeConfiguration(updateStatus),
   );
-  const openPreview = async (uri?: vscode.Uri, documentationHome = false) => {
+  const restorationPolicy = {
+    parse: (value: string) => {
+      const target = vscode.Uri.parse(value, true);
+      if (
+        !target.scheme ||
+        !target.path.startsWith('/') ||
+        target.query ||
+        target.fragment ||
+        target.authority.includes('@') ||
+        /[\\\u0000-\u001f\u007f]/.test(target.path) ||
+        target.path.split('/').some((segment) => segment === '.' || segment === '..') ||
+        (!/\.(md|markdown)$/i.test(target.path) &&
+          !vscode.workspace.workspaceFolders?.some((folder) => folder.uri.toString() === value)) ||
+        ['http', 'https', 'command', 'data', 'untitled', 'vscode', 'vscode-userdata'].includes(target.scheme) ||
+        target.toString() !== value
+      )
+        return undefined;
+      return target;
+    },
+    allowed: (target: vscode.Uri, savedRoot: vscode.Uri | undefined) => {
+      if (!lifecycle.current() || vscode.workspace.fs.isWritableFileSystem(target.scheme) === undefined) return false;
+      const root = vscode.workspace.getWorkspaceFolder(target)?.uri;
+      if (
+        !root ||
+        (target.scheme !== 'file' && !sameProviderWithin(root, target)) ||
+        (savedRoot && savedRoot.toString() !== root.toString())
+      )
+        return false;
+      return target.scheme === 'file' ? restrictedNavigationAllowed(target) : vscode.workspace.isTrusted;
+    },
+    exists: async (target: vscode.Uri) => (await vscode.workspace.fs.stat(target)).type === vscode.FileType.File,
+  };
+  const openPreview = async (
+    uri?: vscode.Uri,
+    documentationHome = false,
+    restored?: { panel: vscode.WebviewPanel; metadata?: RestoredSession; fallback: boolean; current: () => boolean },
+  ) => {
     const opening = lifecycle.capture();
-    if (!lifecycle.current(opening)) return;
+    if (!lifecycle.current(opening) || (restored && !restored.current())) return;
     const homeKey = 'richMarkdownPreview.documentationHome';
-    if (documentationHome) {
+    if (documentationHome && !restored) {
       const existing = panels.get(homeKey);
       if (existing) {
         existing.reveal(vscode.ViewColumn.Active);
@@ -155,24 +194,52 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
     }
-    const selected = uri ?? vscode.window.activeTextEditor?.document.uri;
-    if (!documentationHome && selected && !navigationAllowed(selected)) return;
+    const selected = restored ? uri : (uri ?? vscode.window.activeTextEditor?.document.uri);
+    if (!restored && !documentationHome && selected && !navigationAllowed(selected)) return;
     let document: vscode.TextDocument | undefined;
-    try {
-      document = documentationHome
-        ? undefined
-        : uri
-          ? await vscode.workspace.openTextDocument(uri)
-          : vscode.window.activeTextEditor?.document;
-    } catch {
-      if (!lifecycle.current(opening)) return;
-      lifecycle.fail('open selected Markdown file');
-      reportAsync(vscode.window.showWarningMessage('Could not open the selected Markdown file.'));
-      return;
-    }
-    if (!lifecycle.current(opening)) return;
-    if (document && !navigationAllowed(document.uri)) return;
     if (
+      restored &&
+      uri &&
+      !restorationPolicy.allowed(
+        uri,
+        restored.metadata?.workspaceRoot ? restorationPolicy.parse(restored.metadata.workspaceRoot) : undefined,
+      )
+    )
+      restored.fallback = true;
+    try {
+      document =
+        restored?.fallback || (documentationHome && !restored?.metadata?.target)
+          ? undefined
+          : uri
+            ? await vscode.workspace.openTextDocument(uri)
+            : restored
+              ? undefined
+              : vscode.window.activeTextEditor?.document;
+    } catch {
+      if (!lifecycle.current(opening) || (restored && !restored.current())) return;
+      lifecycle.fail('open selected Markdown file');
+      if (!restored) {
+        reportAsync(vscode.window.showWarningMessage('Could not open the selected Markdown file.'));
+        return;
+      }
+      restored.fallback = true;
+    }
+    if (!lifecycle.current(opening) || (restored && !restored.current())) return;
+    if (
+      document &&
+      (!navigationAllowed(document.uri) ||
+        (restored &&
+          !restorationPolicy.allowed(
+            document.uri,
+            restored.metadata?.workspaceRoot ? restorationPolicy.parse(restored.metadata.workspaceRoot) : undefined,
+          )))
+    ) {
+      if (!restored) return;
+      document = undefined;
+      restored.fallback = true;
+    }
+    if (
+      !restored &&
       !documentationHome &&
       (!document || (document.languageId !== 'markdown' && !/\.md$/i.test(document.uri.path)))
     ) {
@@ -186,22 +253,30 @@ export function activate(context: vscode.ExtensionContext) {
         .getConfiguration('richMarkdownPreview', preferenceUri())
         .get<boolean>('openPreviewToSide', true) !== false;
     const viewColumn = openToSide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active;
-    const key = documentationHome ? homeKey : document!.uri.toString();
+    const key = documentationHome
+      ? homeKey
+      : (document?.uri.toString() ?? 'restoration-fallback_' + randomBytes(8).toString('hex'));
     const existing = panels.get(key);
-    if (existing) {
+    if (existing && !restored) {
       existing.reveal(viewColumn);
       return;
     }
     let directory = document ? vscode.Uri.joinPath(document.uri, '..') : preferenceUri();
-    const panel = vscode.window.createWebviewPanel(
-      documentationHome ? homeKey : 'richMarkdownPreview.preview',
-      documentationHome ? 'Documentation Home' : `Rich Markdown Preview: ${document!.fileName.split(/[\\/]/).pop()}`,
-      viewColumn,
-      {
-        enableScripts: true,
-        localResourceRoots: previewResourceRoots(context.extensionUri, document?.uri),
-      },
-    );
+    const panelOptions: vscode.WebviewOptions & vscode.WebviewPanelOptions = {
+      enableScripts: true,
+      enableFindWidget: true,
+      localResourceRoots: previewResourceRoots(context.extensionUri, document?.uri),
+    };
+    const panel =
+      restored?.panel ??
+      vscode.window.createWebviewPanel(
+        documentationHome ? homeKey : 'richMarkdownPreview.preview',
+        documentationHome ? 'Documentation Home' : `Rich Markdown Preview: ${document!.fileName.split(/[\\/]/).pop()}`,
+        viewColumn,
+        panelOptions,
+      );
+    // VS Code revives panel-level Find options; apply the same resource/script options to its webview.
+    panel.webview.options = panelOptions;
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'rich-markdown-preview.png');
     panels.set(key, panel);
     const webview = panel.webview;
@@ -252,8 +327,26 @@ export function activate(context: vscode.ExtensionContext) {
     setWebviewHtml();
     let index: DocumentationIndex | undefined;
     let indexStatus: { loading: boolean; error?: string } = { loading: true };
-    const history: { id?: string; fragment?: string }[] = [{}];
-    let historyPosition = 0;
+    const history: { id?: string; fragment?: string }[] = restored?.metadata?.history.length
+      ? [{}, ...restored.metadata.history.map((id) => ({ id }))]
+      : [{}];
+    let historyPosition = restored?.metadata?.history.length ? restored.metadata.cursor + 1 : 0;
+    const savedNavigation = (): RestoredSession | undefined => {
+      if (restored?.fallback && !document) return undefined;
+      const target = document?.uri.toString();
+      const candidates = history.flatMap((entry, position) => (entry.id ? [{ id: entry.id, position }] : []));
+      const cursor = candidates.findIndex((entry) => entry.position === historyPosition);
+      const start = Math.max(0, Math.min(cursor - 9, candidates.length - 20));
+      const retained = candidates.slice(start, start + 20);
+      return {
+        version: 1,
+        kind: documentationHome ? 'documentation' : 'preview',
+        target,
+        workspaceRoot: document ? vscode.workspace.getWorkspaceFolder(document.uri)?.uri.toString() : undefined,
+        history: target && cursor >= 0 ? retained.map((entry) => entry.id) : target ? [target] : [],
+        cursor: target && cursor >= 0 ? cursor - start : target ? 0 : -1,
+      };
+    };
     let fragment: string | undefined;
     let sentFiles: DocumentationIndex['files'] | undefined;
     let sentNavigation = '';
@@ -393,7 +486,14 @@ export function activate(context: vscode.ExtensionContext) {
               let result = bodyCache.get(bodyKey);
               if (!result) {
                 result = !acceptedDocument
-                  ? { html: '', outline: [], references: [], externalImageOrigins: [] }
+                  ? {
+                      html: restored?.fallback
+                        ? '<section class="empty" role="status" aria-label="Preview restoration unavailable"><h1>Preview could not be restored</h1><p>The saved document is unavailable or is outside the current workspace access policy. Open an available Markdown file to continue.</p></section>'
+                        : '',
+                      outline: [],
+                      references: [],
+                      externalImageOrigins: [],
+                    }
                   : acceptedDocument.uri.scheme && acceptedDocument.uri.scheme !== 'file'
                     ? await renderWithAsyncImages(
                         (image) => renderMarkdown(source, image, policy),
@@ -418,9 +518,11 @@ export function activate(context: vscode.ExtensionContext) {
                   renderId: acceptedModel,
                   ...result,
                   preferences: effectivePreferences(),
-                  documentId: acceptedDocument?.uri.toString() ?? 'home',
+                  documentId:
+                    acceptedDocument?.uri.toString() ?? (restored?.fallback ? 'restoration-unavailable' : 'home'),
+                  session: savedNavigation(),
                   fragment: anchor,
-                  ...(!acceptedDocument || documentationHome ? { documentationHome: true } : {}),
+                  documentationHome,
                 },
                 request,
               );
@@ -435,7 +537,11 @@ export function activate(context: vscode.ExtensionContext) {
       });
     watchResources();
     const navigate = async (target?: vscode.Uri, anchor?: string, position?: number) => {
-      if (target && !navigationAllowed(target)) return;
+      if (
+        target &&
+        (!navigationAllowed(target) || (position !== undefined && !restorationPolicy.allowed(target, undefined)))
+      )
+        return;
       const request = session.supersede();
       const acceptedModel = renderId;
       const currentModel = () => session.current(request) && acceptedModel === renderId;
@@ -444,7 +550,11 @@ export function activate(context: vscode.ExtensionContext) {
           ? await navigationAdapter.resolve('open document', () => vscode.workspace.openTextDocument(target), request)
           : undefined;
         if (!currentModel()) return;
-        if (next && !navigationAllowed(next.uri)) return;
+        if (
+          next &&
+          (!navigationAllowed(next.uri) || (position !== undefined && !restorationPolicy.allowed(next.uri, undefined)))
+        )
+          return;
         if (target && !next) {
           reportAsync(
             vscode.window.showWarningMessage('Could not open this document. It may have moved or been deleted.'),
@@ -690,7 +800,22 @@ export function activate(context: vscode.ExtensionContext) {
               const position = historyPosition + (message.action === 'back' ? -1 : 1);
               if (position >= 0 && position < history.length) {
                 const entry = history[position];
-                await navigate(entry.id ? vscode.Uri.parse(entry.id) : undefined, entry.fragment, position);
+                const target = entry.id
+                  ? await validateRestoredTarget(
+                      { version: 1, kind: 'documentation', target: entry.id, history: [], cursor: -1 },
+                      restorationPolicy,
+                    )
+                  : undefined;
+                if (!session.current(request)) return;
+                if (entry.id && !target) {
+                  reportAsync(
+                    vscode.window.showWarningMessage(
+                      'This saved document is unavailable or outside the current workspace access policy.',
+                    ),
+                  );
+                  return;
+                }
+                await navigate(target, entry.fragment, position);
               }
             }
             return;
@@ -864,11 +989,41 @@ export function activate(context: vscode.ExtensionContext) {
     session.own(
       panel.onDidDispose(() => {
         session.dispose();
-        panels.delete(key);
+        if (panels.get(key) === panel) panels.delete(key);
       }),
     );
     context.subscriptions.push(panel);
   };
+  for (const [type, kind] of [
+    ['richMarkdownPreview.preview', 'preview'],
+    ['richMarkdownPreview.documentationHome', 'documentation'],
+  ] as const) {
+    context.subscriptions.push(
+      vscode.window.registerWebviewPanelSerializer(type, {
+        deserializeWebviewPanel: async (panel, raw) => {
+          const restoration = new PreviewSession(sessionDiagnostic(output));
+          restoration.own(panel.onDidDispose(() => restoration.dispose()));
+          try {
+            await restoration.run('restore preview session', async () => {
+              const state = restoreReadingState(raw);
+              const metadata = decodeRestoredSession(state.session, kind);
+              const target = metadata?.target ? await validateRestoredTarget(metadata, restorationPolicy) : undefined;
+              if (!lifecycle.current() || !restoration.current()) return;
+              const fallback = !metadata || (!!metadata.target && !target) || (kind === 'preview' && !target);
+              await openPreview(target, kind === 'documentation', {
+                panel,
+                metadata: fallback ? undefined : metadata,
+                fallback,
+                current: () => restoration.current(),
+              });
+            });
+          } finally {
+            restoration.dispose();
+          }
+        },
+      }),
+    );
+  }
   context.subscriptions.push(
     vscode.commands.registerCommand('richMarkdownPreview.openDocumentationHome', () =>
       lifecycle.run('open documentation preview', () => openPreview(undefined, true)),

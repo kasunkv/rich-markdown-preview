@@ -56,8 +56,8 @@ exports.prove = async ({vscode,workspace,browser,findFrame,wait,checks,mode,gran
   checks.push('Workspace documentation reference navigation remains available');
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-  frame=await findFrame('input[aria-label="Filter documentation"]');
-  await frame.locator('input[aria-label="Filter documentation"]').fill('trust-proof.md');
+  frame=await findFrame('input[aria-label="Filter documentation files or folders"]');
+  await frame.locator('input[aria-label="Filter documentation files or folders"]').fill('trust-proof.md');
   await frame.locator('button.documentation-file[title="trust-proof.md"]').click();
   frame=await findFrame('#rmp-ui-content img[alt="Safe local"]');
   await frame.waitForFunction(()=>document.querySelector('img[alt="Safe local"]')?.naturalWidth === 29);

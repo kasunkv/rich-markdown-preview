@@ -1,3 +1,4 @@
+import { decodeRestoredSession, type RestoredSession } from './restored-session';
 import { numericPreferenceRanges } from './preference-ranges';
 import { isExternalImageOrigin } from './external-images';
 import { previewStyles } from './styles';
@@ -47,6 +48,7 @@ export type HostMessage =
       renderId?: string;
       documentationHome?: boolean;
       fragment?: string;
+      session?: RestoredSession;
     }
   | { type: 'preferences'; preferences: Preferences }
   | {
@@ -291,6 +293,8 @@ export function validateHostMessage(value: unknown): value is HostMessage {
       );
     case 'render':
       return (
+        (value.session === undefined ||
+          !!decodeRestoredSession(value.session, value.documentationHome ? 'documentation' : 'preview')) &&
         validateRenderContent(value.html, value.outline) &&
         preferences(value.preferences) &&
         (value.renderId === undefined || id(value.renderId)) &&

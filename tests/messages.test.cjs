@@ -85,3 +85,9 @@ test('permission reset focus state is bounded and validates caret selection befo
   for (const focus of [null,[],{key:''},{key:'x'.repeat(8193)},{key:'a',documentId:''},{key:'a',extra:1},{key:'a',selection:0},{key:'a',selection:[]},{key:'a',selection:[0.5,3,'forward']},{key:'a',selection:[0,3.5,'forward']},{key:'a',selection:[-1,3,'forward']},{key:'a',selection:[3,1,'forward']},{key:'a',selection:[0,3,'invalid']}])
     assert.equal(restored({permissionFocus:focus}),false);
 });
+test('render session context matches its panel kind and rejects privileged/hostile metadata',()=>{
+ const session={version:1,kind:'preview',target:'file:///a.md',history:['file:///a.md'],cursor:0};
+ const render={type:'render',html:'',outline:[],preferences:prefs,documentId:'file:///a.md',session};
+ assert.ok(inbound(render));assert.ok(inbound({...render,documentationHome:true,session:{...session,kind:'documentation'}}));
+ for(const item of [{...render,documentationHome:true},{...render,session:{...session,version:2}},{...render,session:{...session,privacyGrants:['https://example.com']}},{...render,session:{...session,history:Array(21).fill(session.target)}}])assert.equal(inbound(item),false);
+});
