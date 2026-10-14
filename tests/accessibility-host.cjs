@@ -57,8 +57,17 @@ exports.proveAccessibility = async ({vscode, browser, workspace, findFrame, chec
         await button.focus();
         const focus=await button.evaluate(el=>{const rect=el.getBoundingClientRect(),css=getComputedStyle(el);return {active:document.activeElement===el,top:rect.top,bottom:rect.bottom,height:innerHeight,outlineStyle:css.outlineStyle,outlineWidth:css.outlineWidth};});
         assert.ok(focus.active && focus.bottom>0 && focus.top<focus.height && focus.outlineStyle==='solid','Keyboard control has visible focus in actual viewport');
-        const localTable=await frame.locator('.table-scroll').evaluate(el=>({width:el.clientWidth,scrollWidth:el.scrollWidth,overflow:getComputedStyle(el).overflowX}));
-        assert.ok(localTable.scrollWidth>localTable.width && localTable.overflow==='auto','Wide table retains intentional local scrolling');
+        // Closing/reopening editors and native zoom may retire a webview after
+        // its first layout. Reacquire the visible frame and capture the asserted
+        // measurement in that same operation rather than rereading a stale frame.
+        let localTable, lastTable;
+        await waitFor(async()=>{
+          frame=await findFrame('#rmp-heading-accessibility-proof');page=frame.page();
+          lastTable=await frame.locator('.table-scroll').evaluate(el=>({width:el.clientWidth,scrollWidth:el.scrollWidth,overflow:getComputedStyle(el).overflowX}));
+          if(lastTable.width>0 && lastTable.scrollWidth>lastTable.width && lastTable.overflow==='auto'){localTable=lastTable;return true;}
+          return false;
+        },'visible wide-table scrolling '+JSON.stringify({theme,scale}));
+        assert.ok(localTable.scrollWidth>localTable.width && localTable.overflow==='auto','Wide table retains intentional local scrolling: '+JSON.stringify(localTable));
         observations.push({theme,scale,geometry,localCode,localTable,focus,baselineWorkbench:base});
         await page.screenshot({path:path.join(workspace,`accessibility-${kind}-${scale}.png`)});
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');

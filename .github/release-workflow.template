@@ -1,0 +1,236 @@
+name: Protected immutable release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [dry-run, publish]
+        default: dry-run
+        description: Dry-run on protected main, or promote the exact protected tag
+      tag:
+        type: string
+        required: false
+        description: Publish only; must equal the workflow protected vX.Y.Z tag
+permissions:
+  contents: read
+concurrency:
+  group: marketplace-release
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: github.repository == 'kasunkv/rich-markdown-preview' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_MODE: ${{ github.event_name == 'push' && 'publish' || inputs.mode }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      COVERAGE_BASE: HEAD^
+    outputs:
+      commit: ${{ steps.context.outputs.commit }}
+      tag: ${{ steps.context.outputs.tag }}
+      rehearsal: ${{ steps.context.outputs.rehearsal }}
+      digest: ${{ steps.seal.outputs.digest }}
+      provenance_digest: ${{ steps.seal.outputs.provenance_digest }}
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+      tools_id: ${{ steps.tools_artifact.outputs.artifact-id }}
+      tools_digest: ${{ steps.tools.outputs.tools_digest }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - id: context
+        run: node scripts/release-candidate.cjs context
+      - run: npm run browser:install:ci
+      - run: npm run release:gates
+      # The coverage runner restores production once. pack calls locked VSCE's
+      # archive API, not packageCommand/vscode:prepublish; it never rebuilds.
+      - run: node scripts/release-candidate.cjs pack
+      - id: seal
+        run: npm run release:seal
+      - id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .test-results/release/candidate/
+          if-no-files-found: error
+          retention-days: 30
+      - id: tools
+        run: node scripts/release-candidate.cjs tools
+      - id: tools_artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-tools-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .test-results/release/tools/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: release-gate-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .test-results/coverage/
+            .test-results/mutations/
+            .test-results/dependencies/
+            .test-results/browser/
+          if-no-files-found: warn
+
+  compatibility:
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        version: ['1.95.0', stable, insiders]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      PROVENANCE_DIGEST: ${{ needs.candidate.outputs.provenance_digest }}
+      CANDIDATE_COMMIT: ${{ needs.candidate.outputs.commit }}
+      CANDIDATE_TAG: ${{ needs.candidate.outputs.tag }}
+      HOST_VERSION: ${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.candidate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - run: node .github/release-runtime.cjs
+        env:
+          RELEASE_OPERATION: verify
+      - name: Install the identical candidate and exercise packaged smoke and privacy boundaries
+        shell: bash
+        run: |
+          host() {
+            if [ "$RUNNER_OS" = Linux ]; then
+              xvfb-run -a node scripts/vscode-host.cjs "$@"
+            else
+              node scripts/vscode-host.cjs "$@"
+            fi
+          }
+          host --version "$HOST_VERSION" --mode package --vsix candidate/candidate.vsix
+          host --version "$HOST_VERSION" --mode package --vsix candidate/candidate.vsix --privacy
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: release-host-${{ matrix.os }}-${{ matrix.version }}-${{ github.run_attempt }}
+          path: .test-results/host/
+          if-no-files-found: error
+
+  release-gate:
+    needs: [candidate, compatibility]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every candidate and compatibility result
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          node - <<'NODE'
+          const needs = JSON.parse(process.env.NEEDS);
+          if (!['candidate', 'compatibility'].every(name => needs[name]?.result === 'success')) throw Error('Release gate failed or skipped');
+          NODE
+
+  publish:
+    needs: [candidate, release-gate]
+    if: needs.candidate.outputs.rehearsal == 'false' && vars.MARKETPLACE_PUBLICATION_ENABLED == 'true' && github.ref_protected && startsWith(github.ref, 'refs/tags/')
+    environment: marketplace-production
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      PROVENANCE_DIGEST: ${{ needs.candidate.outputs.provenance_digest }}
+      CANDIDATE_COMMIT: ${{ needs.candidate.outputs.commit }}
+      CANDIDATE_TAG: ${{ needs.candidate.outputs.tag }}
+      TOOLS_DIGEST: ${{ needs.candidate.outputs.tools_digest }}
+      RELEASE_MODE: publish
+    steps:
+      # No source checkout. These manifests contain no lifecycle scripts and
+      # every dependency is fixed by the independently verified npm lockfile.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.12.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.tools_id }}
+          path: release-tools
+          merge-multiple: true
+      - name: Verify artifacts before acquiring Marketplace login
+        env:
+          RELEASE_OPERATION: tools
+        run: &runtime |
+          node - <<'NODE'
+          // RELEASE_RUNTIME
+          NODE
+      - run: npm ci --prefix release-tools --ignore-scripts --no-audit --no-fund
+      - name: Verify immutable candidate
+        env:
+          RELEASE_OPERATION: verify
+        run: *runtime
+      - uses: Azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          audience: api://AzureADTokenExchange
+      - name: Publish or reconcile the identical VSIX using explicit Entra federation
+        env:
+          RELEASE_OPERATION: publish
+        run: *runtime
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: marketplace-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: receipt/marketplace.json
+          if-no-files-found: error
+
+  github-release:
+    needs: [candidate, publish]
+    environment: github-release-production
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      PROVENANCE_DIGEST: ${{ needs.candidate.outputs.provenance_digest }}
+      CANDIDATE_COMMIT: ${{ needs.candidate.outputs.commit }}
+      CANDIDATE_TAG: ${{ needs.candidate.outputs.tag }}
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.12.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - name: Reconcile GitHub release assets without rebuilding or overwriting mismatches
+        env:
+          RELEASE_OPERATION: github
+          GH_TOKEN: ${{ github.token }}
+        run: *runtime

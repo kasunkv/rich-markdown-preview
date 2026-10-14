@@ -106,13 +106,14 @@ async function run(options, electron = require('@vscode/test-electron')) {
     const executable = options.executable ? path.resolve(options.executable) : await electron.downloadAndUnzipVSCode({ version: options.version, cachePath: path.join(root, '.test-results', 'host-downloads') });
     if(options.executable && !(await fs.stat(executable)).isFile()) throw new Error('Existing host executable must be a file');
     report.executable=executable;
-    report.runtimeHashes=Object.fromEntries(await Promise.all(['extension.js','preview.js','preview.css'].map(async name=>[name,require('node:crypto').createHash('sha256').update(await fs.readFile(path.join(root,'dist',name))).digest('hex')])));
+    if (options.mode === 'development') report.runtimeHashes=Object.fromEntries(await Promise.all(['extension.js','preview.js','preview.css'].map(async name=>[name,require('node:crypto').createHash('sha256').update(await fs.readFile(path.join(root,'dist',name))).digest('hex')])));
     report.reloadHost=Boolean(options.reload);
     report.performanceHost=Boolean(options.performance);
     let developmentPath = root;
     if (options.mode === 'package') {
       const vsix = path.resolve(options.vsix || path.join(root, `${manifest.name}-${manifest.version}.vsix`));
-      await require('./verify-release.cjs').verifyRelease({ filename: vsix });
+      const verified = await require('./verify-release.cjs').verifyRelease({ filename: vsix });
+      report.runtimeHashes = verified.vsix.runtimeHashes;
       const [cli] = electron.resolveCliArgsFromVSCodeExecutablePath(executable, { reuseMachineInstall: true });
       // Launch Windows' CLI JS directly: .cmd + shell corrupts space/% paths.
       const cliArgs = [...profiles, '--install-extension', vsix, '--force'];
