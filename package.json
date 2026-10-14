@@ -234,7 +234,8 @@
     "test:coverage:baseline": "node scripts/source-coverage.cjs --update-baseline",
     "check:dependencies": "node scripts/audit-dependencies.cjs",
     "test:mutation": "node scripts/focused-mutations.cjs",
-    "validate:release": "npm run validate && npm run check:dependencies && npm run package"
+    "validate:release": "npm run validate && npm run check:dependencies && npm run package",
+    "release:seal": "node scripts/release-candidate.cjs seal"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",

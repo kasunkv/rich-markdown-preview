@@ -1,0 +1,482 @@
+name: Protected immutable release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [dry-run, publish]
+        default: dry-run
+        description: Dry-run on protected main, or promote the exact protected tag
+      tag:
+        type: string
+        required: false
+        description: Publish only; must equal the workflow protected vX.Y.Z tag
+permissions:
+  contents: read
+concurrency:
+  group: marketplace-release
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: github.repository == 'kasunkv/rich-markdown-preview' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_MODE: ${{ github.event_name == 'push' && 'publish' || inputs.mode }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      COVERAGE_BASE: HEAD^
+    outputs:
+      commit: ${{ steps.context.outputs.commit }}
+      tag: ${{ steps.context.outputs.tag }}
+      rehearsal: ${{ steps.context.outputs.rehearsal }}
+      digest: ${{ steps.seal.outputs.digest }}
+      provenance_digest: ${{ steps.seal.outputs.provenance_digest }}
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+      tools_id: ${{ steps.tools_artifact.outputs.artifact-id }}
+      tools_digest: ${{ steps.tools.outputs.tools_digest }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - id: context
+        run: node scripts/release-candidate.cjs context
+      - run: npm run check:quality
+      - run: npm run check:dependencies
+      - run: npm run browser:install:ci
+      - run: npm run test:coverage
+      - run: npm run test:mutation
+      - run: npm run test:browser:harness
+      # The coverage runner restores production once. pack calls locked VSCE's
+      # archive API, not packageCommand/vscode:prepublish; it never rebuilds.
+      - run: node scripts/release-candidate.cjs pack
+      - id: seal
+        run: npm run release:seal
+      - id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .test-results/release/candidate/
+          if-no-files-found: error
+          retention-days: 30
+      - id: tools
+        run: node scripts/release-candidate.cjs tools
+      - id: tools_artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-tools-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .test-results/release/tools/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: release-gate-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .test-results/coverage/
+            .test-results/mutations/
+            .test-results/dependencies/
+            .test-results/browser/
+          if-no-files-found: warn
+
+  compatibility:
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        version: ['1.95.0', stable, insiders]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      PROVENANCE_DIGEST: ${{ needs.candidate.outputs.provenance_digest }}
+      CANDIDATE_COMMIT: ${{ needs.candidate.outputs.commit }}
+      CANDIDATE_TAG: ${{ needs.candidate.outputs.tag }}
+      HOST_VERSION: ${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.candidate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - run: node .github/release-runtime.cjs
+        env:
+          RELEASE_OPERATION: verify
+      - name: Install the identical candidate and exercise packaged smoke and privacy boundaries
+        shell: bash
+        run: |
+          host() {
+            if [ "$RUNNER_OS" = Linux ]; then
+              xvfb-run -a node scripts/vscode-host.cjs "$@"
+            else
+              node scripts/vscode-host.cjs "$@"
+            fi
+          }
+          host --version "$HOST_VERSION" --mode package --vsix candidate/candidate.vsix
+          host --version "$HOST_VERSION" --mode package --vsix candidate/candidate.vsix --privacy
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: release-host-${{ matrix.os }}-${{ matrix.version }}-${{ github.run_attempt }}
+          path: .test-results/host/
+          if-no-files-found: error
+
+  release-gate:
+    needs: [candidate, compatibility]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every candidate and compatibility result
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          node - <<'NODE'
+          const needs = JSON.parse(process.env.NEEDS);
+          if (!['candidate', 'compatibility'].every(name => needs[name]?.result === 'success')) throw Error('Release gate failed or skipped');
+          NODE
+
+  publish:
+    needs: [candidate, release-gate]
+    if: needs.candidate.outputs.rehearsal == 'false' && vars.MARKETPLACE_PUBLICATION_ENABLED == 'true' && github.ref_protected && startsWith(github.ref, 'refs/tags/')
+    environment: marketplace-production
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      PROVENANCE_DIGEST: ${{ needs.candidate.outputs.provenance_digest }}
+      CANDIDATE_COMMIT: ${{ needs.candidate.outputs.commit }}
+      CANDIDATE_TAG: ${{ needs.candidate.outputs.tag }}
+      TOOLS_DIGEST: ${{ needs.candidate.outputs.tools_digest }}
+      RELEASE_MODE: publish
+    steps:
+      # No source checkout. These manifests contain no lifecycle scripts and
+      # every dependency is fixed by the independently verified npm lockfile.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.12.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.tools_id }}
+          path: release-tools
+          merge-multiple: true
+      - name: Verify artifacts before acquiring Marketplace login
+        env:
+          RELEASE_OPERATION: tools
+        run: &runtime |
+          node - <<'NODE'
+          // This file is embedded verbatim in the protected workflow; no checkout or
+          // downloaded executable script is needed in a job holding release authority.
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { createHash } = require('node:crypto');
+
+          const hash = (data) => createHash('sha256').update(data).digest('hex');
+          const need = (ok, message) => {
+            if (!ok) throw Error(message);
+          };
+          const digest = (value) => /^[a-f0-9]{64}$/.test(value || '');
+          function file(directory, name) {
+            need(typeof name === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name), 'Unsafe artifact filename');
+            const result = path.join(directory, name);
+            need(fs.lstatSync(result).isFile(), 'Artifact is not a regular file');
+            return result;
+          }
+          function verify(directory, expected) {
+            need(
+              digest(expected.digest) &&
+                digest(expected.provenanceDigest) &&
+                /^[a-f0-9]{40}$/.test(expected.commit || '') &&
+                /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(expected.tag || ''),
+              'Missing independent binding',
+            );
+            const bytes = fs.readFileSync(file(directory, 'provenance.json'));
+            need(hash(bytes) === expected.provenanceDigest, 'Provenance digest mismatch');
+            const p = JSON.parse(bytes);
+            need(
+              p.schema === 1 &&
+                p.commit === expected.commit &&
+                p.tag === expected.tag &&
+                `v${p.version}` === expected.tag &&
+                p.repository === 'kasunkv/rich-markdown-preview' &&
+                p.branch === 'main' &&
+                p.publisher === 'kasunkodagoda' &&
+                p.name === 'rich-markdown-preview' &&
+                p.vsix?.sha256 === expected.digest &&
+                p.vsix.name === 'candidate.vsix',
+              'Candidate identity mismatch',
+            );
+            need(Array.isArray(p.files) && new Set(p.files.map((f) => f.name)).size === p.files.length, 'Duplicate inventory');
+            need(
+              JSON.stringify(fs.readdirSync(directory).sort()) ===
+                JSON.stringify(['provenance.json', ...p.files.map((f) => f.name)].sort()),
+              'Candidate file inventory mismatch',
+            );
+            for (const f of p.files) {
+              const data = fs.readFileSync(file(directory, f.name));
+              need(digest(f.sha256) && data.length === f.bytes && hash(data) === f.sha256, 'Candidate file hash mismatch');
+            }
+            for (const required of [
+              'candidate.vsix',
+              'gate-evidence.json',
+              'vsix-inventory.json',
+              'package-lock.json',
+              'runtime-dependencies.json',
+              'sbom.cdx.json',
+              'toolchain.json',
+            ])
+              need(
+                p.files.some((f) => f.name === required),
+                'Missing candidate evidence',
+              );
+            need(hash(fs.readFileSync(file(directory, 'candidate.vsix'))) === expected.digest, 'VSIX digest mismatch');
+            return p;
+          }
+          function verifyTools(directory, expected) {
+            need(digest(expected), 'Missing independent toolchain binding');
+            need(
+              JSON.stringify(fs.readdirSync(directory).sort()) ===
+                JSON.stringify(['binding.json', 'package-lock.json', 'package.json']),
+              'Unexpected toolchain files',
+            );
+            const bytes = fs.readFileSync(file(directory, 'binding.json'));
+            need(hash(bytes) === expected, 'Toolchain binding mismatch');
+            const binding = JSON.parse(bytes);
+            need(
+              JSON.stringify(binding.map((f) => f.name).sort()) === JSON.stringify(['package-lock.json', 'package.json']),
+              'Unexpected toolchain binding',
+            );
+            for (const f of binding)
+              need(digest(f.sha256) && hash(fs.readFileSync(file(directory, f.name))) === f.sha256, 'Toolchain hash mismatch');
+            const manifest = JSON.parse(fs.readFileSync(file(directory, 'package.json')));
+            const lock = JSON.parse(fs.readFileSync(file(directory, 'package-lock.json')));
+            need(
+              !manifest.scripts && lock.packages?.['node_modules/@vscode/vsce']?.version === '4.0.0',
+              'Unapproved release toolchain',
+            );
+          }
+          async function request(url, init = {}) {
+            const response = await fetch(url, { ...init, signal: AbortSignal.timeout(30000) });
+            if (!response.ok) throw Error(`Release service HTTP ${response.status}`);
+            return response;
+          }
+          async function inspect(p, directory) {
+            const query = await request('https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery', {
+              method: 'POST',
+              headers: { Accept: 'application/json;api-version=3.0-preview.1', 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                filters: [{ pageNumber: 1, pageSize: 1, criteria: [{ filterType: 7, value: `${p.publisher}.${p.name}` }] }],
+                flags: 1,
+                assetTypes: [],
+              }),
+            });
+            const extensions = (await query.json()).results?.[0]?.extensions;
+            need(Array.isArray(extensions), 'Invalid Marketplace metadata');
+            const extension = extensions.find((e) => e.publisher?.publisherName === p.publisher && e.extensionName === p.name);
+            if (!extension?.versions?.some((v) => v.version === p.version && !v.targetPlatform)) return null;
+            const response = await request(
+              `https://marketplace.visualstudio.com/_apis/public/gallery/publishers/${p.publisher}/vsextensions/${p.name}/${p.version}/vspackage`,
+            );
+            const bytes = Buffer.from(await response.arrayBuffer());
+            need(
+              bytes.length <= 32 * 1024 * 1024 && hash(bytes) === p.vsix.sha256,
+              'Distributed artifact differs from tested VSIX',
+            );
+            fs.writeFileSync(path.join(directory, 'distributed.vsix'), bytes);
+            // Identical downloaded bytes have already been installed in all matrix hosts;
+            // no extension code is installed/executed while publisher authority is held.
+            return {
+              publisher: p.publisher,
+              name: p.name,
+              version: p.version,
+              sha256: hash(bytes),
+              installable: true,
+              installability: 'same bytes installed by the required compatibility matrix',
+            };
+          }
+          async function reconcile(p, directory) {
+            for (let attempt = 0; attempt < 6; attempt++) {
+              const remote = await inspect(p, directory);
+              if (remote) return remote;
+              if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, 10000));
+            }
+            throw Error('Distribution unconfirmed; reconcile retained artifact before another upload');
+          }
+          async function publish(p, candidate, tools, receipt) {
+            need(
+              p.rehearsal === false &&
+                process.env.RELEASE_MODE === 'publish' &&
+                process.env.GITHUB_REF === `refs/tags/${p.tag}` &&
+                process.env.GITHUB_REF_PROTECTED === 'true' &&
+                process.env.GITHUB_REPOSITORY === p.repository,
+              'Publication context is not approved',
+            );
+            need(!process.env.VSCE_PAT && !process.env.AZURE_CLIENT_SECRET, 'PAT/secret fallback is forbidden');
+            fs.mkdirSync(receipt, { recursive: true });
+            let remote = await inspect(p, receipt),
+              status = 'reconciled';
+            if (!remote) {
+              const { publish: upload } = require(path.resolve(tools, 'node_modules/@vscode/vsce/out/publish.js'));
+              try {
+                await upload({ packagePath: [path.resolve(candidate, 'candidate.vsix')], azureCredential: true });
+                status = 'published';
+              } catch (error) {
+                status = 'reconciled-after-upload-error';
+                try {
+                  remote = await reconcile(p, receipt);
+                } catch {
+                  throw Error('Upload outcome uncertain; no automatic second upload', { cause: error });
+                }
+              }
+              remote ||= await reconcile(p, receipt);
+            }
+            fs.writeFileSync(
+              path.join(receipt, 'marketplace.json'),
+              JSON.stringify({ status, commit: p.commit, tag: p.tag, ...remote }, null, 2),
+            );
+          }
+          async function githubRelease(p, candidate) {
+            need(p.rehearsal === false && process.env.GITHUB_REF === `refs/tags/${p.tag}`, 'Invalid GitHub release context');
+            const headers = {
+              Authorization: `Bearer ${process.env.GH_TOKEN}`,
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+            };
+            need(process.env.GH_TOKEN, 'GitHub release token unavailable');
+            const api = `https://api.github.com/repos/${p.repository}/releases`;
+            let response = await fetch(`${api}/tags/${p.tag}`, { headers, signal: AbortSignal.timeout(30000) }),
+              release;
+            if (response.status === 404)
+              release = await (
+                await request(api, {
+                  method: 'POST',
+                  headers: { ...headers, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    tag_name: p.tag,
+                    target_commitish: p.commit,
+                    name: p.tag,
+                    body: `Validated immutable candidate SHA-256: ${p.vsix.sha256}\nCommit: ${p.commit}`,
+                  }),
+                })
+              ).json();
+            else {
+              need(response.ok, 'GitHub release lookup failed');
+              release = await response.json();
+              need(
+                release.tag_name === p.tag && release.target_commitish === p.commit && !release.draft,
+                'Existing release identity differs; reconcile manually',
+              );
+            }
+            const checksum = `${p.vsix.sha256}  candidate.vsix\n`;
+            fs.writeFileSync(path.join(candidate, 'SHA256SUMS.txt'), checksum);
+            for (const name of ['candidate.vsix', 'SHA256SUMS.txt', 'provenance.json']) {
+              const data = fs.readFileSync(file(candidate, name));
+              const existing = release.assets?.find((a) => a.name === name);
+              if (existing) {
+                const bytes = Buffer.from(
+                  await (
+                    await request(`${api}/assets/${existing.id}`, { headers: { ...headers, Accept: 'application/octet-stream' } })
+                  ).arrayBuffer(),
+                );
+                need(hash(bytes) === hash(data), 'Existing GitHub release asset differs');
+                continue;
+              }
+              await request(`${release.upload_url.split('{')[0]}?name=${encodeURIComponent(name)}`, {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/octet-stream' },
+                body: data,
+              });
+            }
+          }
+          async function main(mode) {
+            const candidate = 'candidate',
+              tools = 'release-tools';
+            if (mode === 'tools') return verifyTools(tools, process.env.TOOLS_DIGEST);
+            const p = verify(candidate, {
+              digest: process.env.CANDIDATE_DIGEST,
+              provenanceDigest: process.env.PROVENANCE_DIGEST,
+              commit: process.env.CANDIDATE_COMMIT,
+              tag: process.env.CANDIDATE_TAG,
+            });
+            if (mode === 'publish') return publish(p, candidate, tools, 'receipt');
+            if (mode === 'github') return githubRelease(p, candidate);
+            need(mode === 'verify', 'Unknown release runtime operation');
+          }
+          module.exports = { verify, verifyTools, inspect, reconcile, publish, githubRelease, main };
+          if (require.main === module || !require.main)
+            main(process.env.RELEASE_OPERATION).catch((error) => {
+              console.error(error.message);
+              process.exitCode = 1;
+            });
+          NODE
+      - run: npm ci --prefix release-tools --ignore-scripts --no-audit --no-fund
+      - name: Verify immutable candidate
+        env:
+          RELEASE_OPERATION: verify
+        run: *runtime
+      - uses: Azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          audience: api://AzureADTokenExchange
+      - name: Publish or reconcile the identical VSIX using explicit Entra federation
+        env:
+          RELEASE_OPERATION: publish
+        run: *runtime
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: marketplace-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: receipt/marketplace.json
+          if-no-files-found: error
+
+  github-release:
+    needs: [candidate, publish]
+    environment: github-release-production
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      PROVENANCE_DIGEST: ${{ needs.candidate.outputs.provenance_digest }}
+      CANDIDATE_COMMIT: ${{ needs.candidate.outputs.commit }}
+      CANDIDATE_TAG: ${{ needs.candidate.outputs.tag }}
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.12.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
+          path: candidate
+          merge-multiple: true
+      - name: Reconcile GitHub release assets without rebuilding or overwriting mismatches
+        env:
+          RELEASE_OPERATION: github
+          GH_TOKEN: ${{ github.token }}
+        run: *runtime
