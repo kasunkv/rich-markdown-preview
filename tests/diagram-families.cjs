@@ -1,0 +1,23 @@
+// Representative self-contained families; registry completeness is checked separately.
+module.exports = [
+ ['flowchart', 'flowchart TD\nA-->B'],
+ ['sequence', 'sequenceDiagram\nAlice->>Bob: Hello'],
+ ['class', 'classDiagram\nAnimal <|-- Duck'],
+ ['state', 'stateDiagram-v2\n[*] --> Active\nActive --> [*]'],
+ ['entity relationship', 'erDiagram\nCUSTOMER ||--o{ ORDER : places'],
+ ['git', 'gitGraph\ncommit\ncommit'],
+ ['gantt', 'gantt\ndateFormat YYYY-MM-DD\nsection Work\nTask :2026-01-01, 1d'],
+ ['journey', 'journey\ntitle A day\nsection Work\nTask: 5: Me'],
+ ['pie', 'pie title Share\n"One" : 2\n"Two" : 3'],
+ ['quadrant', 'quadrantChart\nx-axis Low --> High\ny-axis Low --> High\nA: [0.3, 0.6]'],
+ ['xy', 'xychart-beta\nx-axis [one, two]\ny-axis 0 --> 10\nbar [2, 5]'],
+ ['requirement', 'requirementDiagram\nrequirement test_req {\nid: 1\ntext: the test text\nrisk: low\nverifymethod: test\n}'],
+ ['timeline', 'timeline\ntitle History\n2026 : Built'],
+ ['mindmap', 'mindmap\nroot((Root))\n  Child'],
+ ['kanban', 'kanban\ncolumn1[Todo]\n  task1[Task]'],
+ ['sankey', 'sankey-beta\nA,B,10\nB,C,5'],
+ ['packet', 'packet-beta\n0-15: "Header"\n16-31: "Payload"'],
+ ['block', 'block-beta\ncolumns 2\nA B'],
+ ['c4', 'C4Context\nPerson(user, "User", "Reader")\nSystem(app, "App", "Preview")\nRel(user, app, "Reads")'],
+ ['architecture', 'architecture-beta\nservice db(database)[Database]\nservice disk(disk)[Storage]\ndb:R -- L:disk'],
+];

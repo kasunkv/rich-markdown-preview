@@ -4,6 +4,7 @@ export interface WebviewShellOptions {
   nonce: string;
   cspSource: string;
   scriptUri: string;
+  diagramScriptUri?: string;
   styleUri: string;
   logoUri: string;
   resourceUris: readonly string[];
@@ -52,5 +53,5 @@ export function buildWebviewShell(options: WebviewShellOptions): string {
   // Inline CSS is required by Mermaid SVG style elements and preference CSS properties.
   // It never permits scripts, event handlers, connections, frames, forms or objects.
   const policy = `default-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; connect-src 'none'; img-src ${imageResources.join(' ')} data: ${origins.join(' ')}; style-src ${resources.join(' ')} 'unsafe-inline'; script-src 'nonce-${options.nonce}'; font-src ${resources.join(' ')};`;
-  return `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><link rel="stylesheet" href="${attribute(options.styleUri)}"><title>Rich Markdown Preview</title></head><body><div id="rmp-ui-app" data-logo="${attribute(options.logoUri)}"></div><script nonce="${options.nonce}" src="${attribute(options.scriptUri)}"></script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><link rel="stylesheet" href="${attribute(options.styleUri)}"><title>Rich Markdown Preview</title></head><body><div id="rmp-ui-app" data-logo="${attribute(options.logoUri)}"></div><script data-diagram-runtime="${attribute(options.diagramScriptUri ?? new URL('diagrams.js', options.scriptUri).toString())}" nonce="${options.nonce}" src="${attribute(options.scriptUri)}"></script></body></html>`;
 }

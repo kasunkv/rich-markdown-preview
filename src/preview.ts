@@ -2,7 +2,43 @@ import { RenderCache, diagramRenderKey } from './render-work';
 import { isolateDiagramSvg } from './diagram-cache';
 import { renderLimits } from './render-limits';
 import { reportAsync } from './async';
-import mermaid from 'mermaid';
+import type mermaidType from 'mermaid';
+
+type DiagramRuntime = { renderer: () => typeof mermaidType };
+const bootstrap = document.currentScript as HTMLScriptElement;
+const diagramRuntimeUri = bootstrap?.dataset.diagramRuntime;
+const diagramRuntimeNonce = bootstrap?.nonce ?? '';
+let diagramRuntime: Promise<typeof mermaidType> | undefined;
+function loadDiagramRuntime(): Promise<typeof mermaidType> {
+  if (!diagramRuntime) {
+    diagramRuntime = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.nonce = diagramRuntimeNonce;
+      script.src = diagramRuntimeUri!;
+      script.onload = () => {
+        try {
+          const runtime = (globalThis as typeof globalThis & { RichMarkdownDiagrams: DiagramRuntime })
+            .RichMarkdownDiagrams;
+          if (typeof runtime?.renderer !== 'function') return fail();
+          const renderer = runtime.renderer();
+          if (typeof renderer?.initialize !== 'function' || typeof renderer.render !== 'function') return fail();
+          resolve(renderer);
+        } catch {
+          fail();
+        }
+      };
+      const fail = () => {
+        script.remove();
+        diagramRuntime = undefined;
+        reject(new Error('Diagram runtime unavailable'));
+      };
+      script.onerror = fail;
+      if (diagramRuntimeUri) document.body.append(script);
+      else fail();
+    });
+  }
+  return diagramRuntime;
+}
 import {
   validateWebviewMessage,
   validateHostMessage,
@@ -322,70 +358,82 @@ function diagrams(version: number): Promise<void> {
 }
 async function renderDiagrams(version: number) {
   if (version !== revision || document.hidden) return;
+  if (!content.querySelector('.diagram')) return;
+  let mermaid: typeof mermaidType | undefined;
+  try {
+    mermaid = await loadDiagramRuntime();
+  } catch {
+    // Each retained diagram receives the existing readable recovery below.
+  }
+  if (version !== revision || document.hidden) return;
   const dark = isDark();
   const palette = getComputedStyle(document.body);
   const color = (name: string) => palette.getPropertyValue(name).trim();
   const themeKey = diagramThemeFingerprint();
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'maxEdges', 'suppressErrorRendering'],
-    maxTextSize: renderLimits.diagramCharacters,
-    maxEdges: renderLimits.diagramEdges,
-    theme: 'base',
-    suppressErrorRendering: true,
-    themeVariables: {
-      darkMode: dark,
-      background: color('--surface'),
-      fontFamily: color('--diagram-font'),
-      primaryColor: color('--code'),
-      primaryTextColor: color('--text'),
-      primaryBorderColor: color('--accent'),
-      secondaryColor: color('--surface'),
-      secondaryTextColor: color('--text'),
-      secondaryBorderColor: color('--border'),
-      tertiaryColor: color('--bg'),
-      tertiaryTextColor: color('--text'),
-      tertiaryBorderColor: color('--border'),
-      lineColor: color('--muted'),
-      textColor: color('--text'),
-      mainBkg: color('--code'),
-      nodeBorder: color('--accent'),
-      clusterBkg: color('--surface'),
-      clusterBorder: color('--border'),
-      edgeLabelBackground: color('--surface'),
-      actorBkg: color('--code'),
-      actorTextColor: color('--text'),
-      actorBorder: color('--accent'),
-      actorLineColor: color('--muted'),
-      signalColor: color('--text'),
-      signalTextColor: color('--text'),
-      labelBoxBkgColor: color('--surface'),
-      labelTextColor: color('--text'),
-      pie1: color('--accent'),
-      pie2: color('--syntax-string'),
-      pie3: color('--syntax-keyword'),
-      pie4: color('--syntax-number'),
-      pie5: color('--muted'),
-      pie6: color(dark ? '--border' : '--text'),
-      pieSectionTextColor: color('--surface'),
-      pieTitleTextColor: color('--text'),
-      pieLegendTextColor: color('--text'),
-      // Translucent slices wash out the light labels against a pale diagram surface.
-      ...(!dark ? { pieOpacity: 1 } : {}),
-      xyChart: {
-        backgroundColor: color('--surface'),
-        titleColor: color('--text'),
-        xAxisLabelColor: color('--text'),
-        xAxisTitleColor: color('--text'),
-        xAxisLineColor: color('--muted'),
-        yAxisLabelColor: color('--text'),
-        yAxisTitleColor: color('--text'),
-        yAxisLineColor: color('--muted'),
-        plotColorPalette: [color('--accent'), color('--syntax-string'), color('--syntax-keyword')].join(','),
+  try {
+    mermaid?.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'maxEdges', 'suppressErrorRendering'],
+      maxTextSize: renderLimits.diagramCharacters,
+      maxEdges: renderLimits.diagramEdges,
+      theme: 'base',
+      suppressErrorRendering: true,
+      themeVariables: {
+        darkMode: dark,
+        background: color('--surface'),
+        fontFamily: color('--diagram-font'),
+        primaryColor: color('--code'),
+        primaryTextColor: color('--text'),
+        primaryBorderColor: color('--accent'),
+        secondaryColor: color('--surface'),
+        secondaryTextColor: color('--text'),
+        secondaryBorderColor: color('--border'),
+        tertiaryColor: color('--bg'),
+        tertiaryTextColor: color('--text'),
+        tertiaryBorderColor: color('--border'),
+        lineColor: color('--muted'),
+        textColor: color('--text'),
+        mainBkg: color('--code'),
+        nodeBorder: color('--accent'),
+        clusterBkg: color('--surface'),
+        clusterBorder: color('--border'),
+        edgeLabelBackground: color('--surface'),
+        actorBkg: color('--code'),
+        actorTextColor: color('--text'),
+        actorBorder: color('--accent'),
+        actorLineColor: color('--muted'),
+        signalColor: color('--text'),
+        signalTextColor: color('--text'),
+        labelBoxBkgColor: color('--surface'),
+        labelTextColor: color('--text'),
+        pie1: color('--accent'),
+        pie2: color('--syntax-string'),
+        pie3: color('--syntax-keyword'),
+        pie4: color('--syntax-number'),
+        pie5: color('--muted'),
+        pie6: color(dark ? '--border' : '--text'),
+        pieSectionTextColor: color('--surface'),
+        pieTitleTextColor: color('--text'),
+        pieLegendTextColor: color('--text'),
+        // Translucent slices wash out the light labels against a pale diagram surface.
+        ...(!dark ? { pieOpacity: 1 } : {}),
+        xyChart: {
+          backgroundColor: color('--surface'),
+          titleColor: color('--text'),
+          xAxisLabelColor: color('--text'),
+          xAxisTitleColor: color('--text'),
+          xAxisLineColor: color('--muted'),
+          yAxisLabelColor: color('--text'),
+          yAxisTitleColor: color('--text'),
+          yAxisLineColor: color('--muted'),
+          plotColorPalette: [color('--accent'), color('--syntax-string'), color('--syntax-keyword')].join(','),
+        },
       },
-    },
-  });
+    });
+  } catch {
+    mermaid = undefined;
+  }
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) {
     if (version !== revision || document.hidden) return;
     const text = diagramSources.get(figure);
@@ -394,6 +442,7 @@ async function renderDiagrams(version: number) {
       const key = diagramRenderKey(text, themeKey, 'strict-mermaid11-svg-v2');
       let svg = diagramCache.get(key);
       if (!svg) {
+        if (!mermaid) throw new Error('Diagram runtime unavailable');
         const rendered = await mermaid.render(`diagram-${++diagramSequence}`, text);
         if (version !== revision || document.hidden) return;
         svg = rendered.svg;

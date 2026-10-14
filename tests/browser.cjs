@@ -483,7 +483,7 @@ test('shared contracts reject malformed inbound state and correlate overlapping 
   await page.addInitScript(() => sessionStorage.setItem('preview-state', JSON.stringify({tables:[],documents:{file:{scroll:'bad'}},documentation:{expanded:[1]}})));
   await page.route(previewServer.url + '/', async route => {
     const response = await route.fetch(); let html = await response.text();
-    html = html.replace('</script><script src="/preview.js">', '</script><script>const originalApi = acquireVsCodeApi; acquireVsCodeApi = () => { const api = originalApi(); return {...api,postMessage: message => {window.contractRequests ??= []; window.contractRequests.push(message); if (!["copy","tableCopy","tableExport"].includes(message.type)) return api.postMessage(message);}}; };</script><script src="/preview.js">');
+    html = html.replace('</script><script data-diagram-runtime="/diagrams.js" src="/preview.js">', '</script><script>const originalApi = acquireVsCodeApi; acquireVsCodeApi = () => { const api = originalApi(); return {...api,postMessage: message => {window.contractRequests ??= []; window.contractRequests.push(message); if (!["copy","tableCopy","tableExport"].includes(message.type)) return api.postMessage(message);}}; };</script><script data-diagram-runtime="/diagrams.js" src="/preview.js">');
     await route.fulfill({response,body:html});
   });
   await page.goto(previewServer.url); await page.locator('.mermaid-result').first().waitFor();

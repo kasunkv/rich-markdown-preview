@@ -4,12 +4,20 @@
   "lockfileSha256": "6e1bbb377f85689761342a40191fd4f031a6ec125d24bc0084286c6df93b8354",
   "bundles": [
     {
+      "file": "dist/diagrams.js",
+      "sha256": "8e77e12f3fc650a35d3595f42ef7d7f6c760e509b7ec589c7c07758667e6ae76"
+    },
+    {
       "file": "dist/extension.js",
-      "sha256": "b4f51be998f03a88fa8336337dce7b01cdf2acc972bd648eb0468ce1353e408a"
+      "sha256": "d6021d7b5df3a7cde10ab8a25308158cfa38b899f14ff10af9b71218a2679183"
     },
     {
       "file": "dist/preview.js",
-      "sha256": "16faab657a336520970ab2f069e7fdf44f46a37d30ed44c40766fcc05d0a34dd"
+      "sha256": "06812ca52940a03faad4ef41a7e2f1b4f381393e55207c18dc8d92f950ee53f7"
+    },
+    {
+      "file": "dist/render.cjs",
+      "sha256": "04db38305c9a461749375cb27a910e438f782a031535e71a8b74fe7560fd6420"
     }
   ],
   "noticesSha256": "757d4f70c1e18e949d791509f20f83e45c7a68e79eeb09f3e458648f3582aed9",

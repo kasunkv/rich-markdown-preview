@@ -82,7 +82,7 @@ test('actual VSIX excludes incidental files and rejects missing, extra, invalid 
   const result = await verifyVsix(dirty);
   assert.deepEqual(result.inventory.map(entry => entry.file).sort(), baseline.inventory.map(entry => entry.file).sort());
   const bad = path.join(fixture, 'bad.vsix');
-  for (const file of ['extension/dist/preview.js', 'extension/THIRD_PARTY_NOTICES.txt']) {
+  for (const file of ['extension/dist/preview.js', 'extension/dist/render.cjs', 'extension/dist/diagrams.js', 'extension/THIRD_PARTY_NOTICES.txt']) {
     await rewriteZip(clean, bad, entries => entries.filter(([name]) => name !== file));
     await assert.rejects(verifyVsix(bad), /missing:/);
   }
@@ -91,6 +91,10 @@ test('actual VSIX excludes incidental files and rejects missing, extra, invalid 
   await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension/RUNTIME_DEPENDENCIES.json' ? Buffer.from('{}') : data]));
   await assert.rejects(verifyVsix(bad), /inventory differs from current/);
   await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension/dist/preview.js' ? Buffer.from('stale build') : data]));
+  await assert.rejects(verifyVsix(bad), /bundle hash mismatch/);
+  await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension/dist/diagrams.js' ? Buffer.from('stale lazy diagrams') : data]));
+  await assert.rejects(verifyVsix(bad), /bundle hash mismatch/);
+  await rewriteZip(clean, bad, entries => entries.map(([name, data]) => [name, name === 'extension/dist/render.cjs' ? Buffer.from('stale lazy renderer') : data]));
   await assert.rejects(verifyVsix(bad), /bundle hash mismatch/);
   await rewriteZip(clean, bad, entries => [...entries, ['extension/research/private.html', Buffer.from('sentinel')]]);
   await assert.rejects(verifyVsix(bad), /unexpected:/);

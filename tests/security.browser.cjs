@@ -202,3 +202,110 @@ test('accessible diagram, privacy and documentation keyboard flows use exact pro
     expect(await page.evaluate(()=>window.policyViolations.filter(v=>v.directive!=='img-src'))).toEqual([]);
   } finally {await server.close();}
 });
+
+
+test('offline lazy runtime preserves the complete registry and representative families on first/later use', async ({page}) => {
+  const server = await boot(page);
+  try {
+    await render(page, '# Plain preview');
+    await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy', 'false');
+    expect(server.requests.filter(url => url === '/diagrams.js')).toHaveLength(0);
+    const families = require('./diagram-families.cjs');
+    const failures = [];
+    for (const [name, source] of families) {
+      for (const use of ['first', 'later']) {
+        await render(page, '```mermaid\n' + source + '\n```');
+        await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy', 'false');
+        if (await page.locator('.mermaid-result > svg').count() !== 1) failures.push(name + ' ' + use);
+      }
+    }
+    expect(failures).toEqual([]);
+    const expected = [...fs.readFileSync(require.resolve('mermaid').replace(/mermaid.core.mjs$/, 'mermaid.core.mjs'), 'utf8').matchAll(/var id\d* = "([^"]+)"/g)].map(match => match[1]);
+    const actual = await page.evaluate(() => RichMarkdownDiagrams.renderer().getRegisteredDiagramsMetadata().map(item => item.id));
+    expect(actual).toEqual(expect.arrayContaining(expected));
+    expect(server.requests.filter(url => url === '/diagrams.js')).toHaveLength(1);
+    expect(page.securityRequests).toEqual([]);
+    expect(await page.evaluate(() => window.policyViolations)).toEqual([]);
+  } finally { await server.close(); }
+});
+
+test('failed lazy assets recover visibly and retry without changing CSP', async ({page}) => {
+  const server = await boot(page);
+  try {
+    await page.route('**/diagrams.js', route => route.abort());
+    await render(page, '```mermaid\nflowchart TD\nA-->B\n```');
+    await expect(page.locator('.diagram-error')).toHaveCount(1);
+    await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy', 'false');
+    await page.unroute('**/diagrams.js');
+    await render(page, '```mermaid\nflowchart TD\nC-->D\n```');
+    await expect(page.locator('.mermaid-result svg')).toHaveCount(1);
+  } finally { await server.close(); }
+});
+
+test('malformed diagram asset and missing asset metadata settle as readable recovery', async ({page}) => {
+  const server = await boot(page);
+  try {
+    await page.route('**/diagrams.js', route => route.fulfill({status:200,contentType:'text/javascript',body:'window.RichMarkdownDiagrams = {};'}));
+    await render(page, '```mermaid\nflowchart TD\nA-->B\n```');
+    await expect(page.locator('.diagram-error')).toHaveCount(1);
+    await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy', 'false');
+    await page.unroute('**/diagrams.js');
+    await page.route(server.url + '/', async route => { const response = await route.fetch();await route.fulfill({response,body:(await response.text()).replace(/data-diagram-runtime="[^"]+"/,'data-diagram-runtime=""')}); });
+    await page.goto(server.url);
+    await render(page, '```mermaid\nflowchart TD\nA-->B\n```');
+    await expect(page.locator('.diagram-error')).toHaveCount(1);
+    await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy', 'false');
+  } finally { await server.close(); }
+});
+
+test('unexpected diagram initialization failures do not poison the serialized queue or expose details', async ({page}) => {
+  const server = await boot(page);
+  try {
+    await page.route('**/diagrams.js', route => route.fulfill({status:200,contentType:'text/javascript',body:'let attempts = 0; window.RichMarkdownDiagrams = {renderer: () => ({initialize(){if (!attempts++) throw Error("private runtime detail");}, async render(id){return {svg:`<svg xmlns="http://www.w3.org/2000/svg" id="${id}"><path d="M0 0 L10 10"/></svg>`};}})};'}));
+    await render(page, '```mermaid\nflowchart TD\nA-->B\n```');
+    await expect(page.locator('.diagram-source')).toHaveCount(1);
+    await expect(page.locator('.diagram-error')).toHaveCount(1);
+    await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy', 'false');
+    await page.waitForFunction(() => document.querySelector('script[src$="diagrams.js"]'));
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 50)));
+    await render(page, '```mermaid\nflowchart TD\nC-->D\n```');
+    await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('.mermaid-result > svg')).toHaveCount(1);
+  } finally { await server.close(); }
+});
+
+test('malformed lazy renderer exports settle visibly and retry without exposing runtime details', async ({page}) => {
+ const server=await boot(page);
+ try {
+  for(const body of [
+   'window.RichMarkdownDiagrams = {renderer: "not a function"};',
+   'window.RichMarkdownDiagrams = {renderer(){throw Error("private export detail");}};',
+   'window.RichMarkdownDiagrams = {renderer: () => null};',
+   'window.RichMarkdownDiagrams = {renderer: () => ({initialize(){},render:"not a function"})};'
+  ]) {
+   await page.route('**/diagrams.js',route=>route.fulfill({status:200,contentType:'text/javascript',body}));
+   await page.goto(server.url);
+   await render(page,'```mermaid\nflowchart TD\nA-->B\n```');
+   await expect(page.locator('.diagram-error')).toHaveCount(1);
+   await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy','false');
+   expect(await page.locator('.diagram-error').textContent()).not.toContain('private export detail');
+   await page.unroute('**/diagrams.js');
+   await render(page,'```mermaid\nflowchart TD\nC-->D\n```');
+   await expect(page.locator('.mermaid-result > svg')).toHaveCount(1);
+  }
+ } finally {await server.close();}
+});
+
+test('an unexpected palette failure cannot poison later queued diagram work', async ({page}) => {
+ const server=await boot(page);
+ try {
+  await page.route('**/diagrams.js',route=>route.fulfill({status:200,contentType:'text/javascript',body:'window.RichMarkdownDiagrams={renderer(){const saved=window.getComputedStyle;window.paletteFaults=0;window.getComputedStyle=()=>{window.paletteFaults++;throw Error("private palette failure");};window.restorePalette=()=>{window.getComputedStyle=saved;};return {initialize(){},async render(id){return {svg:`<svg xmlns="http://www.w3.org/2000/svg" id="${id}"><path d="M0 0 L10 10"/></svg>`};}};}};'}));
+  await render(page,'```mermaid\nflowchart TD\nA-->B\n```');
+  await page.waitForFunction(()=>window.paletteFaults>0);
+  await page.evaluate(()=>window.restorePalette());
+  await render(page,'```mermaid\nflowchart TD\nC-->D\n```');
+  await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy','false');
+  await expect(page.locator('.mermaid-result > svg')).toHaveCount(1);
+  expect(await page.locator('#rmp-ui-content').textContent()).not.toContain('private palette failure');
+ } finally {await server.close();}
+});

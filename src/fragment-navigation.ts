@@ -1,5 +1,8 @@
 import { renderMarkdownOutline } from './render';
 
+// The deferred host asset shares this parser between preview and fragment navigation.
+export { renderMarkdown, boundRenderedModel, renderMarkdownOutline } from './render';
+
 export type FragmentResult =
   | { kind: 'none' }
   | { kind: 'heading'; fragment: string; line: number }

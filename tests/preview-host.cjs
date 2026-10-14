@@ -89,7 +89,7 @@ function previewHost({ inWorkspace = true, workspaceTrusted = true, initializeVs
   const module = {exports: {}};
   const runtime = vm.createContext({
     module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, URL, TextEncoder, TextDecoder, setTimeout, clearTimeout, console: {...console, error: (...args) => errors.push(args)},
-    require: name => name === 'vscode' ? vscode : require(name)
+    require: name => name === 'vscode' ? vscode : name === './render.cjs' ? require('../dist/render.cjs') : require(name)
   });
   wireMessage = require('./vm-wire.cjs').wireParser(runtime);
   vm.runInContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), runtime);

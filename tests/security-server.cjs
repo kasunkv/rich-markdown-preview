@@ -13,7 +13,7 @@ async function startSecurityServer({ imageOrigins = [] } = {}) {
     if (req.url === '/') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.end(page);
-    } else if (req.url === '/preview.js' || req.url === '/preview.css') {
+    } else if (req.url === '/diagrams.js' || req.url === '/preview.js' || req.url === '/preview.css') {
       res.setHeader('Content-Type', req.url.endsWith('.js') ? 'text/javascript' : 'text/css');
       res.end(fs.readFileSync(path.join(root, 'dist', req.url.slice(1))));
     } else if (req.url === '/logo.png' || req.url === '/local.png') {
