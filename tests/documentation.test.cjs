@@ -34,6 +34,20 @@ test('selection, relative Markdown links with anchors, images, source, history a
   assert.equal(h.panels.length, 1);
 });
 
+test('long navigation keeps a useful bounded Back/Forward window', async () => {
+  const h = host();
+  for (let index = 0; index < 100; index++) h.files.set(`/repo/history/${index}.md`, `# Entry ${index}`);
+  await h.open();
+  for (let index = 0; index < 100; index++) await h.action('open', `/repo/history/${index}.md`);
+  for (let index = 0; index < 63; index++) await h.action('back');
+  assert.equal(h.latest('render').documentId, 'file:///repo/history/36.md');
+  assert.equal(h.latest('documentation').canBack, false);
+  await h.action('back');
+  assert.equal(h.latest('render').documentId, 'file:///repo/history/36.md');
+  await h.action('forward');
+  assert.equal(h.latest('render').documentId, 'file:///repo/history/37.md');
+});
+
 test('forged tree targets and stale home references do not open files', async () => {
   const h = host(); await h.open(); await h.action('open', '/outside/secret.md'); assert.equal(h.reads.length, 0);
   await h.action('open', '/repo/README.md'); await h.action('home');

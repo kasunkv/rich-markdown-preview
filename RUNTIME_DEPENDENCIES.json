@@ -5,11 +5,11 @@
   "bundles": [
     {
       "file": "dist/extension.js",
-      "sha256": "71a3504cabbce81f37cf86d8babe5544eb1d23a04ed7c6190d2917ba5d268e1c"
+      "sha256": "1a4e2ece62878e5fd40aee7991eef655b544cd783679a0dc413c689029bea071"
     },
     {
       "file": "dist/preview.js",
-      "sha256": "19d07649b147b5c7976ff0e97279f2618fb9e4dd8d08fa6c9617c96b28e97de6"
+      "sha256": "52792b9baf1235ec89ceb150cf934ca0560b566b022a287467e1de488527988d"
     }
   ],
   "noticesSha256": "757d4f70c1e18e949d791509f20f83e45c7a68e79eeb09f3e458648f3582aed9",

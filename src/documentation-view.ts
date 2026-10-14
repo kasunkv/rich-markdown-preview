@@ -1,5 +1,6 @@
 import type { WebviewCommand, DocumentationAction, HostMessage } from './messages';
 import type { DocumentationFile } from './documentation';
+import { readingStateLimits } from './reading-state';
 
 export interface DocumentationViewState {
   expanded?: string[];
@@ -32,8 +33,10 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
   let documentsButton: HTMLButtonElement, outlineButton: HTMLButtonElement;
   const send = (action: DocumentationAction, id?: string) =>
     vscode.postMessage({ type: 'documentationAction', action, id });
-  const save = () =>
+  const save = () => {
+    while (expanded.size > readingStateLimits.expandedDirectories) expanded.delete(expanded.values().next().value!);
     vscode.setState({ ...vscode.getState(), documentation: { expanded: [...expanded], filter, outline: showOutline } });
+  };
   const button = (label: string, action: () => void) => {
     const node = document.createElement('button');
     node.type = 'button';
@@ -85,7 +88,8 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
     search.setAttribute('aria-label', 'Filter documentation files or folders');
     search.value = filter;
     search.addEventListener('input', () => {
-      filter = search.value;
+      filter = search.value.slice(0, readingStateLimits.filterLength);
+      search.value = filter;
       save();
       renderTree();
     });
@@ -224,7 +228,7 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
         ).length;
         group.append(
           button(`${folder.name}/ · ${count} document${count === 1 ? '' : 's'}`, () => {
-            filter = `${root.name}/${folder.name}/`;
+            filter = `${root.name}/${folder.name}/`.slice(0, readingStateLimits.filterLength);
             search.value = filter;
             selectTab(false);
             save();
@@ -242,6 +246,24 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
     receive(message: IndexMessage) {
       setup();
       data = message;
+      if (!data.loading && !data.error) {
+        const directories = new Set<string>();
+        for (const file of data.files) {
+          let key = file.root;
+          directories.add(key);
+          for (const part of file.path.split('/').slice(0, -1)) {
+            key += `/${part}`;
+            directories.add(key);
+          }
+        }
+        let pruned = false;
+        for (const key of expanded) {
+          if (directories.has(key.replace(/^closed:/, ''))) continue;
+          expanded.delete(key);
+          pruned = true;
+        }
+        if (pruned) save();
+      }
       back.disabled = !data.canBack;
       forward.disabled = !data.canForward;
       source.disabled = !data.active;
@@ -261,6 +283,7 @@ export function documentationView(vscode: Bridge, content: HTMLElement) {
           expanded.add(key);
           expanded.delete(`closed:${key}`);
         }
+        save();
       }
       previousActive = data.active;
       renderTree();

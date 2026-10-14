@@ -424,6 +424,10 @@ export function activate(context: vscode.ExtensionContext) {
             history.splice(historyPosition + 1);
             history.push(entry);
             historyPosition = history.length - 1;
+            if (history.length > 64) {
+              history.splice(0, history.length - 64);
+              historyPosition = history.length - 1;
+            }
           }
         }
         panel.title = document ? `Documentation: ${document.fileName.split(/[\\/]/).pop()}` : 'Documentation Home';
