@@ -34,11 +34,11 @@ exports.proveProviders = async ({vscode,findFrame,checks}) => {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors');
       if(mode==='single-file')await vscode.commands.executeCommand('richMarkdownPreview.openPreview',guide);
       else {
-        await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');const home=await findFrame('input[aria-label="Filter documentation"]');
-        await home.locator('input[aria-label="Filter documentation"]').fill('');
+        await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');const home=await findFrame('input[aria-label="Filter documentation files or folders"]');
+        await home.locator('input[aria-label="Filter documentation files or folders"]').fill('');
         await home.waitForFunction(()=>[...document.querySelectorAll('button.documentation-file')].some(button=>button.dataset.key==='rmp-readonly://fixture/one/.hidden/guide.md'));
         const allTargets=await home.locator('button.documentation-file').evaluateAll(buttons=>buttons.map(button=>button.dataset.key));assert.ok(!allTargets.some(value=>value.includes('/alias/private.md')));checks.push({hiddenProviderDiscovery:'rmp-readonly://fixture/one/.hidden/guide.md',reportedSymlinkPruned:true});
-        await home.locator('input[aria-label="Filter documentation"]').fill('README.md');
+        await home.locator('input[aria-label="Filter documentation files or folders"]').fill('README.md');
         await home.waitForFunction(()=>[...document.querySelectorAll('button.documentation-file')].some(button=>button.dataset.key==='rmp-readonly://fixture/one/README.md'));
         const listing=await home.locator('button.documentation-file').evaluateAll(buttons=>buttons.map(button=>button.dataset.key));assert.ok(listing.includes(guide.toString()));assert.ok(listing.includes(vscode.Uri.joinPath(second,'README.md').toString()));
         await home.locator('button.documentation-file[data-key='+JSON.stringify(guide.toString())+']').click();
@@ -77,8 +77,8 @@ exports.proveRestrictedProviders=async({vscode,findFrame,checks})=>{
  assert.equal(reads.filter(uri=>uri.includes('/README.md')).length,before,'Restricted command does not read opaque provider Markdown');
  assert.ok(!vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.input instanceof vscode.TabInputWebview),'No opaque provider preview is created');
  await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
- const frame=await findFrame('input[aria-label="Filter documentation"]');
- await frame.locator('input[aria-label="Filter documentation"]').fill('Provider One');
+ const frame=await findFrame('input[aria-label="Filter documentation files or folders"]');
+ await frame.locator('input[aria-label="Filter documentation files or folders"]').fill('Provider One');
  await frame.waitForFunction(()=>document.body.textContent.includes('No matching documents.'));
  const targets=await frame.locator('button.documentation-file').evaluateAll(buttons=>buttons.map(button=>button.dataset.key));
  assert.ok(!targets.some(value=>value.startsWith('rmp-readonly:')));

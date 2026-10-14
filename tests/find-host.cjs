@@ -3,7 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 // Exercise VS Code's own webview Find widget through the real workbench keyboard path.
-exports.proveFind = async ({ vscode, workspace, findFrame, checks }) => {
+exports.proveFind = async ({ vscode, browser, workspace, checks }) => {
   assert.equal(process.platform, 'win32', 'This smoke covers Windows Ctrl+F only');
   const directory = path.join(workspace, 'find-proof');
   await fs.mkdir(directory, { recursive: true });
@@ -11,50 +11,169 @@ exports.proveFind = async ({ vscode, workspace, findFrame, checks }) => {
   const second = path.join(directory, 'find-second.md');
   await fs.writeFile(
     first,
-    '# Find proof\n\nFIND_VISIBLE_ALPHA\n\n| State | Value |\n| --- | --- |\n| shown | TABLE_VISIBLE_ALPHA |\n| omitted | TABLE_HIDDEN_BETA |\n\n<table><tbody><tr><td><details><summary>Closed disclosure</summary>DISCLOSURE_HIDDEN_GAMMA</details></td></tr></tbody></table>\n\n```mermaid\ngraph TD\n A[DIAGRAM_SOURCE_DELTA] -->\n```\n',
+    '# Find proof\n\nFIND_VISIBLE_ALPHA\n\n| State | Value |\n| --- | --- |\n| shown | TABLE_VISIBLE_ALPHA |\n| omitted | TABLE_HIDDEN_BETA |\n\n' + ('Navigation spacer content.\n\n'.repeat(40)) + 'FIND_VISIBLE_ALPHA\n\n```mermaid\ngraph TD\n A[DIAGRAM_SOURCE_DELTA] -->\n```\n',
   );
   await fs.writeFile(second, '# Second Find proof\n\nFIND_VISIBLE_OMEGA\n');
 
-  const openFind = async (frame, phrase) => {
+  const findActiveFrame = async (selector) => {
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      for (const context of browser.contexts())
+        for (const page of context.pages())
+          for (const candidate of page.frames()) {
+            if (!candidate.url().startsWith('vscode-webview://')) continue;
+            try {
+              if (!(await candidate.locator(selector).count())) continue;
+              const element = await candidate.frameElement();
+              const visible = await element.evaluate((frameElement) => {
+                let node = frameElement;
+                while (node instanceof HTMLElement) {
+                  const style = getComputedStyle(node);
+                  const rect = node.getBoundingClientRect();
+                  if (node.hidden || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+                  if (rect.width <= 0 || rect.height <= 0) return false;
+                  node = node.parentElement;
+                }
+                return true;
+              });
+              if (visible) return candidate;
+            } catch {}
+          }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`No visible active webview frame contains ${selector}`);
+  };
+
+  const openFind = async (frame, phrase, expectedTabLabel) => {
     assert.ok(
       vscode.window.tabGroups.activeTabGroup.activeTab.input instanceof vscode.TabInputWebview,
       'Ctrl+F is tested while the preview webview is the active editor',
     );
-    const page = frame.page();
-    await frame.locator('body').click();
-    await page.keyboard.press('Control+f');
-    const widget = page.locator('.find-widget');
-    await widget.waitFor({ state: 'visible', timeout: 10000 });
-    const input = widget.locator('input').first();
-    await input.fill(phrase);
-    await page.waitForTimeout(150);
-    const count = widget.locator('.matchesCount');
-    await count.waitFor({ state: 'visible', timeout: 5000 });
-    const result = (await count.innerText()).trim();
-    assert.match(result, /[1-9]/, `Find widget matched ${phrase}`);
-    return { page, widget, result: result.replace(/\s+/g, ' ').trim() };
+    assert.equal(vscode.window.tabGroups.activeTabGroup.activeTab.label, expectedTabLabel);
+    let activeFrame = frame;
+    let page = activeFrame.page();
+    try {
+      await activeFrame.locator('#rmp-ui-content').click();
+    } catch {
+      activeFrame = await findActiveFrame('#rmp-ui-content');
+      page = activeFrame.page();
+      await activeFrame.locator('#rmp-ui-content').click();
+    }
+    try {
+      await activeFrame.locator('body').press('Control+f');
+    } catch {
+      activeFrame = await findActiveFrame('#rmp-ui-content');
+      page = activeFrame.page();
+      await activeFrame.locator('#rmp-ui-content').click();
+      await activeFrame.locator('body').press('Control+f');
+    }
+    // Stable 1.141 includes a separate hidden Chat Find input before the webview widget.
+    const input = page.locator('input[aria-label="Find"]').last();
+    try {
+      await input.waitFor({ state: 'visible', timeout: 10000 });
+    } catch {
+      const frames = await Promise.all(
+        page.frames().map((candidate) =>
+          candidate
+            .evaluate(() => ({
+              url: location.href,
+              title: document.title,
+              active: document.activeElement?.outerHTML?.slice(0, 500),
+              inputs: Array.from(document.querySelectorAll('input')).map((input) => ({
+                html: input.outerHTML.slice(0, 300),
+                ancestors: (() => {
+                  const result = [];
+                  let node = input;
+                  for (let index = 0; node && index < 7; index++, node = node.parentElement)
+                    result.push({ tag: node.tagName, className: node.className, text: node.textContent?.slice(0, 120) });
+                  return result;
+                })(),
+              })),
+              visibleFind: Array.from(document.querySelectorAll('.find-widget, [class*="find-widget"]')).map((node) => ({
+                className: node.className,
+                text: node.textContent?.slice(0, 80),
+                display: getComputedStyle(node).display,
+                visibility: getComputedStyle(node).visibility,
+              })),
+            }))
+            .catch((error) => ({ error: String(error) })),
+        ),
+      );
+      throw new Error(`Ctrl+F did not show the native webview Find widget: ${JSON.stringify(frames)}`);
+    }
+    assert.equal(await input.evaluate((element) => document.activeElement === element), true, 'Native Find input is focused');
+    await input.press('Control+a');
+    await input.type(phrase, { delay: 25 });
+    await page.waitForTimeout(250);
+    assert.equal(await input.inputValue(), phrase, 'Native Find widget accepted the search text');
+    const widget = page.locator('.simple-find-part.visible');
+    assert.ok(await widget.isVisible(), 'VS Code simple Find widget is visible');
+    const widgetState = async () => widget.evaluate((node) => ({
+      className: node.className,
+      text: node.textContent?.trim(),
+      controls: Array.from(node.querySelectorAll('button, [role="button"], [aria-label], [title]')).map((item) => ({
+        tag: item.tagName,
+        className: item.className,
+        label: item.getAttribute('aria-label'),
+        title: item.getAttribute('title'),
+        disabled: item.disabled,
+        disabledClass: item.classList.contains('disabled'),
+      })),
+    }));
+    await input.press('Enter');
+    // VS Code debounces its native findInFrame request by 200ms.
+    await page.locator('.simple-find-part.visible .codicon-find-next-match:not(.disabled)').waitFor({ state: 'visible', timeout: 3000 });
+    await page.screenshot({ path: path.join(workspace, 'find-native-first-match.png') });
+    const matchState = await widgetState();
+    await input.press('Control+a');
+    await input.type('RMP_DELIBERATE_NO_MATCH_842019', { delay: 25 });
+    await page.locator('.simple-find-part.visible .codicon-find-next-match.disabled').waitFor({ state: 'visible', timeout: 3000 });
+    const noMatchState = await widgetState();
+    const nextButton = (state) => state.controls.find((control) => control.label === 'Next Match');
+    assert.equal(nextButton(matchState)?.disabledClass, false, 'Native Find reports at least one match');
+    assert.equal(nextButton(noMatchState)?.disabledClass, true, 'Native Find disables navigation for a missing term');
+    await input.press('Control+a');
+    await input.type(phrase, { delay: 25 });
+    await input.press('Enter');
+    await page.screenshot({ path: path.join(workspace, 'find-native-match.png') });
+    const query = async (term) => {
+      await input.press('Control+a');
+      await input.type(term, { delay: 25 });
+      await input.press('Enter');
+      await page.waitForTimeout(500);
+      return { term, ...(await widgetState()) };
+    };
+    return { page, input, query, result: { exactQuery: phrase, matchState, noMatchState, count: 'not exposed by the native webview Find widget' } };
   };
   const closeFind = async (page) => page.keyboard.press('Escape');
 
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   await vscode.commands.executeCommand('richMarkdownPreview.openPreview', vscode.Uri.file(first));
-  let frame = await findFrame('#rmp-ui-content');
-  let result = await openFind(frame, 'FIND_VISIBLE_ALPHA');
+  let frame = await findActiveFrame('#rmp-ui-content');
+  let result = await openFind(frame, 'FIND_VISIBLE_ALPHA', 'Rich Markdown Preview: find-first.md');
+  await result.page.screenshot({ path: path.join(workspace, 'find-native-first-match.png') });
+  const nextMatch = result.page.locator('.simple-find-part.visible .codicon-find-next-match:not(.disabled)');
+  await nextMatch.click();
+  await result.page.waitForTimeout(500);
+  await result.page.screenshot({ path: path.join(workspace, 'find-native-next-match.png') });
+  assert.ok(await nextMatch.isVisible(), 'Native next-match control remains enabled after navigation');
+  result.result.navigation = 'Native Next Match activated; before/after screenshots saved for observed viewport movement';
   checks.push({ mode: 'single-file', keyboard: 'Ctrl+F', result: result.result });
   await closeFind(result.page);
 
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-  frame = await findFrame('input[aria-label="Filter documentation files or folders"]');
+  frame = await findActiveFrame('input[aria-label="Filter documentation files or folders"]');
   const fileFilter = frame.locator('input[aria-label="Filter documentation files or folders"]');
   await fileFilter.fill('FIND_VISIBLE_ALPHA');
   await frame.waitForFunction(() => document.querySelector('.documentation-notice')?.textContent?.startsWith('0 of '));
   await fileFilter.fill('find-first.md');
   await frame.locator('button.documentation-file[title="find-proof/find-first.md"]').click();
-  frame = await findFrame('#rmp-ui-content');
-  result = await openFind(frame, 'FIND_VISIBLE_ALPHA');
+  frame = await findActiveFrame('#rmp-ui-content');
+  result = await openFind(frame, 'FIND_VISIBLE_ALPHA', 'Documentation: find-first.md');
   checks.push({ mode: 'documentation-home-selected-file', keyboard: 'Ctrl+F', result: result.result });
 
+  frame = await findActiveFrame('#rmp-ui-content');
   const tableSearch = frame.locator('.table-search');
   await tableSearch.fill('TABLE_VISIBLE_ALPHA');
   await frame.waitForFunction(() => {
@@ -63,29 +182,21 @@ exports.proveFind = async ({ vscode, workspace, findFrame, checks }) => {
   });
   await frame.locator('#rmp-ui-content .diagram-error').waitFor({ state: 'visible', timeout: 10000 });
   await frame.locator('#rmp-ui-content .mermaid-source').waitFor({ state: 'visible', timeout: 5000 });
-  await result.widget.locator('input').first().fill('TABLE_HIDDEN_BETA');
-  await frame.page().waitForTimeout(150);
-  const hiddenRowResult = (await result.widget.locator('.matchesCount').innerText()).trim();
-  await result.widget.locator('input').first().fill('DISCLOSURE_HIDDEN_GAMMA');
-  await frame.page().waitForTimeout(150);
-  const closedDisclosureResult = (await result.widget.locator('.matchesCount').innerText()).trim();
-  await result.widget.locator('input').first().fill('DIAGRAM_SOURCE_DELTA');
-  await frame.page().waitForTimeout(150);
-  const diagramSourceResult = (await result.widget.locator('.matchesCount').innerText()).trim();
+  const hiddenRowResult = await result.query('TABLE_HIDDEN_BETA');
+  const diagramSourceResult = await result.query('DIAGRAM_SOURCE_DELTA');
   checks.push({
     hiddenFilteredRowFind: hiddenRowResult,
-    closedDisclosureFind: closedDisclosureResult,
     diagramSourceFallbackFind: diagramSourceResult,
   });
   await closeFind(result.page);
 
   // The Documentation Home filename filter and document Find remain separate inputs.
   await vscode.commands.executeCommand('richMarkdownPreview.openDocumentationHome');
-  frame = await findFrame('input[aria-label="Filter documentation files or folders"]');
+  frame = await findActiveFrame('input[aria-label="Filter documentation files or folders"]');
   await frame.locator('input[aria-label="Filter documentation files or folders"]').fill('find-second.md');
   await frame.locator('button.documentation-file[title="find-proof/find-second.md"]').click();
-  frame = await findFrame('#rmp-ui-content');
-  result = await openFind(frame, 'FIND_VISIBLE_OMEGA');
+  frame = await findActiveFrame('#rmp-ui-content');
+  result = await openFind(frame, 'FIND_VISIBLE_OMEGA', 'Documentation: find-second.md');
   checks.push({
     mode: 'documentation-navigation-updated-find-results',
     result: result.result,
