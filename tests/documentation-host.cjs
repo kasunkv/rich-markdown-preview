@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {minimatch} = require('minimatch');
 
-function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [], allowImages = true, failImageWrites = false } = {}) {
+function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, imageOrigins = [], allowImages = true, failImageWrites = false } = {}) {
+  let wireMessage;
   const imageState = {value:imageOrigins,failWrites:failImageWrites,failRead:false};
   const imageWrites = [];
   const globalState = {
@@ -14,9 +15,10 @@ function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [],
     const listeners = new Set();
     return { listen: fn => { listeners.add(fn); return { dispose: () => listeners.delete(fn) }; }, fire: value => [...listeners].forEach(fn => fn(value)), listeners };
   };
-  const uri = value => ({ scheme:'file', fsPath:value, path: value, with: changes => ({...uri(value),...changes}), toString: () => `file://${value}` });
+  const uri = value => ({ scheme:'file', authority:'', query:'', fragment:'', fsPath:value, path: value, with: changes => ({...uri(value),...changes}), toString: () => `file://${value}` });
   const root = value => ({ name: value.split('/').pop(), uri: uri(value) });
   let requestSequence = 0;
+  const serializers = {};
   const runtimeLoads = [];
   const commands = {}, messages = [], panels = [], warnings = [], opened = [], queries = [], watchers = [], reads = [], selections = [], reveals = [];
   const files = new Map([
@@ -36,6 +38,7 @@ function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [],
     return { uri: target, fileName: target.path, languageId: 'markdown', getText: () => files.get(target.path) };
   };
   const vscode = {
+    RelativePattern: class { constructor(base,pattern) {this.base=base;this.pattern=pattern;} },
     Uri: { file: uri, parse: value => uri(value.replace(/^file:\/\//, '')), joinPath: (base, ...parts) => uri(path.posix.join(base.path, ...parts)) },
     Range: class { constructor(startLine, startCharacter, endLine, endCharacter) { this.start = {line: startLine, character: startCharacter}; this.end = {line: endLine, character: endCharacter}; } },
     TextEditorRevealType: {InCenterIfOutsideViewport: 2},
@@ -43,6 +46,7 @@ function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [],
     RelativePattern: class { constructor(base, pattern) { this.baseUri = base.uri ?? base; this.pattern = pattern; } },
     CancellationTokenSource: class { token = {isCancellationRequested: false}; cancel() {this.token.isCancellationRequested = true;} dispose() {} },
     window: {
+      registerWebviewPanelSerializer: (type, serializer) => {serializers[type]=serializer;return {dispose(){}};},
       createOutputChannel: () => ({appendLine() {},dispose() {}}),
       createStatusBarItem: () => status,
       showInformationMessage: message => warnings.push(message), showWarningMessage: (message, _options, ...items) => {warnings.push(message); return Promise.resolve(items.includes('Allow images') && allowImages ? 'Allow images' : undefined);},
@@ -53,7 +57,8 @@ function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [],
           onDidChangeViewState: view.listen, onDidDispose: dispose.listen,
           dispose() {dispose.fire();},
           webview: { options, cspSource: 'safe:', asWebviewUri: target => target,
-            onDidReceiveMessage: fn => {
+            onDidReceiveMessage: nativeFn => {
+              const fn = message => nativeFn(wireMessage(message));
               panel.rawMessage = fn;
               panel.message = message => {
                 if (!message || typeof message !== 'object' || Array.isArray(message) || Object.getPrototypeOf(message) !== Object.prototype || !Object.values(Object.getOwnPropertyDescriptors(message)).every(descriptor => 'value' in descriptor) || message.type === 'ready') return fn(message);
@@ -71,31 +76,39 @@ function host({ folders = ['/repo', '/other'], settings = {}, imageOrigins = [],
     },
     commands: {registerCommand: (name, fn) => {commands[name] = fn; return {dispose() {}};}, executeCommand: async (_, target) => opened.push(target.path)},
     workspace: {
+      isTrusted:trusted, onDidGrantWorkspaceTrust:()=>({dispose(){}}),
       workspaceFolders: folders.map(root), onDidChangeWorkspaceFolders: workspaceFolders.listen,
       onDidChangeConfiguration: configuration.listen, onDidChangeTextDocument: text.listen,
       getWorkspaceFolder: target => vscode.workspace.workspaceFolders.find(folder => target.path === folder.uri.path || target.path.startsWith(folder.uri.path + '/')),
       getConfiguration: (section, target) => ({get: (key, fallback) => section === 'richMarkdownPreview' ? settings[`${target?.path}:${key}`] ?? settings[key] ?? fallback : fallback, inspect: () => ({})}),
       openTextDocument: async target => {reads.push(target.path); return getDocument(target);},
-      fs: { stat: async target => {if (!files.has(target.path)) throw new Error('Missing file'); return {type: 1};} },
+      fs: { isWritableFileSystem: scheme => scheme === 'file' ? true : undefined, stat: async target => {
+        if (files.has(target.path)) return {type: 1};
+        if ([...files.keys()].some(file => file.startsWith(target.path + '/'))) return {type: 2};
+        throw new Error('Missing file');
+      } },
       findFiles: async (include, exclude, max, token) => {
-        queries.push({include, exclude, token});
-        return [...files.keys()].filter(file => file.startsWith(include.baseUri.path + '/') && minimatch(file.slice(include.baseUri.path.length + 1), include.pattern, {dot: true}) && (!exclude || !minimatch(file, exclude, {dot: true}))).map(uri);
+        queries.push({include, exclude, max, token});
+        return [...files.keys()].filter(file => file.startsWith(include.baseUri.path + '/') && minimatch(file.slice(include.baseUri.path.length + 1), include.pattern, {dot: true}) && (!exclude || !minimatch(file, exclude, {dot: true}))).slice(0, max).map(uri);
       },
       createFileSystemWatcher: pattern => {
-        const create = event(), remove = event();
-        const watcher = {pattern, onDidCreate: create.listen, onDidDelete: remove.listen, create: create.fire, remove: remove.fire, disposed: false, dispose() {this.disposed = true;} };
+        const create = event(), remove = event(), change = event();
+        const watcher = {pattern, onDidCreate: create.listen, onDidDelete: remove.listen, onDidChange: change.listen, change: change.fire, create: create.fire, remove: remove.fire, disposed: false, dispose() {this.disposed = true;} };
         watchers.push(watcher); return watcher;
       }
     }
   };
   const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), {module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, Object, URL, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg'})} : name === './render.cjs' ? (runtimeLoads.push(name), require('../dist/render.cjs')) : require(name)});
+  const runtime = vm.createContext({module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, URL, TextEncoder, TextDecoder, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg' || files.has(value)})} : name === './render.cjs' ? (runtimeLoads.push(name), require('../dist/render.cjs')) : require(name)});
+  wireMessage = require('./vm-wire.cjs').wireParser(runtime);
+  vm.runInContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), runtime);
   module.exports.activate({subscriptions: [], extensionUri: uri('/extension'), globalState});
   const open = async () => {await commands['richMarkdownPreview.openDocumentationHome'](); if (panels.length) await panels.at(-1).message({type: 'ready'});};
   const openSingle = async (file = '/repo/README.md') => { await commands['richMarkdownPreview.openPreview'](uri(file)); await panels.at(-1).message({type: 'ready'}); };
   const action = (action, id) => panels.at(-1).message({type: 'documentationAction', action, id: id && uri(id).toString()});
   const latest = type => messages.filter(message => message.type === type).at(-1);
-  return {runtimeLoads, globalState, imageState, imageWrites, vscode, settings, status, open, openSingle, selections, reveals, action, latest, files, reads, queries, messages, panels, warnings, opened, watchers, workspaceFolders, configuration, text, uri, getDocument};
+  const restore = async (kind, state) => { const type = kind === 'preview' ? 'richMarkdownPreview.preview' : 'richMarkdownPreview.documentationHome';const panel=vscode.window.createWebviewPanel(type, 'Restored', -1, {});await serializers[type].deserializeWebviewPanel(panel,state === undefined ? undefined : vm.runInContext("JSON.parse",runtime)(JSON.stringify(state)));await panel.message?.({type:'ready'});return panel; };
+  return {runtimeLoads,restore,serializers,globalState, imageState, imageWrites, vscode, settings, status, open, openSingle, selections, reveals, action, latest, files, reads, queries, messages, panels, warnings, opened, watchers, workspaceFolders, configuration, text, uri, getDocument};
 }
 
 

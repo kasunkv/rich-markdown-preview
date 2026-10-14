@@ -43,9 +43,9 @@ test('quoted CSV reserializes formula policy, embedded delimiters and signed num
 });
 test('browser inbound messages validate actual nested structures', () => {
   const render = {type:'render',html:'<h1>Hello</h1>',outline:[{id:'h1',fragment:'hello',text:'Hello',level:1}],preferences:prefs,documentId:'file:///a.md',renderId:'render_1',documentationHome:false,fragment:'hello'};
-  const docs = {type:'documentation',files:[{id:'file:///a.md',root:'file:///docs',rootName:'Docs',path:'a.md'}],loading:false,canBack:false,canForward:true};
+  const docs = {type:'documentation',files:[{id:'file:///a.md',root:'file:///docs',rootName:'Docs',path:'a.md'}],roots:['file:///docs'],complete:true,truncated:false,loading:false,canBack:false,canForward:true};
   for (const value of [render,docs,{type:'preferences',preferences:prefs},{type:'copyResult',requestId:'request_1',success:true},{type:'tableActionResult',requestId:'request_2',action:'tableExport',cancelled:true},{type:'tableActionResult',requestId:'request_3',action:'tableCopy',success:false,error:'Try again'}]) assert.ok(inbound(value),JSON.stringify(value));
-  for (const value of [null,[],{type:'other'},{...render,preferences:{...prefs,fontSize:Infinity}},{...render,outline:[{...render.outline[0],level:7}]},{...render,outline:[{...render.outline[0],fragment:3}]},{...render,html:'\x00'},{...render,documentId:''},{...render,renderId:''},{...render,fragment:'\n'},{...render,documentationHome:1},{...docs,files:[{...docs.files[0],path:1}]},{...docs,active:3},{...docs,error:3},{type:'copyResult',requestId:'',success:true},{type:'tableActionResult',requestId:'r',action:'delete',success:true},{type:'tableActionResult',requestId:'r',action:'tableExport',cancelled:true,success:true},{type:'tableActionResult',requestId:'r',action:'tableCopy',success:false,error:3}]) assert.equal(inbound(value),false);
+  for (const value of [null,[],{type:'other'},{...render,preferences:{...prefs,fontSize:Infinity}},{...render,outline:[{...render.outline[0],level:7}]},{...render,outline:[{...render.outline[0],fragment:3}]},{...render,html:'\x00'},{...render,documentId:''},{...render,renderId:''},{...render,fragment:'\n'},{...render,documentationHome:1},{...docs,files:[{...docs.files[0],path:1}]},{...docs,complete:'yes'},{...docs,roots:['']},{...docs,active:3},{...docs,error:3},{type:'copyResult',requestId:'',success:true},{type:'tableActionResult',requestId:'r',action:'delete',success:true},{type:'tableActionResult',requestId:'r',action:'tableExport',cancelled:true,success:true},{type:'tableActionResult',requestId:'r',action:'tableCopy',success:false,error:3}]) assert.equal(inbound(value),false);
 });
 test('restored state rejects poisoned maps and malformed nested reading state', () => {
   const reading = {scroll:10,tables:{key:{query:'term',column:1,direction:'ascending',density:'compact'}},disclosures:{section:true}};
@@ -84,4 +84,10 @@ test('permission reset focus state is bounded and validates caret selection befo
     assert.equal(restored({permissionFocus:focus}),true);
   for (const focus of [null,[],{key:''},{key:'x'.repeat(8193)},{key:'a',documentId:''},{key:'a',extra:1},{key:'a',selection:0},{key:'a',selection:[]},{key:'a',selection:[0.5,3,'forward']},{key:'a',selection:[0,3.5,'forward']},{key:'a',selection:[-1,3,'forward']},{key:'a',selection:[3,1,'forward']},{key:'a',selection:[0,3,'invalid']}])
     assert.equal(restored({permissionFocus:focus}),false);
+});
+test('render session context matches its panel kind and rejects privileged/hostile metadata',()=>{
+ const session={version:1,kind:'preview',target:'file:///a.md',history:['file:///a.md'],cursor:0};
+ const render={type:'render',html:'',outline:[],preferences:prefs,documentId:'file:///a.md',session};
+ assert.ok(inbound(render));assert.ok(inbound({...render,documentationHome:true,session:{...session,kind:'documentation'}}));
+ for(const item of [{...render,documentationHome:true},{...render,session:{...session,version:2}},{...render,session:{...session,privacyGrants:['https://example.com']}},{...render,session:{...session,history:Array(21).fill(session.target)}}])assert.equal(inbound(item),false);
 });

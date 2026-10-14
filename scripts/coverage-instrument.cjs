@@ -24,6 +24,9 @@ function sources(directory = path.resolve('src')) {
 function instrument(file) {
   const instrumenter = createInstrumenter({
     esModules: true,
+    // Instrumented bundles must obey the production no-eval CSP too.
+    coverageGlobalScope: 'globalThis',
+    coverageGlobalScopeFunc: false,
     parserPlugins: ['typescript'],
     produceSourceMap: true,
     compact: false,

@@ -1,4 +1,4 @@
-import { renderMarkdown } from './render';
+import { renderMarkdownOutline } from './render';
 
 // The deferred host asset shares this parser between preview and fragment navigation.
 export { renderMarkdown };
@@ -18,7 +18,7 @@ export function resolveSourceFragment(source: string, rawFragment: string): Frag
     return { kind: 'malformed', fragment: rawFragment };
   }
   if (/^L\d+(?:-L?\d+)?$/i.test(fragment)) return { kind: 'unsupported-line', fragment };
-  const heading = renderMarkdown(source).outline.find((item) => item.fragment === fragment);
+  const heading = renderMarkdownOutline(source).find((item) => item.fragment === fragment);
   return heading ? { kind: 'heading', fragment, line: heading.sourceLine } : { kind: 'missing', fragment };
 }
 

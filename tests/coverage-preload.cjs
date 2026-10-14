@@ -6,7 +6,7 @@ process.on('exit', () => {
   if (!process.env.SOURCE_COVERAGE_DIR) return;
   fs.mkdirSync(process.env.SOURCE_COVERAGE_DIR, { recursive: true });
   fs.writeFileSync(
-    path.join(process.env.SOURCE_COVERAGE_DIR, `host-${process.pid}.json`),
+    path.join(process.env.SOURCE_COVERAGE_DIR, `host-${process.pid}-${require('node:crypto').randomUUID()}.json`),
     JSON.stringify(globalThis.__coverage__),
   );
 });
