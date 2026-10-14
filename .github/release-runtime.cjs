@@ -127,15 +127,31 @@ async function inspect(p, directory) {
     installability: 'same bytes installed by the required compatibility matrix',
   };
 }
-async function reconcile(p, directory) {
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const remote = await inspect(p, directory);
-    if (remote) return remote;
-    if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, 10000));
+async function reconcile(
+  p,
+  directory,
+  { inspectRemote = inspect, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), attempts = 6 } = {},
+) {
+  need(Number.isInteger(attempts) && attempts >= 1 && attempts <= 6, 'Invalid distribution retry bound');
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const remote = await inspectRemote(p, directory);
+      if (remote) return remote;
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt + 1 < attempts) await wait(10000);
   }
-  throw Error('Distribution unconfirmed; reconcile retained artifact before another upload');
+  throw Error('Distribution unconfirmed; reconcile retained artifact before another upload', { cause: lastError });
 }
-async function publish(p, candidate, tools, receipt) {
+async function publish(
+  p,
+  candidate,
+  tools,
+  receipt,
+  { inspectRemote = inspect, reconcileRemote = reconcile, upload } = {},
+) {
   need(
     p.rehearsal === false &&
       process.env.RELEASE_MODE === 'publish' &&
@@ -146,22 +162,22 @@ async function publish(p, candidate, tools, receipt) {
   );
   need(!process.env.VSCE_PAT && !process.env.AZURE_CLIENT_SECRET, 'PAT/secret fallback is forbidden');
   fs.mkdirSync(receipt, { recursive: true });
-  let remote = await inspect(p, receipt),
+  let remote = await inspectRemote(p, receipt),
     status = 'reconciled';
   if (!remote) {
-    const { publish: upload } = require(path.resolve(tools, 'node_modules/@vscode/vsce/out/publish.js'));
+    upload ||= require(path.resolve(tools, 'node_modules/@vscode/vsce/out/publish.js')).publish;
     try {
       await upload({ packagePath: [path.resolve(candidate, 'candidate.vsix')], azureCredential: true });
       status = 'published';
     } catch (error) {
       status = 'reconciled-after-upload-error';
       try {
-        remote = await reconcile(p, receipt);
+        remote = await reconcileRemote(p, receipt);
       } catch {
         throw Error('Upload outcome uncertain; no automatic second upload', { cause: error });
       }
     }
-    remote ||= await reconcile(p, receipt);
+    remote ||= await reconcileRemote(p, receipt);
   }
   fs.writeFileSync(
     path.join(receipt, 'marketplace.json'),
@@ -201,9 +217,8 @@ async function githubRelease(p, candidate) {
     );
   }
   const checksum = `${p.vsix.sha256}  candidate.vsix\n`;
-  fs.writeFileSync(path.join(candidate, 'SHA256SUMS.txt'), checksum);
   for (const name of ['candidate.vsix', 'SHA256SUMS.txt', 'provenance.json']) {
-    const data = fs.readFileSync(file(candidate, name));
+    const data = name === 'SHA256SUMS.txt' ? Buffer.from(checksum) : fs.readFileSync(file(candidate, name));
     const existing = release.assets?.find((a) => a.name === name);
     if (existing) {
       const bytes = Buffer.from(

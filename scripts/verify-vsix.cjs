@@ -68,7 +68,8 @@ async function verifyVsix(filename, { manifest: sourceManifest = manifest, relea
   const uncompressedBytes = [...entries.values()].reduce((sum, entry) => sum + entry.uncompressed, 0);
   if (compressedBytes > budget.compressedBytes || uncompressedBytes > budget.uncompressedBytes) throw new Error(`VSIX size budget exceeded: ${compressedBytes} compressed / ${uncompressedBytes} uncompressed bytes`);
   verifyRuntime(entries, fs.readFileSync(path.join(__dirname, '..', 'RUNTIME_DEPENDENCIES.json')));
-  return { filename: path.resolve(filename), compressedBytes, uncompressedBytes, budget, inventory: [...entries].map(([file, entry]) => ({ file, compressedBytes: entry.compressed, uncompressedBytes: entry.uncompressed })) };
+  const runtimeHashes = Object.fromEntries(['extension.js', 'preview.js', 'preview.css'].map(name => [name, require('node:crypto').createHash('sha256').update(entries.get('extension/dist/' + name).data).digest('hex')]));
+  return { runtimeHashes, filename: path.resolve(filename), compressedBytes, uncompressedBytes, budget, inventory: [...entries].map(([file, entry]) => ({ file, compressedBytes: entry.compressed, uncompressedBytes: entry.uncompressed })) };
 }
 
 if (require.main === module) {

@@ -1,11 +1,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const { POLICY, hash, validateSource, validateIdentity, releaseTag, verifyCandidate } = require('./release-policy.cjs');
 const { validateReleaseVersion } = require('./release-version.cjs');
 const root = path.resolve(__dirname, '..');
 const base = path.join(root, '.test-results/release');
 const output = path.join(base, 'candidate');
+const REQUIRED_GATES = [
+  'check:quality',
+  'check:dependencies',
+  'test:coverage',
+  'test:mutation',
+  'test:browser:harness',
+];
 const read = (name) => JSON.parse(fs.readFileSync(path.join(root, name), 'utf8'));
 const json = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 const git = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -82,9 +89,42 @@ function context() {
   json(path.join(base, 'context.json'), { ...identity, rehearsal, startedAt: new Date().toISOString() });
   emit({ commit, tag: identity.tag, rehearsal });
 }
+function gates() {
+  const c = JSON.parse(fs.readFileSync(path.join(base, 'context.json')));
+  if (!process.env.npm_execpath) throw Error('Run gates through npm run release:gates');
+  const record = { commit: c.commit, startedAt: new Date().toISOString(), status: 'running', commands: [] };
+  fs.mkdirSync(path.join(base, 'logs'), { recursive: true });
+  for (const command of REQUIRED_GATES) {
+    const startedAt = new Date().toISOString();
+    const result = spawnSync(process.execPath, [process.env.npm_execpath, 'run', command], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 100 * 1024 * 1024,
+    });
+    fs.writeFileSync(
+      path.join(base, 'logs', command.replaceAll(':', '-') + '.log'),
+      (result.stdout || '') + (result.stderr || ''),
+    );
+    record.commands.push({
+      command,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      status: result.status,
+      error: result.error?.message,
+    });
+    record.status = result.status === 0 && !result.error ? 'running' : 'failed';
+    json(path.join(base, 'commands.json'), record);
+    console.log(command + ': ' + (result.status === 0 ? 'passed' : 'failed (see release/logs)'));
+    if (record.status === 'failed') throw Error('Candidate gate failed: ' + command);
+  }
+  record.status = 'passed';
+  record.finishedAt = new Date().toISOString();
+  json(path.join(base, 'commands.json'), record);
+}
 async function pack() {
   const c = JSON.parse(fs.readFileSync(path.join(base, 'context.json')));
-  if (git(['rev-parse', 'HEAD']) !== c.commit) throw Error('Candidate checkout changed');
+  if (git(['rev-parse', 'HEAD']) !== c.commit || git(['status', '--porcelain']))
+    throw Error('Candidate checkout changed or became dirty');
   fs.mkdirSync(output, { recursive: true });
   if (fs.readdirSync(output).length) throw Error('Candidate output must be empty; never overwrite a retained artifact');
   // Locked VSCE pack is the archive API, unlike packageCommand it does not invoke
@@ -110,6 +150,21 @@ function latest(directory, filename) {
 }
 function seal() {
   const c = JSON.parse(fs.readFileSync(path.join(base, 'context.json')));
+  const commands = JSON.parse(fs.readFileSync(path.join(base, 'commands.json')));
+  const validTime = (value) =>
+    typeof value === 'string' && Number.isFinite(Date.parse(value)) && Date.parse(value) >= Date.parse(c.startedAt);
+  if (
+    !validTime(c.startedAt) ||
+    commands.status !== 'passed' ||
+    commands.commit !== c.commit ||
+    !validTime(commands.startedAt) ||
+    !validTime(commands.finishedAt) ||
+    JSON.stringify(commands.commands?.map((item) => item.command)) !== JSON.stringify(REQUIRED_GATES) ||
+    commands.commands.some(
+      (item) => item.status !== 0 || item.error || !validTime(item.startedAt) || !validTime(item.finishedAt),
+    )
+  )
+    throw Error('Missing, stale or failed required command evidence');
   const coverageFile = latest(path.join(root, '.test-results/coverage'), 'run.json');
   const coverage = JSON.parse(fs.readFileSync(coverageFile));
   const mutationFile = latest(path.join(root, '.test-results/mutations'), 'result.json');
@@ -118,12 +173,12 @@ function seal() {
   if (
     coverage.status !== 'passed' ||
     coverage.commit !== c.commit ||
-    Date.parse(coverage.startedAt) < Date.parse(c.startedAt) ||
+    !validTime(coverage.startedAt) ||
     mutations.commit !== c.commit ||
     mutations.failures?.length !== 0 ||
-    Date.parse(mutations.finishedAt) < Date.parse(c.startedAt) ||
+    !validTime(mutations.finishedAt) ||
     !['full', 'runtime'].every((scope) => dependencies.scopes?.[scope]?.passed === true) ||
-    Date.parse(dependencies.checkedAt) < Date.parse(c.startedAt)
+    !validTime(dependencies.checkedAt)
   )
     throw Error('Stale or failed candidate gate evidence');
   const final = JSON.parse(fs.readFileSync(path.join(path.dirname(coverageFile), 'final-gate.json')));
@@ -134,7 +189,7 @@ function seal() {
     final,
     mutations,
     dependencies,
-    requiredCommands: ['check:quality', 'check:dependencies', 'test:coverage', 'test:mutation', 'test:browser:harness'],
+    commands,
     compatibility: 'required separately against this immutable digest before promotion',
   });
   fs.copyFileSync(path.join(root, 'package-lock.json'), path.join(output, 'package-lock.json'));
@@ -186,9 +241,9 @@ if (require.main === module)
   Promise.resolve()
     .then(() =>
       (
-        ({ context, pack, seal, tools })[process.argv[2]] ||
+        ({ context, 'local-context': localContext, gates, pack, seal, tools })[process.argv[2]] ||
         (() => {
-          throw Error('Expected context|pack|seal|tools');
+          throw Error('Expected context|local-context <reviewed-main-SHA>|gates|pack|seal|tools');
         })
       )(),
     )
@@ -196,4 +251,4 @@ if (require.main === module)
       console.error(error.message);
       process.exitCode = 1;
     });
-module.exports = { context, localContext, pack, seal, tools };
+module.exports = { context, localContext, gates, pack, seal, tools, REQUIRED_GATES };

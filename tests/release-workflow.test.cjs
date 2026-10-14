@@ -78,8 +78,14 @@ test('embedded workflow and executable runtime are generated from reviewed sourc
   assert.deepEqual(workflow.jobs['release-gate'].needs, ['candidate', 'compatibility']);
   assert.deepEqual(workflow.jobs.compatibility.strategy.matrix.version, ['1.95.0', 'stable', 'insiders']);
   const commands = workflow.jobs.candidate.steps.map((step) => step.run).filter(Boolean);
-  for (const command of ['npm run test:coverage', 'npm run test:mutation', 'npm run test:browser:harness'])
-    assert.ok(commands.includes(command));
+  assert.ok(commands.includes('npm run release:gates'));
+  assert.deepEqual(require('../scripts/release-candidate.cjs').REQUIRED_GATES, [
+    'check:quality',
+    'check:dependencies',
+    'test:coverage',
+    'test:mutation',
+    'test:browser:harness',
+  ]);
   assert.equal(commands.filter((c) => c === 'node scripts/release-candidate.cjs pack').length, 1);
   assert.ok(!workflow.jobs.compatibility.steps.some((step) => /npm run (build|package)/.test(step.run || '')));
 });
@@ -164,4 +170,173 @@ test('locked VSCE archive API packages without invoking prepublish or rebuilding
   const candidate = fs.readFileSync(path.join(root, 'scripts/release-candidate.cjs'), 'utf8');
   assert.match(candidate, /\.pack\(/);
   assert.ok(!candidate.includes('.packageCommand('));
+});
+
+test('local rehearsal CLI selects the explicit unpublishable command and rejects ambiguous source SHA', () => {
+  const result = spawnSync(process.execPath, ['scripts/release-candidate.cjs', 'local-context', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /exact reviewed main SHA/);
+});
+
+test('actual protected promotion reconciles duplicate and accepted-timeout without another upload or PAT fallback', async (t) => {
+  const value = fixture(t),
+    p = { ...value.p, rehearsal: false };
+  const keys = [
+    'RELEASE_MODE',
+    'GITHUB_REF',
+    'GITHUB_REF_PROTECTED',
+    'GITHUB_REPOSITORY',
+    'VSCE_PAT',
+    'AZURE_CLIENT_SECRET',
+  ];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  t.after(() => {
+    for (const key of keys)
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+  });
+  Object.assign(process.env, {
+    RELEASE_MODE: 'publish',
+    GITHUB_REF: 'refs/tags/v2.0.1',
+    GITHUB_REF_PROTECTED: 'true',
+    GITHUB_REPOSITORY: p.repository,
+  });
+  delete process.env.VSCE_PAT;
+  delete process.env.AZURE_CLIENT_SECRET;
+  const receipt = path.join(value.directory, 'receipt');
+  let uploads = 0;
+  const remote = { publisher: p.publisher, name: p.name, version: p.version, sha256: p.vsix.sha256, installable: true };
+  await runtime.publish(p, value.directory, 'never-used-tool', receipt, {
+    inspectRemote: async () => remote,
+    upload: async () => uploads++,
+  });
+  assert.equal(uploads, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(receipt, 'marketplace.json'))).status, 'reconciled');
+  const upload = async (options) => {
+    uploads++;
+    assert.deepEqual(options, { packagePath: [path.join(value.directory, 'candidate.vsix')], azureCredential: true });
+    throw Error('fixture timeout after accepted upload');
+  };
+  await runtime.publish(p, value.directory, 'never-used-tool', receipt, {
+    inspectRemote: async () => null,
+    upload,
+    reconcileRemote: async () => remote,
+  });
+  assert.equal(uploads, 1);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(receipt, 'marketplace.json'))).status,
+    'reconciled-after-upload-error',
+  );
+  await assert.rejects(
+    runtime.publish(p, value.directory, 'never-used-tool', receipt, {
+      inspectRemote: async () => null,
+      upload,
+      reconcileRemote: async () => {
+        throw Error('not yet visible');
+      },
+    }),
+    /uncertain/,
+  );
+  assert.equal(uploads, 2);
+  process.env.VSCE_PAT = 'fixture-only-not-a-credential';
+  await assert.rejects(
+    runtime.publish(p, value.directory, 'never-used-tool', receipt, {
+      inspectRemote: async () => {
+        throw Error('must not inspect');
+      },
+    }),
+    /fallback is forbidden/,
+  );
+  assert.equal(uploads, 2);
+});
+
+test('distribution reconciliation bounds transient failures and rejects invalid retry counts without a second upload', async () => {
+  let attempts = 0,
+    waits = 0;
+  const remote = { sha256: 'fixture' };
+  assert.equal(
+    await runtime.reconcile({}, '', {
+      inspectRemote: async () => {
+        if (++attempts < 3) throw Error('transient fixture');
+        return remote;
+      },
+      wait: async () => waits++,
+    }),
+    remote,
+  );
+  assert.equal(attempts, 3);
+  assert.equal(waits, 2);
+  await assert.rejects(runtime.reconcile({}, '', { attempts: 7 }), /retry bound/);
+  attempts = 0;
+  await assert.rejects(
+    runtime.reconcile({}, '', {
+      inspectRemote: async () => {
+        attempts++;
+        return null;
+      },
+      wait: async () => {},
+      attempts: 2,
+    }),
+    /unconfirmed/,
+  );
+  assert.equal(attempts, 2);
+});
+
+test('GitHub metadata recovery accepts identical existing assets, rejects mismatches, and preserves the candidate directory', async (t) => {
+  const value = fixture(t),
+    p = { ...value.p, rehearsal: false };
+  const originalFetch = global.fetch,
+    savedRef = process.env.GITHUB_REF,
+    savedToken = process.env.GH_TOKEN;
+  t.after(() => {
+    global.fetch = originalFetch;
+    if (savedRef === undefined) delete process.env.GITHUB_REF;
+    else process.env.GITHUB_REF = savedRef;
+    if (savedToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = savedToken;
+  });
+  process.env.GITHUB_REF = 'refs/tags/v2.0.1';
+  process.env.GH_TOKEN = 'fixture-only-not-a-credential';
+  const before = fs.readdirSync(value.directory).sort();
+  let writes = 0,
+    tampered = false;
+  const names = ['candidate.vsix', 'SHA256SUMS.txt', 'provenance.json'];
+  global.fetch = async (url, init = {}) => {
+    assert.ok(url.startsWith('https://api.github.com/'));
+    if (init.method) {
+      writes++;
+      throw Error('must not write existing identical assets');
+    }
+    if (url.includes('/tags/'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          tag_name: p.tag,
+          target_commitish: p.commit,
+          draft: false,
+          assets: names.map((name, id) => ({ name, id })),
+        }),
+      };
+    const id = Number(url.split('/').pop()),
+      name = names[id];
+    return {
+      ok: true,
+      arrayBuffer: async () =>
+        tampered
+          ? Buffer.from('different fixture')
+          : name === 'SHA256SUMS.txt'
+            ? Buffer.from(`${p.vsix.sha256}  candidate.vsix\n`)
+            : fs.readFileSync(path.join(value.directory, name)),
+    };
+  };
+  await runtime.githubRelease(p, value.directory);
+  assert.equal(writes, 0);
+  assert.deepEqual(fs.readdirSync(value.directory).sort(), before);
+  tampered = true;
+  await assert.rejects(runtime.githubRelease(p, value.directory), /asset differs/);
+  assert.equal(writes, 0);
 });

@@ -48,12 +48,8 @@ jobs:
       - run: npm ci
       - id: context
         run: node scripts/release-candidate.cjs context
-      - run: npm run check:quality
-      - run: npm run check:dependencies
       - run: npm run browser:install:ci
-      - run: npm run test:coverage
-      - run: npm run test:mutation
-      - run: npm run test:browser:harness
+      - run: npm run release:gates
       # The coverage runner restores production once. pack calls locked VSCE's
       # archive API, not packageCommand/vscode:prepublish; it never rebuilds.
       - run: node scripts/release-candidate.cjs pack
