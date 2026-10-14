@@ -1,3 +1,5 @@
+import { RenderCache, diagramRenderKey } from './render-work';
+import { isolateDiagramSvg } from './diagram-cache';
 import { renderLimits } from './render-limits';
 import { reportAsync } from './async';
 import mermaid from 'mermaid';
@@ -69,6 +71,8 @@ const documentation = documentationView(vscode, content);
 let revision = 0;
 let restored = false;
 let diagramSequence = 0;
+const diagramCache = new RenderCache<string>(40, 2_000_000);
+let diagramQueue: Promise<void> = Promise.resolve();
 let currentPreferences: Preferences = {
   style: 'documentation',
   appearance: 'auto',
@@ -270,10 +274,35 @@ function scrollToHeading(fragment: string, internal = false) {
       'Heading not found. Check the heading and fragment encoding. Line fragments such as #L1-L3 are unsupported; use Go to Line in the source editor.';
   }
 }
-async function diagrams(version: number) {
+function diagrams(version: number): Promise<void> {
+  const work = diagramQueue.then(() => renderDiagrams(version));
+  diagramQueue = work.catch(() => {});
+  return work;
+}
+async function renderDiagrams(version: number) {
+  if (version !== revision || document.hidden) return;
   const dark = isDark();
   const palette = getComputedStyle(document.body);
   const color = (name: string) => palette.getPropertyValue(name).trim();
+  const themeKey = JSON.stringify([
+    dark,
+    currentPreferences.style,
+    currentPreferences.appearance,
+    [...Array.from(document.styleSheets, (sheet) => sheet.href)],
+    [
+      '--surface',
+      '--diagram-font',
+      '--code',
+      '--text',
+      '--accent',
+      '--border',
+      '--bg',
+      '--muted',
+      '--syntax-string',
+      '--syntax-keyword',
+      '--syntax-number',
+    ].map(color),
+  ]);
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
@@ -335,15 +364,24 @@ async function diagrams(version: number) {
     },
   });
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) {
-    if (version !== revision) return;
+    if (version !== revision || document.hidden) return;
     const text = diagramSources.get(figure);
     if (text === undefined) continue;
     try {
-      const { svg } = await mermaid.render(`diagram-${++diagramSequence}`, text);
-      if (version !== revision) return;
+      const key = diagramRenderKey(text, themeKey, 'strict-mermaid11-svg-v1');
+      let svg = diagramCache.get(key);
+      if (!svg) {
+        const rendered = await mermaid.render(`diagram-${++diagramSequence}`, text);
+        if (version !== revision || document.hidden) return;
+        svg = rendered.svg;
+      }
+      const isolated = isolateDiagramSvg(svg, `rmp-diagram-${++diagramSequence}`);
+      if (!isolated) throw new Error('Unsupported diagram SVG');
+      diagramCache.set(key, svg, svg.length);
+      if (version !== revision || document.hidden) return;
       const target = document.createElement('div');
       target.className = 'mermaid-result';
-      target.innerHTML = svg;
+      target.append(isolated);
       figure.querySelector('.diagram-error')?.remove();
       const image = target.querySelector('svg');
       if (image && !image.querySelector('title')) {
@@ -369,6 +407,10 @@ async function diagrams(version: number) {
     }
   }
 }
+document.addEventListener('visibilitychange', () => {
+  ++revision;
+  if (!document.hidden) reportAsync(diagrams(revision));
+});
 window.addEventListener('message', (event) => {
   const message = event.data;
   if (!validateHostMessage(message)) return;

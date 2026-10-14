@@ -36,6 +36,7 @@ function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, im
     return { uri: target, fileName: target.path, languageId: 'markdown', getText: () => files.get(target.path) };
   };
   const vscode = {
+    RelativePattern: class { constructor(base,pattern) {this.base=base;this.pattern=pattern;} },
     Uri: { file: uri, parse: value => uri(value.replace(/^file:\/\//, '')), joinPath: (base, ...parts) => uri(path.posix.join(base.path, ...parts)) },
     Range: class { constructor(startLine, startCharacter, endLine, endCharacter) { this.start = {line: startLine, character: startCharacter}; this.end = {line: endLine, character: endCharacter}; } },
     TextEditorRevealType: {InCenterIfOutsideViewport: 2},
