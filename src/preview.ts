@@ -73,6 +73,7 @@ let restored = false;
 let diagramSequence = 0;
 const diagramCache = new RenderCache<string>(40, 2_000_000);
 let diagramQueue: Promise<void> = Promise.resolve();
+let requestedDiagramTheme = '';
 let currentPreferences: Preferences = {
   style: 'documentation',
   appearance: 'auto',
@@ -274,25 +275,20 @@ function scrollToHeading(fragment: string, internal = false) {
       'Heading not found. Check the heading and fragment encoding. Line fragments such as #L1-L3 are unsupported; use Go to Line in the source editor.';
   }
 }
-function diagrams(version: number): Promise<void> {
-  const work = diagramQueue
-    .then(() => renderDiagrams(version))
-    .then(() => {
-      if (version === revision && !document.hidden) content.setAttribute('aria-busy', 'false');
-    });
-  diagramQueue = work.catch(() => {});
-  return work;
-}
-async function renderDiagrams(version: number) {
-  if (version !== revision || document.hidden) return;
+function diagramThemeFingerprint(): string {
   const dark = isDark();
   const palette = getComputedStyle(document.body);
   const color = (name: string) => palette.getPropertyValue(name).trim();
-  const themeKey = JSON.stringify([
+  return JSON.stringify([
     dark,
     currentPreferences.style,
     currentPreferences.appearance,
-    [...Array.from(document.styleSheets, (sheet) => sheet.href)],
+    [
+      ...Array.from(document.styleSheets)
+        .filter((sheet) => !(sheet.ownerNode instanceof Element && content.contains(sheet.ownerNode)))
+        .map((sheet) => sheet.href),
+    ],
+    window.matchMedia('(forced-colors: active)').matches,
     [
       '--surface',
       '--diagram-font',
@@ -307,6 +303,23 @@ async function renderDiagrams(version: number) {
       '--syntax-number',
     ].map(color),
   ]);
+}
+function diagrams(version: number): Promise<void> {
+  requestedDiagramTheme = diagramThemeFingerprint();
+  const work = diagramQueue
+    .then(() => renderDiagrams(version))
+    .then(() => {
+      if (version === revision && !document.hidden) content.setAttribute('aria-busy', 'false');
+    });
+  diagramQueue = work.catch(() => {});
+  return work;
+}
+async function renderDiagrams(version: number) {
+  if (version !== revision || document.hidden) return;
+  const dark = isDark();
+  const palette = getComputedStyle(document.body);
+  const color = (name: string) => palette.getPropertyValue(name).trim();
+  const themeKey = diagramThemeFingerprint();
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
@@ -614,17 +627,27 @@ content.addEventListener('click', (event) => {
     } else vscode.postMessage({ type: 'link', href });
   }
 });
-// VS Code changes body classes when its theme changes without sending a preference message.
-let lastVscodeTheme = document.body.className;
-new MutationObserver(() => {
-  const theme = document.body.className;
-  if (theme !== lastVscodeTheme) reportAsync(diagrams(++revision));
-  lastVscodeTheme = theme;
-}).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+// Theme variables can change without a light/dark transition. Ignore styles owned by Markdown.
+const refreshDiagramTheme = () => {
+  if (diagramThemeFingerprint() !== requestedDiagramTheme) reportAsync(diagrams(++revision));
+};
+new MutationObserver(refreshDiagramTheme).observe(document.body, {
+  attributes: true,
+  attributeFilter: ['class', 'style'],
+});
+new MutationObserver(refreshDiagramTheme).observe(document.documentElement, {
+  attributes: true,
+  attributeFilter: ['style'],
+});
+new MutationObserver(refreshDiagramTheme).observe(document.head, {
+  childList: true,
+  characterData: true,
+  subtree: true,
+});
+window.matchMedia('(forced-colors: active)').addEventListener('change', refreshDiagramTheme);
 window.addEventListener('scroll', scheduleScrollState, { passive: true });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) flushScrollState();
 });
 window.addEventListener('pagehide', () => flushScrollState());
 vscode.postMessage({ type: 'ready' });
-
