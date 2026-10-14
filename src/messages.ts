@@ -1,3 +1,4 @@
+import { decodeRestoredSession, type RestoredSession } from './restored-session';
 import { numericPreferenceRanges } from './preference-ranges';
 import { isExternalImageOrigin } from './external-images';
 import { previewStyles } from './styles';
@@ -47,12 +48,17 @@ export type HostMessage =
       renderId?: string;
       documentationHome?: boolean;
       fragment?: string;
+      session?: RestoredSession;
     }
   | { type: 'preferences'; preferences: Preferences }
   | {
       type: 'documentation';
       files: DocumentationFile[];
+      roots?: string[];
+      snapshot?: number;
       loading: boolean;
+      truncated?: boolean;
+      complete?: boolean;
       error?: string;
       active?: string;
       canBack: boolean;
@@ -243,6 +249,24 @@ export function normalizeCSV(value: string): string | undefined {
   const normalized = tableCSV(rows);
   return normalized.length <= messageLimits.text ? normalized : undefined;
 }
+/** Renderer and receiving webview share the exact content/output budget. */
+export function validateRenderContent(html: unknown, outline: unknown): boolean {
+  return (
+    text(html, messageLimits.html, true) &&
+    Array.isArray(outline) &&
+    outline.length <= messageLimits.items &&
+    outline.every(
+      (item) =>
+        plainRecord(item) &&
+        id(item.id) &&
+        text(item.fragment, messageLimits.uri) &&
+        text(item.text, messageLimits.uri, true) &&
+        Number.isInteger(item.level) &&
+        Number(item.level) >= 1 &&
+        Number(item.level) <= 6,
+    )
+  );
+}
 export function validateHostMessage(value: unknown): value is HostMessage {
   if (!plainRecord(value)) return false;
   switch (value.type) {
@@ -261,11 +285,16 @@ export function validateHostMessage(value: unknown): value is HostMessage {
     case 'documentation':
       return (
         Array.isArray(value.files) &&
-        value.files.length <= messageLimits.items &&
+        (value.roots === undefined ||
+          (Array.isArray(value.roots) && value.roots.length <= 1024 && value.roots.every(id))) &&
+        (value.snapshot === undefined || (Number.isSafeInteger(value.snapshot) && (value.snapshot as number) >= 0)) &&
+        value.files.length <= 10000 &&
         value.files.every(
           (file) => plainRecord(file) && ['id', 'root', 'rootName', 'path'].every((key) => id(file[key])),
         ) &&
         typeof value.loading === 'boolean' &&
+        (value.truncated === undefined || typeof value.truncated === 'boolean') &&
+        (value.complete === undefined || typeof value.complete === 'boolean') &&
         typeof value.canBack === 'boolean' &&
         typeof value.canForward === 'boolean' &&
         (value.active === undefined || id(value.active)) &&
@@ -273,24 +302,14 @@ export function validateHostMessage(value: unknown): value is HostMessage {
       );
     case 'render':
       return (
-        text(value.html, messageLimits.html, true) &&
+        (value.session === undefined ||
+          !!decodeRestoredSession(value.session, value.documentationHome ? 'documentation' : 'preview')) &&
+        validateRenderContent(value.html, value.outline) &&
         preferences(value.preferences) &&
         (value.renderId === undefined || id(value.renderId)) &&
         (value.documentId === undefined || id(value.documentId)) &&
         (value.documentationHome === undefined || typeof value.documentationHome === 'boolean') &&
-        (value.fragment === undefined || text(value.fragment, messageLimits.uri)) &&
-        Array.isArray(value.outline) &&
-        value.outline.length <= messageLimits.items &&
-        value.outline.every(
-          (item) =>
-            plainRecord(item) &&
-            id(item.id) &&
-            text(item.fragment, messageLimits.uri) &&
-            text(item.text, messageLimits.uri, true) &&
-            Number.isInteger(item.level) &&
-            Number(item.level) >= 1 &&
-            Number(item.level) <= 6,
-        )
+        (value.fragment === undefined || text(value.fragment, messageLimits.uri))
       );
     default:
       return false;

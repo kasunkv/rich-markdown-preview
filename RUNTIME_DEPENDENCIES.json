@@ -1,18 +1,26 @@
 {
   "schemaVersion": 1,
   "scope": "VSIX production JavaScript inputs (not build/test tooling)",
-  "lockfileSha256": "0bb63ed66afdde170853c53db051d7c3e9d7eba79992b3a35b70253cc08c6885",
+  "lockfileSha256": "6e1bbb377f85689761342a40191fd4f031a6ec125d24bc0084286c6df93b8354",
   "bundles": [
     {
+      "file": "dist/diagrams.js",
+      "sha256": "8e77e12f3fc650a35d3595f42ef7d7f6c760e509b7ec589c7c07758667e6ae76"
+    },
+    {
       "file": "dist/extension.js",
-      "sha256": "984ce1792129533effb3e3fafa421e083bd4552bafc52678e3ed25d7790c0c76"
+      "sha256": "d6021d7b5df3a7cde10ab8a25308158cfa38b899f14ff10af9b71218a2679183"
     },
     {
       "file": "dist/preview.js",
-      "sha256": "fa648abd57b66df2d30b4fd4ef2dc7292578a2f64528c8e7a776f742636dd657"
+      "sha256": "06812ca52940a03faad4ef41a7e2f1b4f381393e55207c18dc8d92f950ee53f7"
+    },
+    {
+      "file": "dist/render.cjs",
+      "sha256": "04db38305c9a461749375cb27a910e438f782a031535e71a8b74fe7560fd6420"
     }
   ],
-  "noticesSha256": "077d1b32d91e1be05206cb409c9e550f4c38d9e511f6dea2218f942339255f81",
+  "noticesSha256": "757d4f70c1e18e949d791509f20f83e45c7a68e79eeb09f3e458648f3582aed9",
   "components": [
     {
       "name": "@braintree/sanitize-url",
@@ -81,6 +89,40 @@
       ],
       "noticeCharacters": 1233,
       "noticeSha256": "3ccd5f3d7792d215c82ba1e8768445adbf89da88820ccf52dfcaa6008fa7d250"
+    },
+    {
+      "name": "balanced-match",
+      "version": "4.0.4",
+      "purl": "pkg:npm/balanced-match@4.0.4",
+      "lockPath": "node_modules/balanced-match",
+      "integrity": "sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==",
+      "resolved": "https://registry.npmjs.org/balanced-match/-/balanced-match-4.0.4.tgz",
+      "license": "MIT",
+      "licenseTexts": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "d408f38ffa3355c5faec517153295338892eb0f1ea43f57874bb23c6075979b5"
+        }
+      ],
+      "noticeCharacters": 1283,
+      "noticeSha256": "86c5db1d4ce7f561ecb38283301208f7ba9832b3e7d3c7753431bc6385b22002"
+    },
+    {
+      "name": "brace-expansion",
+      "version": "5.0.12",
+      "purl": "pkg:npm/brace-expansion@5.0.12",
+      "lockPath": "node_modules/brace-expansion",
+      "integrity": "sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==",
+      "resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz",
+      "license": "MIT",
+      "licenseTexts": [
+        {
+          "file": "LICENSE",
+          "sha256": "9c63a23124d68cd30cd316a94a1a0bca34f032786df6df69fc4b5f136bac8d2e"
+        }
+      ],
+      "noticeCharacters": 1271,
+      "noticeSha256": "05d2dddc2f542b1be2b58963e99516ff6f3952b389a48a20db01bbb9490f47ab"
     },
     {
       "name": "cose-base",
@@ -1232,6 +1274,23 @@
       ],
       "noticeCharacters": 1209,
       "noticeSha256": "ceeaf327802fd209bd548cb1bfe627e6589259439a823d069a1162ccbf6e2b14"
+    },
+    {
+      "name": "minimatch",
+      "version": "10.2.6",
+      "purl": "pkg:npm/minimatch@10.2.6",
+      "lockPath": "node_modules/minimatch",
+      "integrity": "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==",
+      "resolved": "https://registry.npmjs.org/minimatch/-/minimatch-10.2.6.tgz",
+      "license": "BlueOak-1.0.0",
+      "licenseTexts": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "2c7c5d22ed5a8ee968c64757710979afcd77438c48b4a265b94e615babd8a901"
+        }
+      ],
+      "noticeCharacters": 1684,
+      "noticeSha256": "34c65c587f6f4b2a40073a09ce6b3d274ee9a93240a66d79395260204a6a2b10"
     },
     {
       "name": "punycode.js",

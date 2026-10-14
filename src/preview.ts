@@ -1,35 +1,71 @@
+import { RenderCache, diagramRenderKey } from './render-work';
+import { isolateDiagramSvg } from './diagram-cache';
+import { renderLimits } from './render-limits';
 import { reportAsync } from './async';
-import mermaid from 'mermaid';
+import type mermaidType from 'mermaid';
+
+type DiagramRuntime = { renderer: () => typeof mermaidType };
+const bootstrap = document.currentScript as HTMLScriptElement;
+const diagramRuntimeUri = bootstrap?.dataset.diagramRuntime;
+const diagramRuntimeNonce = bootstrap?.nonce ?? '';
+let diagramRuntime: Promise<typeof mermaidType> | undefined;
+function loadDiagramRuntime(): Promise<typeof mermaidType> {
+  if (!diagramRuntime) {
+    diagramRuntime = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.nonce = diagramRuntimeNonce;
+      script.src = diagramRuntimeUri!;
+      script.onload = () => {
+        try {
+          const runtime = (globalThis as typeof globalThis & { RichMarkdownDiagrams: DiagramRuntime })
+            .RichMarkdownDiagrams;
+          if (typeof runtime?.renderer !== 'function') return fail();
+          const renderer = runtime.renderer();
+          if (typeof renderer?.initialize !== 'function' || typeof renderer.render !== 'function') return fail();
+          resolve(renderer);
+        } catch {
+          fail();
+        }
+      };
+      const fail = () => {
+        script.remove();
+        diagramRuntime = undefined;
+        reject(new Error('Diagram runtime unavailable'));
+      };
+      script.onerror = fail;
+      if (diagramRuntimeUri) document.body.append(script);
+      else fail();
+    });
+  }
+  return diagramRuntime;
+}
 import {
   validateWebviewMessage,
   validateHostMessage,
-  validateRestoredState,
   type Preferences,
   type WebviewMessage,
   type WebviewCommand,
 } from './messages';
 import { previewStyles } from './styles';
 import { enhanceTables, type TableState } from './tables';
-import { documentationView, type DocumentationViewState } from './documentation-view';
+import { documentationView } from './documentation-view';
 import { numericPreferenceRanges } from './preference-ranges';
-interface ReadingState {
-  scroll?: number;
-  tables?: TableState;
-  disclosures?: Record<string, boolean>;
-}
+import {
+  boundReadingState,
+  documentInWorkspaceRoots,
+  restoreReadingState,
+  type PersistedReadingState,
+  type ReadingState,
+} from './reading-state';
 type InteractionSelection = [number, number, 'forward' | 'backward' | 'none'];
-interface PreviewState extends ReadingState {
-  permissionFocus?: { key: string; documentId?: string; selection?: InteractionSelection };
-  documentation?: DocumentationViewState;
-  documentId?: string;
-  documents?: Record<string, ReadingState>;
-}
 declare function acquireVsCodeApi(): {
   postMessage(message: WebviewMessage): void;
   getState(): unknown;
   setState(state: unknown): void;
 };
 const api = acquireVsCodeApi();
+let savedState = restoreReadingState(api.getState());
+let lastSavedJson = JSON.stringify(savedState);
 let renderId = 'bootstrap';
 const requestPrefix = Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(16)).join('');
 let requestSequence = 0;
@@ -37,6 +73,7 @@ let latestActionRequestId: string | undefined;
 const pendingActions = new Map<string, { type: string; renderId: string }>();
 const vscode = {
   postMessage(command: WebviewCommand) {
+    if (['documentationAction', 'reference', 'link'].includes(command.type)) flushScrollState(true);
     const message =
       command.type === 'ready' ? command : { ...command, requestId: requestPrefix + '_' + ++requestSequence, renderId };
     if (!validateWebviewMessage(message)) {
@@ -55,12 +92,17 @@ const vscode = {
     }
     api.postMessage(message);
   },
-  getState(): PreviewState | undefined {
-    const value = api.getState();
-    return validateRestoredState(value) ? (value as PreviewState) : undefined;
+  getState(): PersistedReadingState {
+    return savedState;
   },
-  setState(state: PreviewState) {
-    api.setState(state);
+  setState(state: unknown) {
+    savedState = restoreReadingState(state);
+    readingStates = savedState.documents;
+    const json = JSON.stringify(savedState);
+    if (json !== lastSavedJson) {
+      api.setState(savedState);
+      lastSavedJson = json;
+    }
   },
 };
 const app = document.getElementById('rmp-ui-app')!;
@@ -71,6 +113,9 @@ const documentation = documentationView(vscode, content);
 let revision = 0;
 let restored = false;
 let diagramSequence = 0;
+const diagramCache = new RenderCache<string>(40, 2_000_000);
+let diagramQueue: Promise<void> = Promise.resolve();
+let requestedDiagramTheme = '';
 let currentPreferences: Preferences = {
   style: 'documentation',
   appearance: 'auto',
@@ -81,10 +126,10 @@ let currentPreferences: Preferences = {
 };
 const pendingPreferences = new Map<keyof Preferences, Preferences[keyof Preferences]>();
 let diagramSources = new WeakMap<HTMLElement, string>();
-let tableState: TableState = vscode.getState()?.tables ?? {};
-let disclosureState: Record<string, boolean> = vscode.getState()?.disclosures ?? {};
-let documentId = vscode.getState()?.documentId;
-const readingStates = vscode.getState()?.documents ?? {};
+let tableState: TableState = savedState.tables ?? {};
+let disclosureState: Record<string, boolean> = savedState.disclosures ?? {};
+let documentId = savedState.documentId;
+let readingStates: Record<string, ReadingState> = savedState.documents;
 function rememberPermissionFocus() {
   const active = document.activeElement;
   const key = active instanceof HTMLElement ? active.dataset.readingKey : undefined;
@@ -106,6 +151,8 @@ app.addEventListener('focusin', (event) => {
 function saveState() {
   if (documentId)
     readingStates[documentId] = { scroll: window.scrollY, tables: tableState, disclosures: disclosureState };
+  const order = savedState.documentOrder.filter((id) => id !== documentId);
+  if (documentId) order.push(documentId);
   vscode.setState({
     ...vscode.getState(),
     scroll: window.scrollY,
@@ -113,13 +160,38 @@ function saveState() {
     disclosures: disclosureState,
     documentId,
     documents: readingStates,
+    documentOrder: order,
   });
+}
+let scrollDelay: ReturnType<typeof setTimeout> | undefined;
+let scrollDeadline: ReturnType<typeof setTimeout> | undefined;
+let scrollDirty = false;
+function flushScrollState(force = false) {
+  clearTimeout(scrollDelay);
+  clearTimeout(scrollDeadline);
+  scrollDelay = scrollDeadline = undefined;
+  if (scrollDirty || force) {
+    scrollDirty = false;
+    saveState();
+  }
+}
+function scheduleScrollState() {
+  scrollDirty = true;
+  clearTimeout(scrollDelay);
+  scrollDelay = setTimeout(() => flushScrollState(), 200);
+  scrollDeadline ??= setTimeout(() => flushScrollState(), 1000);
 }
 // Keys describe content roles and section labels, so inserting unrelated content does not
 // redirect an ongoing interaction to a different control. Duplicate roles use occurrence.
 function identifyInteractions() {
+  for (const anchor of content.querySelectorAll<HTMLElement>('[data-md-anchor]')) {
+    anchor.dataset.readingKey = JSON.stringify(['anchor', anchor.id]);
+    if (!anchor.hasAttribute('tabindex')) anchor.tabIndex = -1;
+  }
   const occurrences = new Map<string, number>();
-  for (const element of content.querySelectorAll<HTMLElement>('details, summary, a[href], button, input, select')) {
+  for (const element of content.querySelectorAll<HTMLElement>(
+    'details, summary, pre[tabindex], a[href], button, input, select',
+  )) {
     if (element.dataset.readingKey) continue;
     const sectionHeading = Array.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6'))
       .filter((heading) => !!(heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
@@ -128,7 +200,12 @@ function identifyInteractions() {
       sectionHeading?.getAttribute('data-reading-heading-label') ?? sectionHeading?.textContent?.trim() ?? '';
     const details = element.closest('details');
     const role = details?.className || element.className;
-    const label = element.tagName === 'DETAILS' ? element.querySelector('summary')?.textContent : element.textContent;
+    const label =
+      element.tagName === 'PRE'
+        ? details?.querySelector('summary')?.textContent
+        : element.tagName === 'DETAILS'
+          ? element.querySelector('summary')?.textContent
+          : element.textContent;
     const identity = JSON.stringify([section, element.tagName, role, label?.trim(), element.getAttribute('href')]);
     const occurrence = occurrences.get(identity) ?? 0;
     occurrences.set(identity, occurrence + 1);
@@ -167,11 +244,7 @@ content.addEventListener(
   true,
 );
 function isDark() {
-  return (
-    document.body.dataset.appearance === 'dark' ||
-    (document.body.dataset.appearance === 'auto' &&
-      (document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')))
-  );
+  return getComputedStyle(document.body).colorScheme === 'dark';
 }
 function applyPreferences(settings: Preferences, refreshDiagrams = true) {
   const previousDark = isDark();
@@ -235,6 +308,8 @@ function findContentAnchor(fragment: string, internal = false): HTMLElement | un
 function scrollToHeading(fragment: string, internal = false) {
   const target = findContentAnchor(fragment, internal);
   if (target) {
+    if (!target.hasAttribute('tabindex')) target.tabIndex = -1;
+    target.focus({ preventScroll: true });
     const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
     target.scrollIntoView({ behavior, block: 'start' });
   } else {
@@ -242,93 +317,172 @@ function scrollToHeading(fragment: string, internal = false) {
       'Heading not found. Check the heading and fragment encoding. Line fragments such as #L1-L3 are unsupported; use Go to Line in the source editor.';
   }
 }
-async function diagrams(version: number) {
+function diagramThemeFingerprint(): string {
   const dark = isDark();
   const palette = getComputedStyle(document.body);
   const color = (name: string) => palette.getPropertyValue(name).trim();
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    theme: 'base',
-    suppressErrorRendering: true,
-    themeVariables: {
-      darkMode: dark,
-      background: color('--surface'),
-      fontFamily: color('--diagram-font'),
-      primaryColor: color('--code'),
-      primaryTextColor: color('--text'),
-      primaryBorderColor: color('--accent'),
-      secondaryColor: color('--surface'),
-      secondaryTextColor: color('--text'),
-      secondaryBorderColor: color('--border'),
-      tertiaryColor: color('--bg'),
-      tertiaryTextColor: color('--text'),
-      tertiaryBorderColor: color('--border'),
-      lineColor: color('--muted'),
-      textColor: color('--text'),
-      mainBkg: color('--code'),
-      nodeBorder: color('--accent'),
-      clusterBkg: color('--surface'),
-      clusterBorder: color('--border'),
-      edgeLabelBackground: color('--surface'),
-      actorBkg: color('--code'),
-      actorTextColor: color('--text'),
-      actorBorder: color('--accent'),
-      actorLineColor: color('--muted'),
-      signalColor: color('--text'),
-      signalTextColor: color('--text'),
-      labelBoxBkgColor: color('--surface'),
-      labelTextColor: color('--text'),
-      pie1: color('--accent'),
-      pie2: color('--syntax-string'),
-      pie3: color('--syntax-keyword'),
-      pie4: color('--syntax-number'),
-      pie5: color('--muted'),
-      pie6: color(dark ? '--border' : '--text'),
-      pieSectionTextColor: color('--surface'),
-      pieTitleTextColor: color('--text'),
-      pieLegendTextColor: color('--text'),
-      // Translucent slices wash out the light labels against a pale diagram surface.
-      ...(!dark ? { pieOpacity: 1 } : {}),
-      xyChart: {
-        backgroundColor: color('--surface'),
-        titleColor: color('--text'),
-        xAxisLabelColor: color('--text'),
-        xAxisTitleColor: color('--text'),
-        xAxisLineColor: color('--muted'),
-        yAxisLabelColor: color('--text'),
-        yAxisTitleColor: color('--text'),
-        yAxisLineColor: color('--muted'),
-        plotColorPalette: [color('--accent'), color('--syntax-string'), color('--syntax-keyword')].join(','),
+  return JSON.stringify([
+    dark,
+    currentPreferences.style,
+    currentPreferences.appearance,
+    [
+      ...Array.from(document.styleSheets)
+        .filter((sheet) => !(sheet.ownerNode instanceof Element && content.contains(sheet.ownerNode)))
+        .map((sheet) => sheet.href),
+    ],
+    window.matchMedia('(forced-colors: active)').matches,
+    [
+      '--surface',
+      '--diagram-font',
+      '--code',
+      '--text',
+      '--accent',
+      '--border',
+      '--bg',
+      '--muted',
+      '--syntax-string',
+      '--syntax-keyword',
+      '--syntax-number',
+    ].map(color),
+  ]);
+}
+function diagrams(version: number): Promise<void> {
+  requestedDiagramTheme = diagramThemeFingerprint();
+  const work = diagramQueue
+    .then(() => renderDiagrams(version))
+    .then(() => {
+      if (version === revision && !document.hidden) content.setAttribute('aria-busy', 'false');
+    });
+  diagramQueue = work.catch(() => {});
+  return work;
+}
+async function renderDiagrams(version: number) {
+  if (version !== revision || document.hidden) return;
+  if (!content.querySelector('.diagram')) return;
+  let mermaid: typeof mermaidType | undefined;
+  try {
+    mermaid = await loadDiagramRuntime();
+  } catch {
+    // Each retained diagram receives the existing readable recovery below.
+  }
+  if (version !== revision || document.hidden) return;
+  const dark = isDark();
+  const palette = getComputedStyle(document.body);
+  const color = (name: string) => palette.getPropertyValue(name).trim();
+  const themeKey = diagramThemeFingerprint();
+  try {
+    mermaid?.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'maxEdges', 'suppressErrorRendering'],
+      maxTextSize: renderLimits.diagramCharacters,
+      maxEdges: renderLimits.diagramEdges,
+      theme: 'base',
+      suppressErrorRendering: true,
+      themeVariables: {
+        darkMode: dark,
+        background: color('--surface'),
+        fontFamily: color('--diagram-font'),
+        primaryColor: color('--code'),
+        primaryTextColor: color('--text'),
+        primaryBorderColor: color('--accent'),
+        secondaryColor: color('--surface'),
+        secondaryTextColor: color('--text'),
+        secondaryBorderColor: color('--border'),
+        tertiaryColor: color('--bg'),
+        tertiaryTextColor: color('--text'),
+        tertiaryBorderColor: color('--border'),
+        lineColor: color('--muted'),
+        textColor: color('--text'),
+        mainBkg: color('--code'),
+        nodeBorder: color('--accent'),
+        clusterBkg: color('--surface'),
+        clusterBorder: color('--border'),
+        edgeLabelBackground: color('--surface'),
+        actorBkg: color('--code'),
+        actorTextColor: color('--text'),
+        actorBorder: color('--accent'),
+        actorLineColor: color('--muted'),
+        signalColor: color('--text'),
+        signalTextColor: color('--text'),
+        labelBoxBkgColor: color('--surface'),
+        labelTextColor: color('--text'),
+        pie1: color('--accent'),
+        pie2: color('--syntax-string'),
+        pie3: color('--syntax-keyword'),
+        pie4: color('--syntax-number'),
+        pie5: color('--muted'),
+        pie6: color(dark ? '--border' : '--text'),
+        pieSectionTextColor: color('--surface'),
+        pieTitleTextColor: color('--text'),
+        pieLegendTextColor: color('--text'),
+        // Translucent slices wash out the light labels against a pale diagram surface.
+        ...(!dark ? { pieOpacity: 1 } : {}),
+        xyChart: {
+          backgroundColor: color('--surface'),
+          titleColor: color('--text'),
+          xAxisLabelColor: color('--text'),
+          xAxisTitleColor: color('--text'),
+          xAxisLineColor: color('--muted'),
+          yAxisLabelColor: color('--text'),
+          yAxisTitleColor: color('--text'),
+          yAxisLineColor: color('--muted'),
+          plotColorPalette: [color('--accent'), color('--syntax-string'), color('--syntax-keyword')].join(','),
+        },
       },
-    },
-  });
+    });
+  } catch {
+    mermaid = undefined;
+  }
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) {
-    if (version !== revision) return;
+    if (version !== revision || document.hidden) return;
     const text = diagramSources.get(figure);
     if (text === undefined) continue;
     try {
-      const { svg } = await mermaid.render(`diagram-${++diagramSequence}`, text);
-      if (version !== revision) return;
+      const key = diagramRenderKey(text, themeKey, 'strict-mermaid11-svg-v2');
+      let svg = diagramCache.get(key);
+      if (!svg) {
+        if (!mermaid) throw new Error('Diagram runtime unavailable');
+        const rendered = await mermaid.render(`diagram-${++diagramSequence}`, text);
+        if (version !== revision || document.hidden) return;
+        svg = rendered.svg;
+      }
+      const isolated = isolateDiagramSvg(svg, `rmp-diagram-${++diagramSequence}`);
+      if (!isolated) throw new Error('Unsupported diagram SVG');
+      diagramCache.set(key, svg, svg.length);
+      if (version !== revision || document.hidden) return;
       const target = document.createElement('div');
       target.className = 'mermaid-result';
-      target.innerHTML = svg;
+      target.append(isolated);
       figure.querySelector('.diagram-error')?.remove();
-      figure.querySelector('.mermaid-source, .mermaid-result')?.replaceWith(target);
+      const image = target.querySelector('svg');
+      if (image && !image.querySelector('title')) {
+        image.setAttribute('role', 'img');
+        image.setAttribute(
+          'aria-label',
+          `${text.trim().split(/[\s;]/)[0]} diagram. Read Diagram source for its nodes and relationships.`,
+        );
+      }
+      const previous = figure.querySelector('.mermaid-result');
+      if (previous) previous.replaceWith(target);
+      else figure.querySelector('.diagram-source')?.before(target);
     } catch {
       if (version !== revision) return;
       figure.querySelector('.diagram-error')?.remove();
-      const source = document.createElement('pre');
-      source.className = 'mermaid-source';
-      source.textContent = text;
-      figure.querySelector('.mermaid-source, .mermaid-result')?.replaceWith(source);
+      figure.querySelector('.mermaid-result')?.remove();
+      const disclosure = figure.querySelector<HTMLDetailsElement>('.diagram-source');
+      if (disclosure) disclosure.open = true;
       const error = document.createElement('p');
       error.className = 'diagram-error';
       error.textContent = 'Could not render this Mermaid diagram. Check the syntax below.';
-      source.before(error);
+      disclosure?.before(error);
     }
   }
 }
+document.addEventListener('visibilitychange', () => {
+  ++revision;
+  if (!document.hidden) reportAsync(diagrams(revision));
+});
 window.addEventListener('message', (event) => {
   const message = event.data;
   if (!validateHostMessage(message)) return;
@@ -344,6 +498,29 @@ window.addEventListener('message', (event) => {
     if (message.requestId !== latestActionRequestId) return;
   }
   if (message.type === 'documentation') {
+    if (!message.loading && !message.error) {
+      if (!message.truncated && message.complete !== false) {
+        const documents = new Set(message.files.map((file) => file.id));
+        documents.add('home');
+        vscode.setState(boundReadingState(savedState, documents));
+      } else if (message.roots) {
+        const documents = new Set(
+          Object.keys(savedState.documents).filter((id) => documentInWorkspaceRoots(id, message.roots!)),
+        );
+        documents.add('home');
+        const active = savedState.documentId;
+        vscode.setState(
+          boundReadingState(
+            active && !documentInWorkspaceRoots(active, message.roots)
+              ? { ...savedState, documentId: 'home' }
+              : savedState,
+            documents,
+          ),
+        );
+      } else {
+        vscode.setState(boundReadingState(savedState));
+      }
+    }
     documentation.receive(message);
     return;
   }
@@ -388,11 +565,12 @@ window.addEventListener('message', (event) => {
   if (restored) captureDisclosures();
   const changedDocument = typeof message.documentId === 'string' && message.documentId !== documentId;
   if (changedDocument) {
-    if (restored) saveState();
+    if (restored) flushScrollState(true);
     documentId = message.documentId;
     tableState = readingStates[documentId!]?.tables ?? {};
     disclosureState = readingStates[documentId!]?.disclosures ?? {};
   }
+  vscode.setState({ ...vscode.getState(), session: message.session });
   const scroll = changedDocument
     ? (readingStates[documentId!]?.scroll ?? 0)
     : restored
@@ -400,6 +578,7 @@ window.addEventListener('message', (event) => {
       : (vscode.getState()?.scroll ?? 0);
   restored = true;
   const version = ++revision;
+  content.setAttribute('aria-busy', 'true');
   receivePreferences(message.preferences, false);
   content.innerHTML =
     message.html ||
@@ -421,7 +600,8 @@ window.addEventListener('message', (event) => {
   restoreDisclosures();
   diagramSources = new WeakMap();
   for (const figure of content.querySelectorAll<HTMLElement>('.diagram')) {
-    diagramSources.set(figure, figure.querySelector('.mermaid-source')?.textContent ?? '');
+    const source = figure.querySelector('.mermaid-source');
+    if (source) diagramSources.set(figure, source.textContent ?? '');
   }
   outline.replaceChildren();
   for (const item of message.outline) {
@@ -445,10 +625,12 @@ window.addEventListener('message', (event) => {
     }
   }
   window.scrollTo(0, scroll);
+  saveState();
   // Mermaid may change document height; restore the requested position after it settles.
   reportAsync(
     diagrams(version).then(() => {
       if (version !== revision) return;
+      content.setAttribute('aria-busy', 'false');
       if (typeof message.fragment === 'string' && message.fragment) scrollToHeading(message.fragment);
       else if (changedDocument) window.scrollTo(0, scroll);
       saveState();
@@ -518,14 +700,27 @@ content.addEventListener('click', (event) => {
     } else vscode.postMessage({ type: 'link', href });
   }
 });
-// VS Code changes body classes when its theme changes without sending a preference message.
-const vscodeDarkTheme = () =>
-  document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
-let lastVscodeDarkTheme = vscodeDarkTheme();
-new MutationObserver(() => {
-  const dark = vscodeDarkTheme();
-  if (currentPreferences.appearance === 'auto' && dark !== lastVscodeDarkTheme) reportAsync(diagrams(++revision));
-  lastVscodeDarkTheme = dark;
-}).observe(document.body, { attributes: true, attributeFilter: ['class'] });
-window.addEventListener('scroll', saveState, { passive: true });
+// Theme variables can change without a light/dark transition. Ignore styles owned by Markdown.
+const refreshDiagramTheme = () => {
+  if (diagramThemeFingerprint() !== requestedDiagramTheme) reportAsync(diagrams(++revision));
+};
+new MutationObserver(refreshDiagramTheme).observe(document.body, {
+  attributes: true,
+  attributeFilter: ['class', 'style'],
+});
+new MutationObserver(refreshDiagramTheme).observe(document.documentElement, {
+  attributes: true,
+  attributeFilter: ['style'],
+});
+new MutationObserver(refreshDiagramTheme).observe(document.head, {
+  childList: true,
+  characterData: true,
+  subtree: true,
+});
+window.matchMedia('(forced-colors: active)').addEventListener('change', refreshDiagramTheme);
+window.addEventListener('scroll', scheduleScrollState, { passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushScrollState();
+});
+window.addEventListener('pagehide', () => flushScrollState());
 vscode.postMessage({ type: 'ready' });

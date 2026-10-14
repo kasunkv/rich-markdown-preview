@@ -63,7 +63,7 @@ try {
     .readdirSync(path.join(root, 'tests'))
     .filter((file) => file.endsWith('.test.cjs') && file !== 'package.test.cjs')
     .map((file) => 'tests/' + file);
-  execute(['--require', './tests/coverage-preload.cjs', '--test', ...tests], { SOURCE_COVERAGE_DIR: host });
+  execute(['--require', './tests/coverage-preload.cjs', '--test', '--test-concurrency=2', ...tests], { SOURCE_COVERAGE_DIR: host });
   execute(['--require', './tests/coverage-preload.cjs', 'scripts/browser-runner.cjs'], {
     SOURCE_COVERAGE_DIR: host,
     SOURCE_BROWSER_COVERAGE_DIR: browser,

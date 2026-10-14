@@ -51,3 +51,7 @@ test('customer documentation assets and bundled licenses exist', () => {
   const notices=fs.readFileSync(path.resolve(__dirname,'../THIRD_PARTY_NOTICES.txt'),'utf8');
   for (const name of ['markdown-it','highlight.js','mermaid']) assert.ok(notices.includes(name),name);
 });
+
+test('provider support is explicitly limited to the workspace Node extension host',()=>{
+ assert.deepEqual(manifest.extensionKind,['workspace']);assert.equal(manifest.browser,undefined);assert.equal(manifest.capabilities.virtualWorkspaces.supported,'limited');assert.match(manifest.capabilities.virtualWorkspaces.description,/Restricted Mode/);assert.match(manifest.capabilities.virtualWorkspaces.description,/CSV export/);
+});

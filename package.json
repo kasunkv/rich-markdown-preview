@@ -18,7 +18,9 @@
   "activationEvents": [
     "onCommand:markdownLens.openPreview",
     "onCommand:styledMarkdown.openPreview",
-    "onStartupFinished"
+    "onStartupFinished",
+    "onWebviewPanel:richMarkdownPreview.preview",
+    "onWebviewPanel:richMarkdownPreview.documentationHome"
   ],
   "contributes": {
     "commands": [
@@ -243,6 +245,7 @@
     "markdown-it-sup": "^2.0.0",
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.12.0",
+    "minimatch": "10.2.6",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
@@ -252,6 +255,7 @@
     "@types/vscode": "1.95.0",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "^4.0.0",
+    "axe-core": "4.11.0",
     "esbuild": "^0.25.0",
     "eslint": "^10.12.0",
     "istanbul-lib-coverage": "3.2.2",
@@ -303,7 +307,9 @@
   "files": [
     "package.json",
     "dist/extension.js",
+    "dist/render.cjs",
     "dist/preview.js",
+    "dist/diagrams.js",
     "dist/preview.css",
     "assets/rich-markdown-preview.png",
     "README.md",
@@ -323,6 +329,13 @@
         "markdownLens.referenceRoot",
         "styledMarkdown.referenceRoot"
       ]
+    },
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "Trusted provider documents, relative references, images and bounded documentation discovery are available. Host absolute/home references and CSV export are unavailable; opaque providers are blocked in Restricted Mode. A Node extension host is required."
     }
-  }
+  },
+  "extensionKind": [
+    "workspace"
+  ]
 }
