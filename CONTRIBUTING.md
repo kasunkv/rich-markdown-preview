@@ -14,6 +14,7 @@ npm run check:quality
 npm run check:dependencies
 npm test
 npm run test:coverage
+npm run test:mutation
 ```
 
 Use `npm ci` for reproducible installs from `package-lock.json`. Use `npm install`
@@ -35,10 +36,23 @@ installed-VSIX smoke test and F5 instructions in
 [DEVELOPMENT.md](DEVELOPMENT.md). Use fixtures, mocked services and isolated user
 profiles. Never publish a test build or modify a developer's real settings.
 
-Coverage currently reports bundled JavaScript, including vendor code. There is
-no source-only coverage ratchet in this checkout; record fresh coverage evidence
-and preserve existing regressions. Spec 030 defines the final source-coverage
-target. Do not claim bundled percentages are source coverage.
+Coverage instruments original first-party TypeScript before bundling and includes
+untouched executable modules. The existing baseline ratchet remains active;
+95% lines/statements/functions and 90% branches are required globally, per module
+and for changed executable code. Set COVERAGE_BASE to the intended base commit
+when checking an integration diff; local runs default to HEAD^.
+
+Source changes require reviewing safety-policy.json checksums, safety-branches.json
+locations and any safety-exceptions.json proofs. Hashes normalize CRLF to LF for
+portable checkouts. Every reachable reviewed policy arm must execute; only narrow
+technically unreachable arms may have an owned, expiring proof. Do not reduce
+denominators, refresh checksums without reviewing the policy, or lower inherited
+floors. Keep Node/VM/browser counters separate from actual Electron evidence.
+
+Focused mutations run in disposable source copies and require behavioral assertion
+kills after successful compilation; source restoration is automatic. The mutation
+baseline must not regress. See docs/implementation/spec-030.md for the current
+inventory, proofs and evidence.
 
 ## Asynchronous operations and review
 
@@ -85,4 +99,6 @@ Each Playwright invocation writes `.test-results/browser/<timestamp-UUID>/run.js
 
 Workers bind loopback port 0 and own their HTTP server in-process, so simultaneous runs use separate ports and process termination cannot orphan a server. Startup fixtures have a 10-second limit, navigation 15 seconds, actions 10 seconds and the suite 3 minutes. External network requests are blocked. These are mocked webview behavior tests; production CSP and real VS Code host compatibility have separate suites.
 
-Ordinary browser runs never regenerate README images. `npm run screenshots:marketing` explicitly rebuilds and writes the two tracked marketing images. Review those image changes separately. `npm run validate` runs quality checks, fresh source coverage (including production packaging and instrumented Node/browser suites), browser harness controls and the minimum VS Code host checks. Coverage restores production assets before the host run. Browser installation and host download require network access on first setup; stable and installed-VSIX host checks remain documented separately.
+Ordinary browser runs never regenerate README images. `npm run screenshots:marketing` explicitly rebuilds and writes the two tracked marketing images. Review those image changes separately. `npm run validate` runs quality checks, fresh source coverage (including production packaging and instrumented Node/browser suites), focused mutations, browser harness controls and the minimum VS Code host checks. Coverage restores production assets before the host run. Browser installation and host download require network access on first setup; stable and installed-VSIX host checks remain documented separately.
+
+Full release validation is available with `npm run validate:release`; it adds dependency and package checks to `validate`. Publication is a separate authorized step.

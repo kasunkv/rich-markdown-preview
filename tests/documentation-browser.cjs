@@ -53,6 +53,8 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     assert.equal(await page.locator('#rmp-ui-outline a:visible').count(), 31);
     await page.getByRole('button', {name: 'Documents', exact: true}).click();
     await page.getByRole('searchbox', {name: 'Filter documentation files or folders'}).fill('');
+    await page.getByRole('button', {name:'Refresh',exact:true}).click();
+    assert.equal(await page.evaluate(() => window.actions.at(-1).action), 'refresh');
     checks.push('Multiple roots, folder home cards, nested filtering, safe filenames, keyboard selection, active file, outline tabs');
 
     await page.locator('.documentation-file').getByText('README.md', {exact: true}).first().click();
@@ -70,6 +72,8 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     await page.getByRole('button', {name: 'Forward →', exact: true}).click();
     await page.getByRole('button', {name: 'Open source', exact: true}).click();
     assert.equal(await page.evaluate(() => window.actions.at(-1).action), 'source');
+    await page.getByRole('button', {name:'Refresh',exact:true}).click();
+    assert.equal(await page.evaluate(() => window.actions.at(-1).action), 'refresh');
     checks.push('Per-document table and scroll state, Back/Forward history, source action');
 
     await page.getByRole('button', {name: 'Home', exact: true}).click();
@@ -84,6 +88,8 @@ test('documentation browser regressions', async ({page}, testInfo) => {
     await page.getByRole('button', {name: 'Navigation', exact: true}).click();
     assert.equal(await page.locator('.documentation-sidebar').isVisible(), false);
     await page.getByRole('button', {name: 'Navigation', exact: true}).click();
+    await page.getByRole('button', {name:'Refresh',exact:true}).click();
+    assert.equal(await page.evaluate(() => window.actions.at(-1).action), 'refresh');
     checks.push('Home return, empty search, dark theme, narrow layout and navigation toggle');
     await page.locator('.documentation-cards section').filter({hasText: 'other'}).getByRole('button', {name: 'Read README'}).click();
     await page.getByRole('button', {name: 'Home', exact: true}).click();
@@ -142,8 +148,22 @@ test('documentation browser regressions', async ({page}, testInfo) => {
       loading: false, canBack: false, canForward: false
     }})));
     assert.equal(await page.evaluate(() => !!window.readState()?.documents?.['file:///repo/README.md']), true);
+    await page.getByRole('button', {name:'Refresh',exact:true}).click();
+    assert.equal(await page.evaluate(() => window.actions.at(-1).action), 'refresh');
     checks.push(`10k navigation update ${largeIndexMs.toFixed(1)}ms with bounded initial DOM`);
     assert.deepEqual(errors, []);
     await testInfo.attach('checks', {body: JSON.stringify(checks), contentType: 'application/json'});
     console.log(checks.map(check => `PASS ${check}`).join('\n'));
+});
+
+test('partial documentation root removal resets the active reading identity to Home',async({page})=>{
+ await page.goto('about:blank');
+ await page.addInitScript(()=>{let state;window.acquireVsCodeApi=()=>({getState:()=>state,setState:value=>{state=value;},postMessage:()=>{}});window.readBoundState=()=>state;});
+ await page.reload();await page.setContent('<!doctype html><html><body><div id="rmp-ui-app"></div></body></html>');
+ await page.addScriptTag({path:path.resolve('dist/preview.js')});
+ const preferences={style:'reading',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+ await page.evaluate(message=>window.dispatchEvent(new MessageEvent('message',{data:message})),{type:'render',...renderMarkdown('# Removed root'),preferences,documentId:'file:///removed/a.md',renderId:'removed-root',documentationHome:true});
+ await page.evaluate(()=>window.dispatchEvent(new MessageEvent('message',{data:{type:'documentation',files:[],roots:['file:///repo'],snapshot:1,truncated:true,loading:false,canBack:false,canForward:false}})));
+ assert.equal(await page.evaluate(()=>window.readBoundState().documentId),'home');
+ assert.equal(await page.evaluate(()=>window.readBoundState().documents['file:///removed/a.md']),undefined);
 });

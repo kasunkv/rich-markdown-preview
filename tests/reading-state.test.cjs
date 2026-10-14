@@ -250,3 +250,15 @@ test('partial snapshot root identity normalizes only file drive spelling', () =>
  assert.equal(documentInWorkspaceRoots('memory://other/docs/guide.md',['memory://fixture/docs']),false);
  assert.equal(documentInWorkspaceRoots('memory://fixture/C:/docs/guide.md',['memory://fixture/c:/docs']),false);
 });
+
+test('restoration rejects excessive object graphs, dangerous own keys and disguised sparse arrays', () => {
+  const empty = {readingStateVersion:1,documents:{},documentOrder:[]};
+  assert.deepEqual(restoreReadingState({...empty, extra:Array.from({length:100001},()=>({}))}),empty);
+  assert.deepEqual(restoreReadingState({...empty, constructor:'unsafe'}),empty);
+  assert.deepEqual(restoreReadingState({...empty, [Symbol('unsafe')]:1}),empty);
+  const sparse=new Array(1);sparse.extra='fake indexed value';
+  assert.deepEqual(restoreReadingState({...empty, documentOrder:sparse}),empty);
+  const session={version:1,kind:'preview',target:'file:///a.md',history:[null],cursor:0};
+  assert.equal(restoreReadingState({...empty,session}).session,undefined);
+  assert.equal(documentInWorkspaceRoots('memory://fixture/docs/a.md',['memory://fixture/docs/']),true);
+});

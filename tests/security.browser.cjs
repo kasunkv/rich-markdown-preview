@@ -309,3 +309,16 @@ test('an unexpected palette failure cannot poison later queued diagram work', as
   expect(await page.locator('#rmp-ui-content').textContent()).not.toContain('private palette failure');
  } finally {await server.close();}
 });
+
+test('unsafe lazy SVG results never mount and recover as a readable source error',async({page})=>{
+ const server=await boot(page);
+ try {
+  await page.route('**/diagrams.js',route=>route.fulfill({status:200,contentType:'text/javascript',body:'window.RichMarkdownDiagrams={renderer:()=>({initialize(){},async render(){return {svg:"<svg id=unsafe><script>window.unsafeDiagramRan=true</script></svg>"}}})};'}));
+  await render(page,'\x60\x60\x60mermaid\nflowchart TD\nA-->B\n\x60\x60\x60');
+  await expect(page.locator('.diagram-error')).toHaveCount(1);
+  await expect(page.locator('.mermaid-result')).toHaveCount(0);
+  await expect(page.locator('.diagram-source')).toHaveAttribute('open','');
+  expect(await page.evaluate(()=>window.unsafeDiagramRan)).toBeUndefined();
+  await expect(page.locator('#rmp-ui-content')).toHaveAttribute('aria-busy','false');
+ } finally {await server.close();}
+});

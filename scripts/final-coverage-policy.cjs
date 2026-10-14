@@ -3,11 +3,26 @@ const thresholds = { lines: 95, statements: 95, functions: 95, branches: 90 };
 const moduleName = (file) => file.replaceAll('\\', '/').split('/src/').pop();
 function changedLines(diff) {
   const result = {};
-  let file;
+  let file,
+    expectingHeader = true;
   for (const line of diff.split(/\r?\n/)) {
-    if (line.startsWith('+++ b/')) file = line.slice(6);
-    else if (line.startsWith('+++ /dev/null')) file = undefined;
-    else {
+    if (line.startsWith('diff --git ')) {
+      file = undefined;
+      expectingHeader = true;
+    } else if (expectingHeader && line.startsWith('+++ ')) {
+      let destination = line.slice(4);
+      if (destination.startsWith('"')) {
+        try {
+          destination = JSON.parse(destination);
+        } catch {
+          throw Error('Unsupported quoted source diff path; cannot establish changed coverage');
+        }
+      }
+      if (destination !== '/dev/null' && !destination.startsWith('b/'))
+        throw Error('Unexpected source diff path: ' + destination);
+      file = destination === '/dev/null' ? undefined : destination.slice(2);
+      expectingHeader = false;
+    } else {
       const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (file && hunk) {
         const lines = (result[file] ??= new Set());
@@ -80,6 +95,28 @@ function finalCheck({ coverage, inventory, diff = '', safety = [], exceptions = 
       [...lines].some((line) => line >= loc.start.line && line <= loc.end.line),
     );
     const covered = selected.filter(([id]) => fc.s[id] > 0).length;
+    const intersects = (loc) => [...lines].some((line) => line >= loc.start.line && line <= loc.end.line);
+    const lineCounts = Object.entries(fc.getLineCoverage())
+      .filter(([line]) => lines.has(Number(line)))
+      .map(([, count]) => count);
+    const functionCounts = Object.entries(fc.fnMap)
+      .filter(([, fn]) => intersects(fn.loc))
+      .map(([id]) => fc.f[id]);
+    const branchCounts = Object.entries(fc.branchMap)
+      .filter(([, branch]) => intersects(branch.loc) || branch.locations.some(intersects))
+      .flatMap(([id]) => fc.b[id]);
+    for (const [metric, counts] of Object.entries({
+      lines: lineCounts,
+      functions: functionCounts,
+      branches: branchCounts,
+    })) {
+      const covered = counts.filter((count) => count > 0).length;
+      if (counts.length && (covered / counts.length) * 100 < thresholds[metric])
+        failures.push(
+          'Changed ' + metric + ' ' + name + ': ' + covered + '/' + counts.length + ' < ' + thresholds[metric] + '%',
+        );
+    }
+
     if (selected.length && (covered / selected.length) * 100 < thresholds.statements)
       failures.push(`Changed statements ${name}: ${covered}/${selected.length} < ${thresholds.statements}%`);
   }

@@ -334,3 +334,10 @@ test('restricted opaque watcher creation cannot perform provider stat', async ()
  watcher.create(uri('/docs/new-folder'));await new Promise(setImmediate);
  assert.equal(stats,0);
 });
+
+test('watcher events outside their authoritative root cannot schedule discovery',async()=>{
+ const h=host();await h.open();const queries=h.queries.length;
+ h.watchers[0].create(h.uri('/outside/forged.md'));h.watchers[0].remove(h.uri('/repo-other/forged-folder'));
+ h.watchers[0].create(h.uri('/repo/missing-directory'));
+ await new Promise(resolve=>setTimeout(resolve,400));assert.equal(h.queries.length,queries);
+});

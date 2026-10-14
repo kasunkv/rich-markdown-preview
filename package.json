@@ -229,10 +229,12 @@
     "browser:install": "playwright install chromium",
     "browser:install:ci": "playwright install --with-deps chromium",
     "screenshots:marketing": "npm run build:production && node scripts/browser-runner.cjs --marketing",
-    "validate": "npm run check:quality && npm run test:coverage && npm run test:browser:harness && npm run test:host:only",
+    "validate": "npm run check:quality && npm run test:coverage && npm run test:mutation && npm run test:browser:harness && npm run test:host:only",
     "test:browser:harness": "node --test tests/browser-harness/*.test.cjs",
     "test:coverage:baseline": "node scripts/source-coverage.cjs --update-baseline",
-    "check:dependencies": "node scripts/audit-dependencies.cjs"
+    "check:dependencies": "node scripts/audit-dependencies.cjs",
+    "test:mutation": "node scripts/focused-mutations.cjs",
+    "validate:release": "npm run validate && npm run check:dependencies && npm run package"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",

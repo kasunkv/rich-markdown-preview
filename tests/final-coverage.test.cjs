@@ -31,9 +31,11 @@ test('actual diff added lines enforce changed statements above all aggregate flo
   const diff =
     'diff --git a/src/large.ts b/src/large.ts\n--- a/src/large.ts\n+++ b/src/large.ts\n@@ -50,0 +51 @@\n+changed();\n';
   assert.deepEqual([...changedLines(diff)['src/large.ts']], [51]);
-  assert.deepEqual(finalCheck({ coverage: { [fc.path]: fc }, inventory: [fc.path], diff }), [
-    'Changed statements large.ts: 0/1 < 95%',
-  ]);
+  assert.ok(
+    finalCheck({ coverage: { [fc.path]: fc }, inventory: [fc.path], diff }).includes(
+      'Changed statements large.ts: 0/1 < 95%',
+    ),
+  );
   assert.deepEqual([...changedLines('+++ b/src/x.ts\n@@ -3 +3,0 @@')['src/x.ts']], []);
 });
 test('reachable safety arms require full coverage with narrow current exceptions', () => {
@@ -71,4 +73,88 @@ test('compile failures never count as mutation kills and survival fails the ratc
     /regression/,
   );
   assert.deepEqual(checkMutation([{ id: 'csv', status: 'killed' }], { killed: ['csv'], minimum: 100 }), []);
+});
+
+test('the changed-code gate consumes an actual Git zero-context source diff', () => {
+  const fs = require('node:fs'),
+    path = require('node:path'),
+    os = require('node:os');
+  const { spawnSync } = require('node:child_process');
+  const { instrument } = require('../scripts/coverage-instrument.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rmp-diff-'));
+  const git = (args) => {
+    const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  try {
+    fs.mkdirSync(path.join(dir, 'src'));
+    const file = path.join(dir, 'src', 'changed.ts');
+    const source = Array.from({ length: 100 }, (_, i) => 'export const v' + i + ' = ' + i + ';').join('\n') + '\n';
+    fs.writeFileSync(file, source);
+    git(['init', '--quiet']);
+    git(['add', 'src/changed.ts']);
+    git([
+      '-c',
+      'user.name=Coverage fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '--quiet',
+      '--no-gpg-sign',
+      '-m',
+      'Fixture base',
+    ]);
+    fs.writeFileSync(file, source.replace('v50 = 50', 'v50 = -50'));
+    const diff = git(['diff', '--no-ext-diff', '--no-textconv', '--unified=0', 'HEAD', '--', 'src']);
+    assert.deepEqual([...changedLines(diff)['src/changed.ts']], [51]);
+    const coverage = instrument(file).coverage;
+    for (const id of Object.keys(coverage.s)) coverage.s[id] = coverage.statementMap[id].start.line === 51 ? 0 : 1;
+    assert.match(
+      finalCheck({ coverage: { [file]: coverage }, inventory: [file], diff }).join('\n'),
+      /Changed statements changed.ts: 0\/1/,
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('required PR and full release paths enforce current source and mutation gates', () => {
+  const YAML = require('yaml'),
+    fs = require('node:fs'),
+    path = require('node:path');
+  const root = path.resolve(__dirname, '..'),
+    manifest = require('../package.json');
+  const workflow = YAML.parse(fs.readFileSync(path.join(root, '.github/workflows/quality.yml'), 'utf8'));
+  const steps = workflow.jobs.coverage.steps;
+  assert.ok(steps.some((step) => step.run === 'npm run test:coverage'));
+  assert.ok(steps.some((step) => step.run === 'npm run test:mutation'));
+  assert.equal(steps.find((step) => step.uses?.startsWith('actions/checkout@')).with['fetch-depth'], 0);
+  assert.match(workflow.jobs.coverage.env.COVERAGE_BASE, /base\.sha.*merge_group\.base_sha.*before/);
+  assert.match(manifest.scripts.validate, /test:coverage.*test:mutation/);
+  assert.match(manifest.scripts['validate:release'], /npm run validate.*check:dependencies.*package/);
+});
+test('changed unexecuted functions and branch arms fail despite high module totals', () => {
+  const fc = fixture('large.ts', 100);
+  fc.f[50] = 0;
+  fc.b[50][1] = 0;
+  const diff = '+++ b/src/large.ts\n@@ -51 +51 @@\n+changed();';
+  const failures = finalCheck({ coverage: { [fc.path]: fc }, inventory: [fc.path], diff });
+  assert.ok(failures.includes('Changed functions large.ts: 0/1 < 95%'));
+  assert.ok(failures.includes('Changed branches large.ts: 1/2 < 90%'));
+  assert.ok(!failures.some((message) => message.startsWith('Global')));
+});
+
+test('reviewed source bindings accept Windows and Linux line endings but reject content changes', () => {
+  const { sourceDigest } = require('../scripts/final-coverage-enforcement.cjs');
+  const source = 'export const allowed = false;\n';
+  assert.equal(sourceDigest(source), sourceDigest(source.replaceAll('\n', '\r\n')));
+  assert.notEqual(sourceDigest(source), sourceDigest(source.replace('false', 'true')));
+});
+
+test('quoted diff paths remain included and header-like source text cannot redirect coverage', () => {
+  const diff = '+++ "b/src/spaced file.ts"\n@@ -1 +1,2 @@\n+++ b/src/forged.ts\n+actual();';
+  assert.deepEqual([...changedLines(diff)['src/spaced file.ts']], [1, 2]);
+  assert.equal(changedLines(diff)['src/forged.ts'], undefined);
+  assert.throws(() => changedLines('+++ "b/src/unsupported\\123.ts"'), /Unsupported quoted/);
 });
