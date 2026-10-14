@@ -22,6 +22,10 @@ function emit(values) {
     if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
   }
 }
+function assertUnsealed(directory = output) {
+  if (fs.existsSync(path.join(directory, 'provenance.json')))
+    throw Error('Candidate is already sealed; retain the original immutable artifact');
+}
 function localContext() {
   const manifest = read('package.json'),
     lock = read('package-lock.json');
@@ -34,6 +38,7 @@ function localContext() {
   });
   const reviewedMain = process.argv[3];
   if (!/^[a-f0-9]{40}$/.test(reviewedMain || '')) throw Error('Local rehearsal requires the exact reviewed main SHA');
+  assertUnsealed();
   const commit = git(['rev-parse', 'HEAD']);
   git(['merge-base', '--is-ancestor', reviewedMain, commit]);
   if (git(['status', '--porcelain'])) throw Error('Local rehearsal source must be clean');
@@ -50,6 +55,7 @@ function localContext() {
   });
 }
 function context() {
+  assertUnsealed();
   const manifest = read('package.json'),
     lock = read('package-lock.json');
   const commit = git(['rev-parse', 'HEAD']);
@@ -90,6 +96,7 @@ function context() {
   emit({ commit, tag: identity.tag, rehearsal });
 }
 function gates() {
+  assertUnsealed();
   const c = JSON.parse(fs.readFileSync(path.join(base, 'context.json')));
   if (!process.env.npm_execpath) throw Error('Run gates through npm run release:gates');
   const record = { commit: c.commit, startedAt: new Date().toISOString(), status: 'running', commands: [] };
@@ -122,6 +129,7 @@ function gates() {
   json(path.join(base, 'commands.json'), record);
 }
 async function pack() {
+  assertUnsealed();
   const c = JSON.parse(fs.readFileSync(path.join(base, 'context.json')));
   if (git(['rev-parse', 'HEAD']) !== c.commit || git(['status', '--porcelain']))
     throw Error('Candidate checkout changed or became dirty');
@@ -149,6 +157,7 @@ function latest(directory, filename) {
   return choices[0];
 }
 function seal() {
+  assertUnsealed();
   const c = JSON.parse(fs.readFileSync(path.join(base, 'context.json')));
   const commands = JSON.parse(fs.readFileSync(path.join(base, 'commands.json')));
   const validTime = (value) =>
@@ -225,6 +234,8 @@ function seal() {
 }
 function tools() {
   const directory = path.join(base, 'tools');
+  if (fs.existsSync(directory) && fs.readdirSync(directory).length)
+    throw Error('Release tool inputs already exist; retain the original binding');
   fs.mkdirSync(directory, { recursive: true });
   const manifest = read('package.json');
   delete manifest.scripts;
@@ -251,4 +262,4 @@ if (require.main === module)
       console.error(error.message);
       process.exitCode = 1;
     });
-module.exports = { context, localContext, gates, pack, seal, tools, REQUIRED_GATES };
+module.exports = { context, localContext, gates, pack, seal, tools, REQUIRED_GATES, assertUnsealed };

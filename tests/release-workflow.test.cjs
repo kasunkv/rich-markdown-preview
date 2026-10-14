@@ -340,3 +340,21 @@ test('GitHub metadata recovery accepts identical existing assets, rejects mismat
   await assert.rejects(runtime.githubRelease(p, value.directory), /asset differs/);
   assert.equal(writes, 0);
 });
+
+test('a sealed candidate cannot be resealed or overwritten during a retry', (t) => {
+  const value = fixture(t);
+  const { assertUnsealed } = require('../scripts/release-candidate.cjs');
+  const before = Object.fromEntries(
+    fs.readdirSync(value.directory).map((name) => [name, hash(fs.readFileSync(path.join(value.directory, name)))]),
+  );
+  assert.throws(() => assertUnsealed(value.directory), /already sealed/);
+  assert.deepEqual(
+    Object.fromEntries(
+      fs.readdirSync(value.directory).map((name) => [name, hash(fs.readFileSync(path.join(value.directory, name)))]),
+    ),
+    before,
+  );
+  const empty = path.join(value.directory, 'new-candidate');
+  fs.mkdirSync(empty);
+  assertUnsealed(empty);
+});
