@@ -15,9 +15,10 @@ function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, im
     const listeners = new Set();
     return { listen: fn => { listeners.add(fn); return { dispose: () => listeners.delete(fn) }; }, fire: value => [...listeners].forEach(fn => fn(value)), listeners };
   };
-  const uri = value => ({ scheme:'file', fsPath:value, path: value, with: changes => ({...uri(value),...changes}), toString: () => `file://${value}` });
+  const uri = value => ({ scheme:'file', authority:'', query:'', fragment:'', fsPath:value, path: value, with: changes => ({...uri(value),...changes}), toString: () => `file://${value}` });
   const root = value => ({ name: value.split('/').pop(), uri: uri(value) });
   let requestSequence = 0;
+  const serializers = {};
   const commands = {}, messages = [], panels = [], warnings = [], opened = [], queries = [], watchers = [], reads = [], selections = [], reveals = [];
   const files = new Map([
     ['/repo/README.md', '# Welcome\n\n[Guide](docs/guide.md#details)\n\n[Code](src/app.ts)'],
@@ -43,6 +44,7 @@ function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, im
     RelativePattern: class { constructor(base, pattern) { this.baseUri = base.uri ?? base; this.pattern = pattern; } },
     CancellationTokenSource: class { token = {isCancellationRequested: false}; cancel() {this.token.isCancellationRequested = true;} dispose() {} },
     window: {
+      registerWebviewPanelSerializer: (type, serializer) => {serializers[type]=serializer;return {dispose(){}};},
       createOutputChannel: () => ({appendLine() {},dispose() {}}),
       createStatusBarItem: () => status,
       showInformationMessage: message => warnings.push(message), showWarningMessage: (message, _options, ...items) => {warnings.push(message); return Promise.resolve(items.includes('Allow images') && allowImages ? 'Allow images' : undefined);},
@@ -78,7 +80,7 @@ function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, im
       getWorkspaceFolder: target => vscode.workspace.workspaceFolders.find(folder => target.path === folder.uri.path || target.path.startsWith(folder.uri.path + '/')),
       getConfiguration: (section, target) => ({get: (key, fallback) => section === 'richMarkdownPreview' ? settings[`${target?.path}:${key}`] ?? settings[key] ?? fallback : fallback, inspect: () => ({})}),
       openTextDocument: async target => {reads.push(target.path); return getDocument(target);},
-      fs: { stat: async target => {if (!files.has(target.path)) throw new Error('Missing file'); return {type: 1};} },
+      fs: { isWritableFileSystem: scheme => scheme === 'file' ? true : undefined, stat: async target => {if (!files.has(target.path)) throw new Error('Missing file'); return {type: 1};} },
       findFiles: async (include, exclude, max, token) => {
         queries.push({include, exclude, token});
         return [...files.keys()].filter(file => file.startsWith(include.baseUri.path + '/') && minimatch(file.slice(include.baseUri.path.length + 1), include.pattern, {dot: true}) && (!exclude || !minimatch(file, exclude, {dot: true}))).map(uri);
@@ -91,7 +93,7 @@ function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, im
     }
   };
   const module = {exports: {}};
-  const runtime = vm.createContext({module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, URL, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg' || files.has(value)})} : require(name)});
+  const runtime = vm.createContext({module, exports: module.exports, __coverage__: globalThis.__coverage__ ??= {}, Buffer, URL, TextEncoder, TextDecoder, setTimeout, clearTimeout, console, require: name => name === 'vscode' ? vscode : name === 'node:fs' ? {...fs,realpathSync: value => value,statSync: value => ({isFile: () => value === '/repo/assets/test.svg' || files.has(value)})} : require(name)});
   wireMessage = require('./vm-wire.cjs').wireParser(runtime);
   vm.runInContext(fs.readFileSync(require.resolve('../dist/extension.js'), 'utf8'), runtime);
   module.exports.activate({subscriptions: [], extensionUri: uri('/extension'), globalState});
@@ -99,7 +101,8 @@ function host({ folders = ['/repo', '/other'], settings = {}, trusted = true, im
   const openSingle = async (file = '/repo/README.md') => { await commands['richMarkdownPreview.openPreview'](uri(file)); await panels.at(-1).message({type: 'ready'}); };
   const action = (action, id) => panels.at(-1).message({type: 'documentationAction', action, id: id && uri(id).toString()});
   const latest = type => messages.filter(message => message.type === type).at(-1);
-  return {globalState, imageState, imageWrites, vscode, settings, status, open, openSingle, selections, reveals, action, latest, files, reads, queries, messages, panels, warnings, opened, watchers, workspaceFolders, configuration, text, uri, getDocument};
+  const restore = async (kind, state) => { const type = kind === 'preview' ? 'richMarkdownPreview.preview' : 'richMarkdownPreview.documentationHome';const panel=vscode.window.createWebviewPanel(type, 'Restored', -1, {});await serializers[type].deserializeWebviewPanel(panel,state === undefined ? undefined : vm.runInContext("JSON.parse",runtime)(JSON.stringify(state)));await panel.message?.({type:'ready'});return panel; };
+  return {restore,serializers,globalState, imageState, imageWrites, vscode, settings, status, open, openSingle, selections, reveals, action, latest, files, reads, queries, messages, panels, warnings, opened, watchers, workspaceFolders, configuration, text, uri, getDocument};
 }
 
 

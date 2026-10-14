@@ -18,7 +18,9 @@
   "activationEvents": [
     "onCommand:markdownLens.openPreview",
     "onCommand:styledMarkdown.openPreview",
-    "onStartupFinished"
+    "onStartupFinished",
+    "onWebviewPanel:richMarkdownPreview.preview",
+    "onWebviewPanel:richMarkdownPreview.documentationHome"
   ],
   "contributes": {
     "commands": [

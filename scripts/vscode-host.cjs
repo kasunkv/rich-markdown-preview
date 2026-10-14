@@ -10,6 +10,7 @@ function parseArgs(args) {
     const key = args.shift();
     if (key === '--force-failure') options.forceFailure = true;
     else if (key === '--privacy') options.privacy = true;
+    else if (key === '--reload') { options.reload = true; options.privacy = true; }
     else if (key === '--providers') options.providers = true;
     else if (key === '--providers-only') { options.providers = true; options.providersOnly = true; }
     else if (['--version', '--mode', '--vsix', '--trust', '--executable'].includes(key) && args.length) options[key.slice(2)] = args.shift();
@@ -18,6 +19,7 @@ function parseArgs(args) {
   if (!['development', 'package'].includes(options.mode)) throw new Error('Mode must be development or package');
   if (!/^(stable|insiders|\d+\.\d+\.\d+)$/.test(options.version)) throw new Error('Version must be minimum/exact version, stable or insiders');
   if (options.trust && !['trusted','restricted','transition'].includes(options.trust)) throw new Error('Trust must be trusted, restricted or transition');
+  if (options.reload && (options.mode !== 'development' || options.trust || options.providers)) throw new Error('Reload proof requires a normal development host without trust/provider suite overrides');
   return options;
 }
 
@@ -102,6 +104,8 @@ async function run(options, electron = require('@vscode/test-electron')) {
     const executable = options.executable ? path.resolve(options.executable) : await electron.downloadAndUnzipVSCode({ version: options.version, cachePath: path.join(root, '.test-results', 'host-downloads') });
     if(options.executable && !(await fs.stat(executable)).isFile()) throw new Error('Existing host executable must be a file');
     report.executable=executable;
+    report.runtimeHashes=Object.fromEntries(await Promise.all(['extension.js','preview.js','preview.css'].map(async name=>[name,require('node:crypto').createHash('sha256').update(await fs.readFile(path.join(root,'dist',name))).digest('hex')])));
+    report.reloadHost=Boolean(options.reload);
     let developmentPath = root;
     if (options.mode === 'package') {
       const vsix = path.resolve(options.vsix || path.join(root, `${manifest.name}-${manifest.version}.vsix`));
@@ -124,9 +128,9 @@ async function run(options, electron = require('@vscode/test-electron')) {
       const harness = path.join(directory,'privacy-harness');
       await fs.mkdir(harness);
       await fs.writeFile(path.join(harness,'package.json'),JSON.stringify({name:'privacy-host-harness',publisher:'test',version:'0.0.1',engines:{vscode:'^1.95.0'},activationEvents:['onStartupFinished'],main:'./extension.cjs',capabilities:{untrustedWorkspaces:{supported:true}}}));
-      const suite = path.join(root,'tests',options.providers ? 'vscode-providers.cjs' : options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs');
+      const suite = path.join(root,'tests',options.reload ? 'vscode-reload.cjs' : options.providers ? 'vscode-providers.cjs' : options.trust ? 'vscode-trust.cjs' : 'vscode-settings.cjs');
       await fs.writeFile(path.join(harness,'extension.cjs'),
-        'const vscode=require("vscode");exports.activate=()=>{' + (options.providers ? 'require(' + JSON.stringify(path.join(root,'tests','provider-host.cjs')) + ').registerProviderFixture(vscode);' : '') + 'setTimeout(async()=>{try{await require(' + JSON.stringify(suite) + ').run();}catch{console.error("Isolated host privacy suite failed; see suite.json");}finally{await vscode.commands.executeCommand("workbench.action.quit");}},500);};');
+        'const vscode=require("vscode");exports.activate=()=>{' + (options.providers ? 'require(' + JSON.stringify(path.join(root,'tests','provider-host.cjs')) + ').registerProviderFixture(vscode);' : '') + 'setTimeout(async()=>{let result;try{result=await require(' + JSON.stringify(suite) + ').run();}catch{console.error("Isolated host privacy suite failed; see suite.json");}finally{if(!result?.reloading)await vscode.commands.executeCommand("workbench.action.quit");}},500);};');
       privacyDevelopmentPaths = [...(options.mode === 'development' ? [root] : []),harness];
       report.dialogFixture = 'normal host with window.dialogStyle=custom';
       report.storageRoots = {workspace,user:path.join(directory,'user'),extensions:path.join(directory,'extensions'),shared:path.join(directory,'shared')};
