@@ -659,3 +659,23 @@ test('authored diagram alternatives and accessibility tokens survive rendering a
     assert.deepEqual(actual,theme==='vscode-high-contrast'?{bg:'rgb(16, 16, 16)',text:'rgb(238, 238, 238)',focus:'rgb(255, 255, 0)'}:{bg:'rgb(250, 250, 250)',text:'rgb(17, 17, 17)',focus:'rgb(0, 0, 136)'});
   }
 });
+
+test('linked table headers preserve links through all sort states and density changes', async ({page, previewServer}) => {
+  await page.goto(previewServer.url);
+  const preferences = {style:'reading',appearance:'light',contentWidth:900,fontSize:16,lineHeight:1.7,wrapCode:false};
+  const model = renderMarkdown('| [Guide](guide.md) | |\n| --- | --- |\n| 2 | A |\n| 1 | B |');
+  await page.evaluate(message => window.dispatchEvent(new MessageEvent('message',{data:message})),{type:'render',...model,preferences});
+  const header = page.locator('.table-panel th').first();
+  assert.equal(await header.locator('button a').count(),0);
+  assert.match(await header.locator('a').textContent(), /Guide$/);
+  const sort = header.locator('button');
+  await sort.click(); assert.equal(await header.getAttribute('aria-sort'),'ascending');
+  await sort.click(); assert.equal(await header.getAttribute('aria-sort'),'descending');
+  await sort.click(); assert.equal(await header.getAttribute('aria-sort'),null);
+  await page.locator('.table-density').selectOption('compact');
+  assert.equal(await page.locator('.table-panel').getAttribute('data-density'),'compact');
+  await page.locator('.table-density').selectOption('comfortable');
+  assert.equal(await page.locator('.table-panel').getAttribute('data-density'),'comfortable');
+  await header.locator('a').click();
+  assert.equal(await page.evaluate(() => window.referenceClicks.at(-1).id),await header.locator('a').getAttribute('data-reference-id'));
+});

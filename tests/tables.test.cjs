@@ -22,3 +22,9 @@ test('CSV preserves commas, quotes, newlines, Unicode and empty cells', () => {
 test('CSV exports formula-like text as literal cells while keeping signed numbers', () => {
   assert.equal(tableCSV([['=SUM(A1)', '+cmd', '-cmd', '@cmd', ' \t=1', '-3.5', '+12', '1,200']]), '"\'=SUM(A1)","\'+cmd","\'-cmd","\'@cmd","\' \t=1","-3.5","+12","1,200"\r\n');
 });
+
+test('sorting rejects numeric overflow and orders blank/missing stable ties', () => {
+  assert.deepEqual(sortTableRows([['1e999'], ['2'], [''], []], 0, 'ascending'), [0,1,2,3]);
+  assert.deepEqual(sortTableRows([[], [''], ['2']], 0, 'descending'), [2,0,1]);
+  assert.match(tableCSV([['-1e999']]), /"'-1e999"/);
+});
