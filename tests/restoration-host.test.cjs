@@ -51,3 +51,12 @@ test('closing a panel during stat or document open cannot attach or publish a re
   await home.restore('preview',state());assert.equal(home.messages.length,0);if(phase==='stat')assert.equal(home.reads.length,0);
  }
 });
+test('bounded persisted Home navigation retains adjacent Back/Forward targets after a long runtime session',async()=>{
+ const home=host();for(let index=0;index<90;index++)home.files.set(`/repo/visit-${index}.md`,`# Visit ${index}`);await home.open();
+ for(let index=0;index<90;index++)await home.action('open',`/repo/visit-${index}.md`);
+ for(let index=0;index<8;index++)await home.action('back');
+ const context=home.latest('render').session;assert.equal(context.target,'file:///repo/visit-81.md');assert.ok(context.history.length<=20);assert.equal(context.history[context.cursor],context.target);
+ const restored=host();for(const [key,value] of home.files)restored.files.set(key,value);
+ await restored.restore('documentation',{readingStateVersion:1,documents:{},documentOrder:[],documentId:context.target,session:context});
+ await restored.action('back');assert.equal(restored.latest('render').documentId,'file:///repo/visit-80.md');await restored.action('forward');await restored.action('forward');assert.equal(restored.latest('render').documentId,'file:///repo/visit-82.md');
+});
