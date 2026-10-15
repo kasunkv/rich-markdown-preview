@@ -4,7 +4,8 @@ const path = require('node:path');
 
 // Exercise VS Code's own webview Find widget through the real workbench keyboard path.
 exports.proveFind = async ({ vscode, findFrame, workspace, checks }) => {
-  assert.equal(process.platform, 'win32', 'This smoke covers Windows Ctrl+F only');
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+  const findShortcut = process.platform === 'darwin' ? 'Cmd+F' : 'Ctrl+F';
   const directory = path.join(workspace, 'find-proof');
   await fs.mkdir(directory, { recursive: true });
   const first = path.join(directory, 'find-first.md');
@@ -20,7 +21,7 @@ exports.proveFind = async ({ vscode, findFrame, workspace, checks }) => {
   const openFind = async (frame, phrase, expectedTabLabel) => {
     assert.ok(
       vscode.window.tabGroups.activeTabGroup.activeTab.input instanceof vscode.TabInputWebview,
-      'Ctrl+F is tested while the preview webview is the active editor',
+      'Native Find is tested while the preview webview is the active editor',
     );
     assert.equal(vscode.window.tabGroups.activeTabGroup.activeTab.label, expectedTabLabel);
     let activeFrame = frame;
@@ -33,12 +34,12 @@ exports.proveFind = async ({ vscode, findFrame, workspace, checks }) => {
       await activeFrame.locator('#rmp-ui-content').click();
     }
     try {
-      await activeFrame.locator('body').press('Control+f');
+      await activeFrame.locator('body').press(`${modifier}+f`);
     } catch {
       activeFrame = await findActiveFrame('#rmp-ui-content');
       page = activeFrame.page();
       await activeFrame.locator('#rmp-ui-content').click();
-      await activeFrame.locator('body').press('Control+f');
+      await activeFrame.locator('body').press(`${modifier}+f`);
     }
     // Stable 1.141 includes a separate hidden Chat Find input before the webview widget.
     const input = page.locator('input[aria-label="Find"]').last();
@@ -72,10 +73,10 @@ exports.proveFind = async ({ vscode, findFrame, workspace, checks }) => {
             .catch((error) => ({ error: String(error) })),
         ),
       );
-      throw new Error(`Ctrl+F did not show the native webview Find widget: ${JSON.stringify(frames)}`);
+      throw new Error(`${findShortcut} did not show the native webview Find widget: ${JSON.stringify(frames)}`);
     }
     assert.equal(await input.evaluate((element) => document.activeElement === element), true, 'Native Find input is focused');
-    await input.press('Control+a');
+    await input.press(`${modifier}+a`);
     await input.type(phrase, { delay: 25 });
     await page.waitForTimeout(250);
     assert.equal(await input.inputValue(), phrase, 'Native Find widget accepted the search text');
@@ -98,21 +99,21 @@ exports.proveFind = async ({ vscode, findFrame, workspace, checks }) => {
     await page.locator('.simple-find-part.visible .codicon-find-next-match:not(.disabled)').waitFor({ state: 'visible', timeout: 3000 });
 
     const matchState = await widgetState();
-    await input.press('Control+a');
+    await input.press(`${modifier}+a`);
     await input.type('RMP_DELIBERATE_NO_MATCH_842019', { delay: 25 });
     await page.locator('.simple-find-part.visible .codicon-find-next-match.disabled').waitFor({ state: 'visible', timeout: 3000 });
     const noMatchState = await widgetState();
     const nextButton = (state) => state.controls.find((control) => control.label === 'Next Match');
     assert.equal(nextButton(matchState)?.disabledClass, false, 'Native Find reports at least one match');
     assert.equal(nextButton(noMatchState)?.disabledClass, true, 'Native Find disables navigation for a missing term');
-    await input.press('Control+a');
+    await input.press(`${modifier}+a`);
     await input.type(phrase, { delay: 25 });
     await input.press('Enter');
     await page.locator('.simple-find-part.visible .codicon-find-next-match:not(.disabled)').waitFor({ state: 'visible', timeout: 3000 });
     await page.waitForTimeout(250);
     await page.screenshot({ path: path.join(workspace, 'find-native-match.png') });
     const query = async (term) => {
-      await input.press('Control+a');
+      await input.press(`${modifier}+a`);
       await input.type(term, { delay: 25 });
       await input.press('Enter');
       await page.waitForTimeout(500);
@@ -133,7 +134,7 @@ exports.proveFind = async ({ vscode, findFrame, workspace, checks }) => {
   await result.page.screenshot({ path: path.join(workspace, 'find-native-next-match.png') });
   assert.ok(await nextMatch.isVisible(), 'Native next-match control remains enabled after navigation');
   result.result.navigation = 'Native Next Match activated; before/after screenshots saved for observed viewport movement';
-  checks.push({ mode: 'single-file', keyboard: 'Ctrl+F', result: result.result });
+  checks.push({ mode: 'single-file', keyboard: findShortcut, result: result.result });
   await closeFind(result.page);
 
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
@@ -146,7 +147,7 @@ exports.proveFind = async ({ vscode, findFrame, workspace, checks }) => {
   await frame.locator('button.documentation-file[title="find-proof/find-first.md"]').click();
   frame = await findActiveFrame('#rmp-ui-content');
   result = await openFind(frame, 'FIND_VISIBLE_ALPHA', 'Documentation: find-first.md');
-  checks.push({ mode: 'documentation-home-selected-file', keyboard: 'Ctrl+F', result: result.result });
+  checks.push({ mode: 'documentation-home-selected-file', keyboard: findShortcut, result: result.result });
 
   frame = await findActiveFrame('#rmp-ui-content');
   const tableSearch = frame.locator('.table-search');
