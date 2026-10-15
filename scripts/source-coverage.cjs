@@ -97,7 +97,18 @@ try {
     updating ? { ...summary, ...previous } : previous,
     updating ? [] : JSON.parse(fs.readFileSync(path.join(root, 'coverage-exceptions.json'), 'utf8')),
   );
-  if (failures.length) throw new Error(failures.join('\n'));
+  if (failures.length) {
+    for (const [file, counters] of Object.entries(combined.toJSON())) {
+      const name = path.relative(path.join(root, 'src'), file).replaceAll('\\', '/');
+      if (!failures.some((failure) => failure.startsWith(name + ' functions:'))) continue;
+      for (const [id, count] of Object.entries(counters.f)) {
+        if (count) continue;
+        const fn = counters.fnMap[id];
+        console.error(`Uncovered function: ${name}:${fn.loc.start.line}:${fn.loc.start.column} (${fn.name})`);
+      }
+    }
+    throw new Error(failures.join('\n'));
+  }
   const finalGate = require('./final-coverage-enforcement.cjs').enforce(
     combined.toJSON(),
     root,

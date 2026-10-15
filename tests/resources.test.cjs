@@ -193,6 +193,28 @@ test('workspace escape, symlink escape and unsupported providers fail closed; re
   ])
     assert.equal(policy.resolveImageResource(remote, document, webview), remote);
 });
+
+test('image provider mismatches reject before canonical filesystem access on every platform', () => {
+  const original = vscode.workspace.getWorkspaceFolder;
+  const localRoot = URI.file(root);
+  const before = converted.length;
+  try {
+    for (const [folder, sourceDocument] of [
+      [localRoot, URI.parse('vscode-remote://host/work/docs/guide.md')],
+      [URI.parse('vscode-remote://host/work'), document],
+      [localRoot.with({ authority: 'other-host' }), document],
+    ]) {
+      vscode.workspace.getWorkspaceFolder = () => ({ uri: folder });
+      canonicalAccess.length = 0;
+      assert.equal(policy.resolveImageResource('../assets/diagram.svg', sourceDocument, webview), '');
+      assert.deepEqual(canonicalAccess, []);
+    }
+    assert.equal(converted.length, before, 'Denied provider identities never reach the webview');
+  } finally {
+    vscode.workspace.getWorkspaceFolder = original;
+  }
+});
+
 process.on('exit', () => {
   assert.ok(path.resolve(temporary).startsWith(path.resolve(os.tmpdir()) + path.sep));
   assert.ok(path.basename(temporary).startsWith('rmp-resources-'));
