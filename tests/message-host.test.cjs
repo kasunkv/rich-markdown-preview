@@ -63,7 +63,13 @@ test('rendered paths enforce decoded scheme/control/size policy before opens',as
  const render=latestRender(host);assert.equal(render.references.length,6);
  for(const reference of render.references)await host.handlers.rawMessage(correlated(host,{type:'reference',id:reference.id},'path_'+reference.id));
  assert.equal(host.opened.length,0);assert.equal(host.external.length,0);assert.equal(host.files.length,0);host.handlers.dispose();
- const rooted=previewHost({inWorkspace:false,initial:{referenceRoot:'C:/root'}});rooted.document.getText=()=> '{{include: /valid.md}}';rooted.vscode.Uri.file=value=>({path:value,toString:()=> 'file://'+value});await rooted.handlers.command();await rooted.handlers.message({type:'reference',id:latestRender(rooted).references[0].id});assert.match(rooted.opened[0].uri,/C:\/root\/valid.md$/);rooted.handlers.dispose();
+ const rooted=previewHost({inWorkspace:false,initial:{referenceRoot:'C:/root'}});rooted.document.getText=()=> '{{include: /valid.md}}';rooted.vscode.Uri.file=value=>({path:value,toString:()=> 'file://'+value});await rooted.handlers.command();await rooted.handlers.message({type:'reference',id:latestRender(rooted).references[0].id});
+ if(process.platform==='win32') assert.match(rooted.opened[0].uri,/C:\/root\/valid.md$/);
+ else {
+  assert.equal(rooted.opened.length,0);
+  assert.ok(rooted.warnings.some(message=>message.includes('Windows absolute paths require a Windows extension host')));
+ }
+ rooted.handlers.dispose();
 });
 test('local URI provider failures retain redacted guards and drop stale warnings',async()=>{
  for(const stale of [false,true]){

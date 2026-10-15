@@ -7,7 +7,12 @@ const ts = require('typescript');
 
 test('quality checks reject floating privileged Thenables, void escapes and async predicates', async () => {
   const { ESLint } = await import('eslint');
-  const eslint = new ESLint({ cwd: path.resolve(__dirname, '..') });
+  const eslint = new ESLint({
+    cwd: path.resolve(__dirname, '..'),
+    // This test repeatedly lints different text at the same filename. CI's
+    // single-run optimization must not reuse an immutable TypeScript program.
+    overrideConfig: { languageOptions: { parserOptions: { disallowAutomaticSingleRunInference: true } } },
+  });
   const prefix = "import * as vscode from 'vscode';\n";
   const cases = [
     ['vscode.env.clipboard.writeText("fixture");', '@typescript-eslint/no-floating-promises'],
@@ -29,7 +34,7 @@ test('quality checks reject floating privileged Thenables, void escapes and asyn
     });
     assert.ok(
       result.messages.some((message) => message.ruleId === rule),
-      JSON.stringify(result.messages),
+      `${source}: ${JSON.stringify(result.messages)}`,
     );
   }
   const [safe] = await eslint.lintText(
