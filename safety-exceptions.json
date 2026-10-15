@@ -6,7 +6,7 @@
     "kind": "technically-unreachable",
     "reason": "Element.textContent is a string for parsed Element nodes, including empty SVG style elements. The DOM null result applies to Document/DocumentType nodes, which cannot enter the SVG element inventory.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   },
   {
@@ -16,7 +16,7 @@
     "kind": "technically-unreachable",
     "reason": "Same DOM Element.textContent invariant as diagram-cache branch 9; this inventory contains the parsed SVG root and descendant Elements only.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   },
   {
@@ -26,7 +26,7 @@
     "kind": "technically-unreachable",
     "reason": "openPreview is private and called synchronously only after lifecycle.run checks current or the serializer checks lifecycle/restoration current. Capture and this first guard contain no await or user callback; the lifetime cannot change in between.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   },
   {
@@ -36,7 +36,7 @@
     "kind": "technically-unreachable",
     "reason": "This second currentWork guard is redundant after the first guard at line 523 on a cache miss; cache lookup/set, model bounding and reference assignment contain no await. On a cache hit, it runs synchronously inside the already-checked session.run callback with the captured source/model/epoch. VS Code document edits cannot interleave with this synchronous segment.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   },
   {
@@ -46,7 +46,7 @@
     "kind": "technically-unreachable",
     "reason": "The owned DocumentationIndex is disposed synchronously with the PreviewSession. Its refresh method checks disposed before the loading callback, and disposed/generation immediately before success/error callbacks, without an intervening await. No callback can enter this guard with a disposed owning session.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   },
   {
@@ -56,7 +56,7 @@
     "kind": "technically-unreachable",
     "reason": "The bridge validates this same preference key/value with validateWebviewMessage before dispatch. The host predicate uses the same enumerations and numeric ranges; the structured-cloned data is immutable during synchronous dispatch. Invalid preferences are already exercised at the message boundary.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   },
   {
@@ -66,7 +66,7 @@
     "kind": "technically-unreachable",
     "reason": "validateWebviewMessage already called the pure normalizeCSV on this same table message text before synchronous dispatch. No await, mutation or configuration input lies between the identical calls; invalid CSV cannot reach the second rejection.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   },
   {
@@ -76,7 +76,7 @@
     "kind": "technically-unreachable",
     "reason": "validateWebviewMessage/validLink accepts only HTTPS, HTTP, mailto or scheme-free local paths. The external schemes are consumed by the preceding if. The remaining validated path cannot have a scheme or protocol-relative prefix.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   },
   {
@@ -86,7 +86,7 @@
     "kind": "technically-unreachable",
     "reason": "validLink already decoded the exact same path and rejected controls, protocol-relative and decoded scheme bypasses before dispatch. There is no await or text mutation between validation and this repeated local-path check.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   },
   {
@@ -96,7 +96,7 @@
     "kind": "technically-unreachable",
     "reason": "For empty history, the preceding cursor guard rejects every noninteger, value below -1 or value >= history.length (0). Thus the only cursor reaching this guard is -1 and the empty-history/non--1 arm is impossible.",
     "owner": "maintainers",
-    "issue": "docs/implementation/spec-030.md#unreachable-safety-arms",
+    "issue": "docs/SOURCE_COVERAGE.md#safety-and-mutation-requirements",
     "expires": "2026-11-14"
   }
 ]
