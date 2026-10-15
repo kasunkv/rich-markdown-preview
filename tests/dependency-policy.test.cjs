@@ -6,6 +6,23 @@ const path = require('node:path');
 const { generateRuntime, verifyRuntime, hash } = require('../scripts/dependency-policy.cjs');
 const { evaluateAudit } = require('../scripts/audit-dependencies.cjs');
 
+test('reviewed license source filenames match installed packages with exact casing', async () => {
+  const root = path.resolve(__dirname, '..');
+  const policy = JSON.parse(await fs.readFile(path.join(root, 'scripts/license-policy.json'), 'utf8'));
+  for (const source of [...policy.licenseSources, ...policy.textSources]) {
+    let directory = path.join(root, 'node_modules', source.package);
+    for (const segment of source.file.split('/')) {
+      // Directory entries retain their spelling even on case-insensitive filesystems.
+      assert.ok(
+        (await fs.readdir(directory)).includes(segment),
+        `${source.package}@${source.version}: reviewed filename ${source.file} must match the published casing`,
+      );
+      directory = path.join(directory, segment);
+    }
+    assert.ok((await fs.stat(directory)).isFile());
+  }
+});
+
 test('production input inventory includes new/nested packages, excludes tooling and requires complete reviewed license texts', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dependency-policy-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

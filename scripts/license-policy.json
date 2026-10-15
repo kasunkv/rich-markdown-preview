@@ -26,9 +26,9 @@
       "package": "khroma",
       "version": "2.1.0",
       "license": "MIT",
-      "file": "LICENSE",
+      "file": "license",
       "sha256": "66b333b0f66759a0b710459e03f7029abe17f4358114a128d2c972e642961b49",
-      "rationale": "Manifest omits license; distributed LICENSE explicitly grants MIT. Remove when upstream corrects metadata."
+      "rationale": "Manifest omits license; distributed lowercase license file explicitly grants MIT. Remove when upstream corrects metadata."
     }
   ]
 }
