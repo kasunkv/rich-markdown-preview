@@ -203,7 +203,9 @@
     "vscode:prepublish": "npm run check && npm test",
     "package": "vsce package --no-dependencies --githubBranch master",
     "test:coverage": "npm run build && node --test --experimental-test-coverage tests/*.test.cjs",
-    "test:browser": "npm run build && node tests/browser.cjs && node tests/documentation-browser.cjs"
+    "test:browser": "npm run build && node tests/browser.cjs && node tests/documentation-browser.cjs",
+    "check:publication": "node scripts/check-publication.cjs",
+    "check:secrets": "node scripts/scan-secrets.cjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -261,5 +263,18 @@
   "homepage": "https://github.com/kasunkv/rich-markdown-preview#readme",
   "bugs": {
     "url": "https://github.com/kasunkv/rich-markdown-preview/issues"
-  }
+  },
+  "files": [
+    "package.json",
+    "dist/extension.js",
+    "dist/preview.js",
+    "dist/preview.css",
+    "assets/rich-markdown-preview.png",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.txt",
+    "docs/rich-markdown-preview-light.png",
+    "docs/rich-markdown-preview-dark.png"
+  ]
 }

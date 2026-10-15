@@ -172,4 +172,4 @@ The preview scrolls independently of the source editor. Full-document PDF/HTML e
 
 Rich Markdown Preview is available under the [MIT License](LICENSE).
 
-[Developer documentation and release instructions](DEVELOPMENT.md)
+[Development and package validation](DEVELOPMENT.md)

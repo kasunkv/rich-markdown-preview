@@ -57,30 +57,26 @@ Documentation Home uses a separate panel type (`richMarkdownPreview.documentatio
 
 `tests/documentation.test.cjs` covers the index and host bridge. `tests/documentation-browser.cjs` covers the shipped UI, filtering, keyboard selection, document state, history, dark theme, and responsive layout; its screenshots and report go into `.test-results`. Both browser suites run through `npm run test:browser`. In the Development Host, also verify the native status bar and Explorer actions, hidden folders, folder rename/delete, relative Markdown links/images, and multiple workspace roots.
 
-## Logo
 
-`assets/rich-markdown-preview.png` is the shared icon for the Marketplace, Extensions list, panel tab, and preview toolbar. It was generated with the built-in imagegen tool using this prompt:
+## Public repository boundary
 
-> Production square VS Code extension icon for Rich Markdown Preview: a white folded Markdown document with a bold M and downward arrow, overlapped by a green magnifying lens; dark green rounded square, primary #1c7819 green and lighter/darker shades of the same hue, generous margins, clean geometry, readable at 48 pixels; no wordmark, watermark, or mockup.
+Keep specifications, audits, research, account setup records and local working
+notes in the ignored `.local-docs/` directory. Only reviewed public documents and
+screenshots belong in `docs/`; add them to its `.gitignore` allowlist explicitly.
+Personal editor preferences, environment files, credentials, keys, build outputs,
+profiles and diagnostic logs must stay untracked. Back up local-only material
+privately. Do not force-add ignored files.
 
-The user-supplied corrected PNG is preserved in `assets/logo-source.png` (excluded from the VSIX); the shared packaged PNG is resized to 256 × 256 pixels while preserving its alpha transparency, including the transparent exterior corners.
+Run `npm run check:publication` before committing. CI also runs checksum-pinned
+Gitleaks against Git history. Configure required PR checks, GitHub secret scanning
+and push protection in repository settings where available. Never use private
+workspace content or real credentials as test fixtures, and inspect CI logs
+before sharing diagnostics. Ignore rules do not make uploaded artifacts private.
 
-## Release
+## Packaging
 
-1. Confirm `package.json.publisher` matches your registered ID (`kasunkodagoda`). Set the Marketplace publisher display name to **Kasun Kodagoda** in the publisher account; the package author already uses that name.
-2. Push the release files, screenshots, and developer documentation to the public `master` branch of https://github.com/kasunkv/rich-markdown-preview. The package links use this repository; VSCE rewrites relative README links to that branch.
-3. Run type checking, regressions, browser tests, and the extension-host smoke test. Review screenshots and manually verify native menus and the icon.
-4. Run `npm audit` and review dependency licenses. Runtime dependencies are bundled; source, tests, fixtures, and `node_modules` are excluded from the VSIX. Preserve bundled third-party notices in `THIRD_PARTY_NOTICES.txt`.
-5. Update `CHANGELOG.md` and version, then run `npm run package`. Type checking and regressions run through `vscode:prepublish`.
-6. Install the resulting VSIX in a clean VS Code profile and verify the customer workflow.
-7. Upload it through [Marketplace publisher management](https://marketplace.visualstudio.com/manage), or use authenticated `vsce publish` according to [VS Code publishing documentation](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
-
-Packaging uses the supplied GitHub repository and its `master` branch to resolve README screenshots and documentation. Ensure those files are public before uploading the VSIX.
-
-## Marketplace upload troubleshooting
-
-`npm run package` runs `vscode:prepublish`, which checks types, rebuilds the assets, and runs regression tests. A separate `npm run build` is optional. Upload `rich-markdown-preview-2.0.0.vsix` as a new version of the existing extension under publisher `kasunkodagoda`.
-
-The internal package name is `rich-markdown-preview`. The visible name is **Rich Markdown Preview - A Styled Markdown Preview**. Check the current Marketplace for package and display-name collisions before changing either value. A successful local build does not guarantee server-side Marketplace approval.
-
-For opaque upload failures, open the browser developer tools before retrying and inspect the failing upload request's response. Capture the status, error message, and request/correlation ID; do not share cookies or authentication headers. If Marketplace still rejects a valid package, use its **Contact Microsoft** link and include that diagnostic information.
+Keep package identity and versions consistent with the lockfile, document changes
+in `CHANGELOG.md`, and run the build, tests and isolated host checks before creating
+a package. `package.json.files` is the exact runtime-package allowlist; developer
+documentation, source maps, fixtures, local notes and credentials must not ship.
+Publishing and account configuration are separate maintainer operations.
