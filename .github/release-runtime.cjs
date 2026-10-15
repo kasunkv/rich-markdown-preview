@@ -32,7 +32,7 @@ function verify(directory, expected) {
       p.tag === expected.tag &&
       `v${p.version}` === expected.tag &&
       p.repository === 'kasunkv/rich-markdown-preview' &&
-      p.branch === 'main' &&
+      p.branch === 'master' &&
       p.publisher === 'kasunkodagoda' &&
       p.name === 'rich-markdown-preview' &&
       p.vsix?.sha256 === expected.digest &&

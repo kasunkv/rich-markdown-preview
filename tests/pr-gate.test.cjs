@@ -31,9 +31,9 @@ test('the executable gate exits nonzero for a skipped job', () => {
 
 test('required workflow covers docs and manifests without PR authority', () => {
   const workflow = YAML.parse(fs.readFileSync(path.join(__dirname, '../.github/workflows/quality.yml'), 'utf8'));
-  assert.deepEqual(workflow.on.pull_request.branches, ['main', 'master']);
-  assert.deepEqual(workflow.on.push.branches, ['main', 'master']);
-  assert.deepEqual(workflow.on.merge_group.branches, ['main', 'master']);
+  assert.deepEqual(workflow.on.pull_request.branches, ['master']);
+  assert.deepEqual(workflow.on.push.branches, ['master']);
+  assert.deepEqual(workflow.on.merge_group.branches, ['master']);
   assert.equal(workflow.on.pull_request.paths, undefined);
   assert.equal(workflow.on.push.paths, undefined);
   assert.equal(workflow.on.merge_group.paths, undefined);

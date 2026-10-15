@@ -44,11 +44,12 @@ function localContext() {
     release: true,
     changelog: fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'),
   });
-  const reviewedMain = process.argv[3];
-  if (!/^[a-f0-9]{40}$/.test(reviewedMain || '')) throw Error('Local rehearsal requires the exact reviewed main SHA');
+  const reviewedCommit = process.argv[3];
+  if (!/^[a-f0-9]{40}$/.test(reviewedCommit || ''))
+    throw Error(`Local rehearsal requires the exact reviewed ${POLICY.branch} SHA`);
   assertUnsealed();
   const commit = git(['rev-parse', 'HEAD']);
-  git(['merge-base', '--is-ancestor', reviewedMain, commit]);
+  git(['merge-base', '--is-ancestor', reviewedCommit, commit]);
   if (git(['status', '--porcelain'])) throw Error('Local rehearsal source must be clean');
   fs.mkdirSync(base, { recursive: true });
   json(path.join(base, 'context.json'), {
@@ -58,7 +59,7 @@ function localContext() {
     commit,
     rehearsal: true,
     local: true,
-    reviewedMain,
+    reviewedCommit,
     startedAt: new Date().toISOString(),
   });
 }
@@ -88,14 +89,14 @@ function context() {
     if (
       source.context.repository !== POLICY.repository ||
       source.context.eventName !== 'workflow_dispatch' ||
-      source.context.ref !== 'refs/heads/main' ||
+      source.context.ref !== `refs/heads/${POLICY.branch}` ||
       !source.context.refProtected ||
       process.env.RELEASE_TAG
     )
-      throw Error('Dry-run requires protected main without a manual tag');
+      throw Error(`Dry-run requires protected ${POLICY.branch} without a manual tag`);
     validateIdentity(manifest);
     validateReleaseVersion({ ...source, release: true });
-    git(['merge-base', '--is-ancestor', commit, 'refs/remotes/origin/main']);
+    git(['merge-base', '--is-ancestor', commit, `refs/remotes/origin/${POLICY.branch}`]);
     if (git(['status', '--porcelain'])) throw Error('Dry-run source must be clean');
     identity = { ...POLICY, version: manifest.version, tag: releaseTag(`v${manifest.version}`), commit };
   }
@@ -263,7 +264,7 @@ if (require.main === module)
       (
         ({ context, 'local-context': localContext, gates, pack, seal, tools })[process.argv[2]] ||
         (() => {
-          throw Error('Expected context|local-context <reviewed-main-SHA>|gates|pack|seal|tools');
+          throw Error('Expected context|local-context <reviewed-commit-SHA>|gates|pack|seal|tools');
         })
       )(),
     )

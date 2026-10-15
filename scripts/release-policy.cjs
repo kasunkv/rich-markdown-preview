@@ -5,7 +5,7 @@ const { execFileSync } = require('node:child_process');
 const { validateReleaseVersion } = require('./release-version.cjs');
 const POLICY = Object.freeze({
   repository: 'kasunkv/rich-markdown-preview',
-  branch: 'main',
+  branch: 'master',
   publisher: 'kasunkodagoda',
   name: 'rich-markdown-preview',
 });

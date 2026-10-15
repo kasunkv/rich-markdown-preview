@@ -8,7 +8,7 @@ on:
         type: choice
         options: [dry-run, publish]
         default: dry-run
-        description: Dry-run on protected main, or promote the exact protected tag
+        description: Dry-run on protected master, or promote the exact protected tag
       tag:
         type: string
         required: false
@@ -204,7 +204,7 @@ jobs:
                 p.tag === expected.tag &&
                 `v${p.version}` === expected.tag &&
                 p.repository === 'kasunkv/rich-markdown-preview' &&
-                p.branch === 'main' &&
+                p.branch === 'master' &&
                 p.publisher === 'kasunkodagoda' &&
                 p.name === 'rich-markdown-preview' &&
                 p.vsix?.sha256 === expected.digest &&

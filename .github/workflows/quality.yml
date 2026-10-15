@@ -4,12 +4,12 @@ name: PR validation
 # changes receive the same required status as source changes.
 on:
   pull_request:
-    branches: [main, master]
+    branches: [master]
   push:
-    branches: [main, master]
+    branches: [master]
   merge_group:
     types: [checks_requested]
-    branches: [main, master]
+    branches: [master]
 
 permissions:
   contents: read

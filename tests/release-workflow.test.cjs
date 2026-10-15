@@ -28,7 +28,7 @@ function fixture(t) {
   const p = {
     schema: 1,
     repository: 'kasunkv/rich-markdown-preview',
-    branch: 'main',
+    branch: 'master',
     publisher: 'kasunkodagoda',
     name: 'rich-markdown-preview',
     commit: 'a'.repeat(40),
@@ -179,7 +179,7 @@ test('local rehearsal CLI selects the explicit unpublishable command and rejects
     encoding: 'utf8',
   });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /exact reviewed main SHA/);
+  assert.match(result.stderr, /exact reviewed master SHA/);
 });
 
 test('actual protected promotion reconciles duplicate and accepted-timeout without another upload or PAT fallback', async (t) => {

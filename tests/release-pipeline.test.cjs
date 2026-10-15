@@ -49,8 +49,8 @@ test('source release validates exact tag/checkout and ancestry using structured 
     calls.push(args);
     return args[0] === 'rev-parse' ? commit : '';
   };
-  assert.equal(validateSource(source(), git).branch, 'main');
-  assert.deepEqual(calls[2], ['merge-base', '--is-ancestor', commit, 'refs/remotes/origin/main']);
+  assert.equal(validateSource(source(), git).branch, 'master');
+  assert.deepEqual(calls[2], ['merge-base', '--is-ancestor', commit, 'refs/remotes/origin/master']);
   for (const mutate of [
     (value) => (value.manifest.publisher = 'impostor'),
     (value) => (value.manifest.name = 'impostor'),
@@ -115,7 +115,7 @@ test('provenance rejects origin, identity, unsafe paths and duplicate inventory 
   const value = candidateFixture(t);
   for (const change of [
     (p) => (p.commit = 'b'.repeat(40)),
-    (p) => (p.branch = 'master'),
+    (p) => (p.branch = 'main'),
     (p) => (p.publisher = 'wrong'),
     (p) => (p.version = '2.0.2'),
     (p) => p.files.push(p.files[0]),
