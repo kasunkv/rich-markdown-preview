@@ -57,7 +57,7 @@ jobs:
       - id: seal
         run: npm run release:seal
       - id: artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: .test-results/release/candidate/
@@ -66,7 +66,7 @@ jobs:
       - id: tools
         run: node scripts/release-candidate.cjs tools
       - id: tools_artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-tools-${{ github.run_id }}-${{ github.run_attempt }}
           path: .test-results/release/tools/
@@ -468,7 +468,7 @@ jobs:
         env:
           RELEASE_OPERATION: publish
         run: *runtime
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: marketplace-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: receipt/marketplace.json
