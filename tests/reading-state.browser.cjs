@@ -49,6 +49,24 @@ test('long reading sessions bound saved bytes and scroll writes without losing n
   assert.equal(writes.immediate, 0);
   assert.ok(writes.settled <= 2, `250 scroll events caused ${writes.settled} saved writes`);
 
+  // Continuous scrolling must hit the one-second deadline even when every new
+  // event postpones the idle timer. Virtual time makes this independent of CI load.
+  await page.clock.install();
+  const beforeDeadline = await page.evaluate(() => window.writeCount);
+  await page.evaluate(() => {
+    window.scrollTo(0, 950);
+    window.dispatchEvent(new Event('scroll'));
+  });
+  for (let index = 0; index < 9; index++) {
+    await page.clock.runFor(100);
+    await page.evaluate(() => window.dispatchEvent(new Event('scroll')));
+  }
+  assert.equal(await page.evaluate(() => window.writeCount), beforeDeadline);
+  await page.clock.runFor(100);
+  assert.equal(await page.evaluate(() => window.savedReading().scroll), 950);
+  assert.equal(await page.evaluate(() => window.writeCount), beforeDeadline + 1);
+  await page.clock.resume();
+
   await page.evaluate(() => {
     window.scrollTo(0, 1200);
     window.dispatchEvent(new Event('scroll'));
