@@ -1,31 +1,52 @@
 # Source coverage policy
 
-`npm run test:coverage` runs production packaging checks, instruments first-party TypeScript before bundling, runs the Node behavior suites and deterministic Chromium suites, and enforces `coverage-baseline.json`. Production bundles are restored afterward. `test:coverage:only` performs the same complete collection; it never accepts an old report.
+`npm run test:coverage` builds and checks production packaging, instruments
+first-party TypeScript, runs the Node/VM and Chromium behavior suites, and
+enforces both the reviewed baseline and final coverage gates. Production bundles
+are restored afterward. `test:coverage:only` also collects fresh evidence;
+neither command accepts a previous report as proof of the current source.
 
-Every executable `src/**/*.ts` module is included, recursively, even if no suite imports it. Declaration-only files (including `.d.ts`) are excluded. Dependencies, generated bundles, test harnesses, CSS, and static schemas are outside this TypeScript denominator. CSS still receives the existing theme/contrast and browser behavior checks. There are no application-module exclusions.
+## Inventory and thresholds
 
-Coverage uses one Istanbul counter format for both environments. Counters are inserted into original TypeScript, with original statement/function/branch locations, before esbuild strips types and bundles. Inline instrumentation maps are composed into development bundle maps. The VM host mocks explicitly share `globalThis.__coverage__`; worker preloads write independent process contributions on exit. The browser fixture collects page counters, preserving them in sessionStorage across reloads. Browser-server Node execution is a host contribution. The current host measurement is from mocked Node/VM behavior tests, not a claim of real VS Code extension-host coverage. Spec005 real-host tests remain a separate gate.
+Every executable `src/**/*.ts` module is included, even when no suite imports it.
+Declaration files, dependencies, generated bundles, harnesses and CSS are outside
+this TypeScript inventory. CSS has separate theme/contrast and browser checks.
 
-Each fresh `.test-results/coverage/<timestamp>-<uuid>/` contains the zero-counter inventory, raw `host/` and `browser/` counters, original-source bundle maps, command logs, `contributions.json`, `summary.json`, `coverage-final.json`, `coverage-summary.json`, `lcov.info`, HTML `index.html`, and commit-tagged `run.json`. Only counters whose source location maps match the current inventory can merge. Missing contributions, unknown/vendor files, failed tests, and map mismatches fail the command. HTML/LCOV use original TypeScript locations directly; they never use bundled line percentages.
+Lines, statements and functions require at least **95%** coverage; branches
+require at least **90%**, globally, per module and for changed executable code.
+The per-module `coverage-baseline.json` ratchet also prevents regression and
+silent denominator shrinkage. New modules need behavior tests and a reviewed
+baseline entry. `npm run test:coverage:baseline` collects a complete run and
+creates a candidate baseline; review the diff rather than refreshing it in CI.
 
-The ratchet compares lines, statements, functions, and branches per module with the reviewed baseline. Lower percentages, missing/new modules, or shrinking executable denominators fail. `npm run test:coverage:baseline` performs the complete current run and writes a candidate baseline; review its diff before committing. It is an explicit maintenance command, never part of CI. Raising the baseline after improved tests is encouraged. Intentional code deletion requires reviewing the reduced denominator rather than silently dropping uncovered code. Spec030 activates the final 95/95/95/90 thresholds; this baseline does not yet enforce those final targets.
+Set `COVERAGE_BASE` to the intended integration base; local checks default to
+`HEAD^`. Coverage locations refer to original TypeScript. Node/VM counters and
+browser counters share one instrumentation format, but neither establishes
+actual Electron/VS Code host coverage. Real host compatibility is a separate gate.
 
-Changed code must include focused behavior assertions and keep every affected module at or above its baseline. New modules require behavior tests and a reviewed baseline entry; their complete source remains in the denominator. For privileged messages, URI/resource policy, trust, clipboard/export, stale/disposed sessions, and error handling, tests must assert the permitted result and the denied/failure result (including absence of privileged side effects). A percentage alone is insufficient evidence. Existing settings, documentation, renderer, reference, and table regressions remain mandatory. Reviewers should examine changed lines and uncovered branches in HTML, and run the focused behavior suite along with the complete ratchet.
+## Safety and mutation requirements
 
-`coverage-exceptions.json` is an array. An exception must name one exact module and metric, a numeric minimum percentage, an owner, tracked issue, specific technical reason, and ISO expiry date within 90 days. Invalid or expired exceptions fail; no exceptions are currently active. Exceptions can temporarily lower one percentage floor, but cannot hide a module, remove its denominator, or omit safety behavior tests. Example:
+Review `safety-policy.json` checksums and `safety-branches.json` locations when
+changing source. Every reachable reviewed safety arm must execute. Tests for
+messages, trust, resources, navigation, clipboard, export, stale sessions and
+failures must assert permitted and denied outcomes, including the absence of
+privileged side effects. A percentage alone is insufficient.
 
-```json
-[
-  {
-    "module": "preview.ts",
-    "metric": "branches",
-    "minimum": 79,
-    "owner": "maintainer",
-    "issue": "repository issue URL",
-    "reason": "Specific technically unreachable browser condition, with evidence",
-    "expires": "2026-11-12"
-  }
-]
-```
+`safety-exceptions.json` permits only narrow, technically unreachable arms with
+an owner, tracked issue, specific proof and expiry within 90 days. It cannot waive
+the global/per-module/changed-code floors. `coverage-exceptions.json` has separate
+reviewed baseline exception rules and cannot bypass the final gates.
 
-The coverage fixtures prove an unimported executable module is reported at zero, declaration-only files are excluded, VM counters and bundle maps point at original TypeScript lines, incompatible/vendor counters fail, expired exceptions fail, and a deliberately regressed summary causes the coverage-check CLI to exit with status 1.
+`npm run test:mutation` runs focused mutations in disposable copies. A mutation
+must compile and be killed by a behavior assertion. Do not lower the inherited
+`mutation-baseline.json` requirement or replace assertion failures with setup
+failures as evidence.
+
+## Local diagnostics
+
+Fresh results, original-source maps, HTML/LCOV, counters, command logs and
+commit-tagged evidence are written under ignored `.test-results/`. Incompatible
+maps, missing contributions, unknown/vendor files and failed suites fail the run.
+Keep these diagnostic files local; they can contain absolute paths and fixture
+content. The public repository contains maintained policies/baselines, not
+run-specific evidence or implementation specifications.

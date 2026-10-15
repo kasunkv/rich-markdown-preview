@@ -46,6 +46,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - run: npm run check:secrets
       - id: context
         run: node scripts/release-candidate.cjs context
       - run: npm run browser:install:ci
@@ -70,16 +71,6 @@ jobs:
           name: release-tools-${{ github.run_id }}-${{ github.run_attempt }}
           path: .test-results/release/tools/
           if-no-files-found: error
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: release-gate-logs-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            .test-results/coverage/
-            .test-results/mutations/
-            .test-results/dependencies/
-            .test-results/browser/
-          if-no-files-found: warn
 
   compatibility:
     needs: candidate
@@ -126,12 +117,6 @@ jobs:
           }
           host --version "$HOST_VERSION" --mode package --vsix candidate/candidate.vsix
           host --version "$HOST_VERSION" --mode package --vsix candidate/candidate.vsix --privacy
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: release-host-${{ matrix.os }}-${{ matrix.version }}-${{ github.run_attempt }}
-          path: .test-results/host/
-          if-no-files-found: error
 
   release-gate:
     needs: [candidate, compatibility]

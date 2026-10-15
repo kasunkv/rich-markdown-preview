@@ -51,8 +51,8 @@ floors. Keep Node/VM/browser counters separate from actual Electron evidence.
 
 Focused mutations run in disposable source copies and require behavioral assertion
 kills after successful compilation; source restoration is automatic. The mutation
-baseline must not regress. See docs/implementation/spec-030.md for the current
-inventory, proofs and evidence.
+baseline must not regress. See the [source coverage policy](docs/SOURCE_COVERAGE.md)
+and the tracked safety and mutation policy files for the current requirements.
 
 ## Asynchronous operations and review
 
@@ -85,11 +85,35 @@ private vulnerability reporting or branch protection are enabled. Their account
 availability/settings have not been verified for this implementation. A repository
 administrator should inspect Settings > Security and branch rules, record the
 enabled protections and confirm the private reporting mailbox is monitored.
-Weekly npm and GitHub Actions update configuration and advisory/package checks
-are implemented by spec 008. See [dependency maintenance](docs/implementation/spec-008.md)
-for license policy, dated advisory exceptions, the KaTeX override and actual
-account activation limits. The configuration must reach the default branch before
-GitHub can run it; verify a real update PR before recording activation.
+Dependabot checks npm and GitHub Actions dependencies weekly. Dependency checks
+enforce `scripts/license-policy.json` and dated exceptions in
+`scripts/advisory-exceptions.json`. Review the KaTeX override with Mermaid/KaTeX
+updates and run the existing diagram and package checks before changing it.
+Configuration must reach the default branch before GitHub can run it; verify
+an actual update PR before recording activation.
+
+## Public repository boundary
+
+Commit only extension source, reproducible build/test tooling, synthetic fixtures,
+required licenses, and documentation intended for users or contributors.
+Keep specifications, audits, research, plans, account setup records, local
+evidence, and working notes in the ignored `.local-docs/` directory. Keep a
+private backup separately; Git does not back up ignored files.
+
+`docs/` is an explicit allowlist in `.gitignore`; add new public documents or
+screenshots there only after reviewing their contents and updating that list.
+Personal editor settings, environment files, credentials, private keys, generated
+packages, logs, traces, and test profiles must stay untracked. Never use
+`git add -f` to bypass this policy. Synthetic credential fixtures need an exact,
+reviewed scanner exception; never exclude whole test or documentation directories.
+
+Run `npm run check:publication` before committing. It checks the tracked/staged
+file inventory, public document links and obvious secret signatures. CI also
+runs pinned Gitleaks against Git history. GitHub secret scanning, push protection
+and required PR checks must be enabled in repository settings where available.
+Git ignore rules do not protect CI logs or uploaded artifacts: use synthetic
+input, keep diagnostics local, and upload only the exact release files required
+by the immutable promotion workflow.
 
 ## Reproducible browser validation
 

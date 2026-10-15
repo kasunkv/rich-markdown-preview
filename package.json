@@ -221,7 +221,7 @@
     "lint:fix": "npm run lint -- --fix",
     "format:check": "prettier --check \"src/**/*.ts\" eslint.config.mjs .prettierrc.json CONTRIBUTING.md SECURITY.md \".github/**/*.{md,yml}\" tests/quality.test.cjs",
     "format": "prettier --write \"src/**/*.ts\" eslint.config.mjs .prettierrc.json CONTRIBUTING.md SECURITY.md \".github/**/*.{md,yml}\" tests/quality.test.cjs",
-    "check:quality": "npm run check && npm run lint && npm run format:check",
+    "check:quality": "npm run check:publication && npm run check && npm run lint && npm run format:check",
     "test:host": "npm run build:production && npm run test:host:only",
     "test:host:only": "node scripts/vscode-host.cjs",
     "test:host:privacy": "npm run build:production && node scripts/vscode-host.cjs --privacy",
@@ -236,7 +236,9 @@
     "test:mutation": "node scripts/focused-mutations.cjs",
     "validate:release": "npm run validate && npm run check:dependencies && npm run package",
     "release:seal": "node scripts/release-candidate.cjs seal",
-    "release:gates": "node scripts/release-candidate.cjs gates"
+    "release:gates": "node scripts/release-candidate.cjs gates",
+    "check:publication": "node scripts/check-publication.cjs",
+    "check:secrets": "node scripts/scan-secrets.cjs"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",

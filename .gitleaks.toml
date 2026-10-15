@@ -1,0 +1,6 @@
+title = "Rich Markdown Preview secret scanning"
+
+[extend]
+useDefault = true
+
+# No directory-wide exclusions. Add only reviewed, exact synthetic exceptions.

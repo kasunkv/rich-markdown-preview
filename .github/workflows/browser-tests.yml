@@ -21,9 +21,3 @@ jobs:
       - run: npm run browser:install:ci
       - run: npm run build:production
       - run: npm run test:browser:only
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: browser-evidence
-          path: .test-results/browser/
-          if-no-files-found: error
