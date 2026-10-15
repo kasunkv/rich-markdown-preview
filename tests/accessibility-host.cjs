@@ -51,8 +51,14 @@ exports.proveAccessibility = async ({vscode, browser, workspace, findFrame, chec
         await frame.locator('.frontmatter > summary').focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
         await page.emulateMedia({reducedMotion:'reduce'});
         assert.equal(await frame.evaluate(()=>getComputedStyle(document.documentElement).scrollBehavior),'auto');
-        const localCode=await frame.locator('.code-block pre').evaluate(el=>({width:el.clientWidth,scrollWidth:el.scrollWidth,overflow:getComputedStyle(el).overflowX}));
-        assert.ok(localCode.scrollWidth>localCode.width && localCode.overflow==='auto','Long code retains intentional local scrolling');
+        let localCode;
+        await waitFor(async()=>{
+          frame=await findFrame('#rmp-heading-accessibility-proof');page=frame.page();
+          const measured=await frame.locator('.code-block pre').evaluate(el=>({width:el.clientWidth,scrollWidth:el.scrollWidth,overflow:getComputedStyle(el).overflowX}));
+          if(measured.width>0 && measured.scrollWidth>measured.width && measured.overflow==='auto'){localCode=measured;return true;}
+          return false;
+        },'visible long-code scrolling '+JSON.stringify({theme,scale}));
+        assert.ok(localCode.scrollWidth>localCode.width && localCode.overflow==='auto','Long code retains intentional local scrolling: '+JSON.stringify(localCode));
         const button=frame.locator('#rmp-ui-toggle-outline');
         await button.focus();
         const focus=await button.evaluate(el=>{const rect=el.getBoundingClientRect(),css=getComputedStyle(el);return {active:document.activeElement===el,top:rect.top,bottom:rect.bottom,height:innerHeight,outlineStyle:css.outlineStyle,outlineWidth:css.outlineWidth};});

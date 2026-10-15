@@ -69,7 +69,7 @@ try {
   execute(['--require', './tests/coverage-preload.cjs', 'scripts/browser-runner.cjs'], {
     SOURCE_COVERAGE_DIR: host,
     SOURCE_BROWSER_COVERAGE_DIR: browser,
-    NODE_OPTIONS: [process.env.NODE_OPTIONS, '--require=' + path.join(root, 'tests', 'coverage-preload.cjs')]
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, '--require=' + JSON.stringify(path.join(root, 'tests', 'coverage-preload.cjs'))]
       .filter(Boolean)
       .join(' '),
   });
